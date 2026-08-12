@@ -23,13 +23,19 @@ const browser = spawn(browserPath, [
   "--headless=new",
   "--no-sandbox",
   "--disable-gpu",
+  "--disable-dev-shm-usage",
   "--disable-extensions",
   "--disable-default-apps",
   "--no-first-run",
   "--remote-debugging-port=0",
   `--user-data-dir=${profile}`,
   "about:blank"
-], { stdio: "ignore" })
+], { stdio: ["ignore", "ignore", "pipe"] })
+let browserStderr = ""
+browser.stderr.setEncoding("utf8")
+browser.stderr.on("data", (chunk) => {
+  browserStderr = `${browserStderr}${chunk}`.slice(-8_000)
+})
 
 try {
   const debuggingPort = await waitForDebuggingPort(profile)
@@ -312,8 +318,8 @@ async function findBrowser() {
 
 async function waitForDebuggingPort(directory) {
   const file = path.join(directory, "DevToolsActivePort")
-  for (let attempt = 0; attempt < 200; attempt++) {
-    if (browser.exitCode !== null) throw new Error("Chrome exited before exposing a debugging port")
+  for (let attempt = 0; attempt < 1_200; attempt++) {
+    if (browser.exitCode !== null) throw chromeError(`Chrome exited with code ${browser.exitCode} before exposing a debugging port`)
     try {
       const [port] = (await readFile(file, "utf8")).split(/\r?\n/)
       if (port) return port
@@ -322,7 +328,7 @@ async function waitForDebuggingPort(directory) {
     }
     await delay(25)
   }
-  throw new Error("Timed out waiting for Chrome's debugging port")
+  throw chromeError("Timed out after 30 seconds waiting for Chrome's debugging port")
 }
 
 async function connectCdp(url) {
@@ -374,11 +380,16 @@ async function navigate(cdp, url) {
 }
 
 async function waitForExpression(cdp, expression, label) {
-  for (let attempt = 0; attempt < 240; attempt++) {
+  for (let attempt = 0; attempt < 400; attempt++) {
     if (await evaluate(cdp, expression)) return
     await delay(25)
   }
   throw new Error(`Timed out waiting for ${label}`)
+}
+
+function chromeError(message) {
+  const diagnostics = browserStderr.trim()
+  return new Error(diagnostics === "" ? message : `${message}\nChrome stderr:\n${diagnostics}`)
 }
 
 async function evaluate(cdp, expression) {

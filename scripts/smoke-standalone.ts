@@ -272,7 +272,7 @@ try {
   console.log("Standalone HTML has no external script, stylesheet, or image dependencies and no browser errors.")
 } finally {
   await stop(browser)
-  await rm(profile, { recursive: true, force: true })
+  await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 async function countSourceCodeBlocks() {
@@ -408,8 +408,10 @@ async function stop(child) {
   if (child.exitCode !== null) return
   const exited = new Promise((resolve) => child.once("exit", resolve))
   child.kill("SIGTERM")
-  await Promise.race([exited, delay(2_000)])
+  const stopped = await Promise.race([exited.then(() => true), delay(2_000).then(() => false)])
+  if (stopped) return
   if (child.exitCode === null) child.kill("SIGKILL")
+  await exited
 }
 
 function inventoryDifference(actual, expected) {

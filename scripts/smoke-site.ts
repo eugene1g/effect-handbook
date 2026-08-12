@@ -167,7 +167,7 @@ try {
 } finally {
   await stop(browser)
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
-  await rm(profile, { recursive: true, force: true })
+  await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 async function navigate(cdp, url) {
@@ -317,8 +317,10 @@ async function stop(child) {
   if (child.exitCode !== null) return
   const exited = new Promise((resolve) => child.once("exit", resolve))
   child.kill("SIGTERM")
-  await Promise.race([exited, delay(2_000)])
+  const stopped = await Promise.race([exited.then(() => true), delay(2_000).then(() => false)])
+  if (stopped) return
   if (child.exitCode === null) child.kill("SIGKILL")
+  await exited
 }
 
 function normalizeBase(input) {

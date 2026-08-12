@@ -1,0 +1,39 @@
+{
+  "name": "effect-4-handbook-example-validation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "extract": "node ../scripts/validation/extract-examples.ts",
+    "test": "node --test ../scripts/validation/*.test.ts",
+    "validate": "node ../scripts/validation/check-examples.ts"
+  },
+  "dependencies": {
+    "@effect/ai-anthropic": "4.0.0-rc.108",
+    "@effect/ai-openai": "4.0.0-rc.108",
+    "@effect/ai-openrouter": "4.0.0-rc.108",
+    "@effect/atom-react": "4.0.0-rc.108",
+    "@effect/doctest": "4.0.0-rc.108",
+    "@effect/opentelemetry": "4.0.0-rc.108",
+    "@effect/platform-browser": "4.0.0-rc.108",
+    "@effect/platform-bun": "4.0.0-rc.108",
+    "@effect/platform-deno": "4.0.0-rc.108",
+    "@effect/platform-node": "4.0.0-rc.108",
+    "@effect/sql-pg": "4.0.0-rc.108",
+    "@effect/sql-pglite": "4.0.0-rc.108",
+    "@effect/vitest": "4.0.0-rc.108",
+    "@opentelemetry/exporter-prometheus": "0.205.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.205.0",
+    "@opentelemetry/sdk-trace-base": "2.2.0",
+    "effect": "4.0.0-rc.108",
+    "fast-check": "4.9.0",
+    "react": "19.2.8",
+    "vite": "8.1.5",
+    "vitest": "4.1.10"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "0.21.0",
+    "@types/node": "26.2.0",
+    "@types/react": "19.2.18",
+    "typescript": "7.0.2"
+  }
+}

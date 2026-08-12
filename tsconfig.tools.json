@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "lib": ["ESNext", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "noCheck": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "target": "ESNext",
+    "types": ["node"],
+    "verbatimModuleSyntax": true
+  },
+  "include": [
+    "handbook.ts",
+    "handbook-capabilities.ts",
+    ".vitepress/**/*.ts",
+    ".agents/skills/refresh-effect-handbook/scripts/**/*.ts",
+    "scripts/**/*.ts",
+    "validation/doctest/**/*.ts",
+    "validation/fixtures/exact-groups.ts"
+  ]
+}

@@ -1,0 +1,748 @@
+{
+  "$schema": "./examples.schema.json",
+  "schemaVersion": 1,
+  "examples": [
+    {
+      "id": "data.ordering.compose",
+      "source": "docs/data/functional-toolkit.md",
+      "sha256": "5228f1654275ca8ec77e1831e8428b0ee4932f77fbfc6e78efa31e6f8264e44f",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "data.optic.positive-headcounts",
+      "source": "docs/data/functional-toolkit.md",
+      "sha256": "297b349e76d6a2d384cf7e7dde528b8a3479ff8cd5ed7c09e6bbe27116d0b528",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "data.undefined-or.manager-id",
+      "source": "docs/data/functional-toolkit.md",
+      "sha256": "7fd32d7b60bf712ae51629094faec5f76f3d3328e79ebe3fc35d96f51d08c29f",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "data.encoding.base64-hex",
+      "source": "docs/data/functional-toolkit.md",
+      "sha256": "5594ae31b8908160007647229392252ba18161271652ac27d491dedaf9d0374b",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "application.repository-service",
+      "source": "docs/deep-dives/anatomy-of-a-real-effect-application.md",
+      "sha256": "b57f82f8ff4471ae7c4303cdb89f9f42740fff29082bd6e64f1d3f93d0629e5e",
+      "disposition": "contextual",
+      "fixture": "application"
+    },
+    {
+      "id": "application.live-layer-graph",
+      "source": "docs/deep-dives/anatomy-of-a-real-effect-application.md",
+      "sha256": "cf4fc811f97af79d3e7174f3b709d684dd9dd7eca29d2fbd11c9f42ee5fb67ab",
+      "disposition": "contextual",
+      "fixture": "application"
+    },
+    {
+      "id": "application.node-entrypoint",
+      "source": "docs/deep-dives/anatomy-of-a-real-effect-application.md",
+      "sha256": "27500c895e19f7ca85141b8c7c2de3ce31ae63ac56d96b276e24f8d872a5ba95",
+      "disposition": "contextual",
+      "fixture": "application"
+    },
+    {
+      "id": "application.managed-runtime-boundary",
+      "source": "docs/deep-dives/anatomy-of-a-real-effect-application.md",
+      "sha256": "bbaae1fe2169e6f82438feec417bf108f53050f8d559a09e63c17c1630fcdb45",
+      "disposition": "contextual",
+      "fixture": "application"
+    },
+    {
+      "id": "application.capability-test",
+      "source": "docs/deep-dives/anatomy-of-a-real-effect-application.md",
+      "sha256": "82ba2523e06b909cdb68e489437d79890fd4dc42fcf465e73b09bf3013defefc",
+      "disposition": "contextual",
+      "fixture": "application"
+    },
+    {
+      "id": "ai.provider-neutral-service",
+      "source": "docs/deep-dives/building-a-production-ai-capability.md",
+      "sha256": "c1490e8115fda9bf7718309e97e9c0e68ad4273c4f0200cb4ad848c2e36de5db",
+      "disposition": "contextual",
+      "fixture": "ai"
+    },
+    {
+      "id": "failure.narrow-recovery",
+      "source": "docs/deep-dives/failure-retry-fallback-and-interruption.md",
+      "sha256": "e4581ed6a28724dab1dee640f73d4260fe804bad617fb57794bb45f299342703",
+      "disposition": "contextual",
+      "fixture": "failure"
+    },
+    {
+      "id": "failure.typed-retry-policy",
+      "source": "docs/deep-dives/failure-retry-fallback-and-interruption.md",
+      "sha256": "470436782948600e5ce7c53d52368a2f5b3b61d22ce2b0f8a4bc44cb0615d711",
+      "disposition": "contextual",
+      "fixture": "failure"
+    },
+    {
+      "id": "failure.idempotent-retry",
+      "source": "docs/deep-dives/failure-retry-fallback-and-interruption.md",
+      "sha256": "e85a6e9f6faee6e8c00b9571e0cb267bf006cf15c42fe8463d493503440067a0",
+      "disposition": "contextual",
+      "fixture": "failure"
+    },
+    {
+      "id": "reactivity.service-mutations-queries",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "8f0006eafdeb04465f053e0b1fb00b67eb7464407e881573e7b102324f099bce",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.atom-action",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "350f5f83824b604fca2fa3830b2100eab22470bbf10976e057081def8432934c",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.atom-family",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "de59d1442992ed046d4b27ed3a24493e477b669233349d116a4b4654cf32bed4",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.atom-combinators",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "0b588e0ed80db3bd228502226a09025f84b86eb665d4a4b933b35bb18869a18d",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.atom-invalidation-wiring",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "5c91a8cc982ef452c3e34104fb9b1af5d2ac87e884b2110662644088a12c3097",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.row-invalidation",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "424820e5ad3c7b98a58723eb843e897516e9950ec75930719963e2fdec6828ea",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.ssr-hydration",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "701312807054068f9981ef07ccc71a8a4ead7932ae7ee0c547b10dda848d30b5",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.react-suspense-mutations",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "cbcc2823d651f233ef5b3150d3644d0b617b7c1a3cb772c2de99cd5ad188179d",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.react-scoped-hydration",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "b97c09132e38bc9ad8515c9bf285ddf4cc001858d4ad3395ad1cccfeac0e1af6",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.transport-http-rpc-atoms",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "77fd872a11da7d2880188cc2410d6f8120c1a2c4754fc304a71f7acbe6426e89",
+      "disposition": "contextual",
+      "fixture": "reactivity-transport"
+    },
+    {
+      "id": "reactivity.todo-app-ui",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "8464bdfa0b323c38f74295cadf3a45979f8a2da114917d74de91f5997f7fbec8",
+      "disposition": "contextual",
+      "fixture": "reactivity-app"
+    },
+    {
+      "id": "reactivity.registry-testing",
+      "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
+      "sha256": "133ede23dab11d0992f0b03c75bb967db6e1dccc6a27f86d19fae88af4fc0fd1",
+      "disposition": "contextual",
+      "fixture": "reactivity-app"
+    },
+    {
+      "id": "schema.grant-domain-model",
+      "source": "docs/deep-dives/schema-from-external-input-to-domain-and-back.md",
+      "sha256": "39da3c56f904f6bef8c6361cb6437b560f3be616101e39b703aa390b165cca28",
+      "disposition": "contextual",
+      "fixture": "schema"
+    },
+    {
+      "id": "schema.grant-json-codec",
+      "source": "docs/deep-dives/schema-from-external-input-to-domain-and-back.md",
+      "sha256": "21c76eb2e5096e253d480b323c54debc6529c6ca2990a3c3bea0650562d00811",
+      "disposition": "contextual",
+      "fixture": "schema"
+    },
+    {
+      "id": "schema.derived-tooling",
+      "source": "docs/deep-dives/schema-from-external-input-to-domain-and-back.md",
+      "sha256": "f2c9b2737ab44614d7c760db2742c48f1a7d5c9fc8cedfbb0b9319c186bc208b",
+      "disposition": "contextual",
+      "fixture": "schema"
+    },
+    {
+      "id": "schema.round-trip-test",
+      "source": "docs/deep-dives/schema-from-external-input-to-domain-and-back.md",
+      "sha256": "440432fe0ebf92b579d2a29ebde31d5ca2fe9dab44d0b6f46e47dcb7f5d23cf3",
+      "disposition": "contextual",
+      "fixture": "schema"
+    },
+    {
+      "id": "streaming.batched-ingestion",
+      "source": "docs/deep-dives/streaming-ingestion-without-accidental-buffering.md",
+      "sha256": "3aeed0050308d6476f3547c4c725b7340c13df7f9a4bfae0a027a743a19482b8",
+      "disposition": "contextual",
+      "fixture": "streaming"
+    },
+    {
+      "id": "streaming.file-source",
+      "source": "docs/deep-dives/streaming-ingestion-without-accidental-buffering.md",
+      "sha256": "7fc029d766d8c3bcec478e5d1845ca7a855ebb3aa5df4056050bb9f306d94c47",
+      "disposition": "contextual",
+      "fixture": "streaming"
+    },
+    {
+      "id": "streaming.http-source",
+      "source": "docs/deep-dives/streaming-ingestion-without-accidental-buffering.md",
+      "sha256": "c01085ba3c30dbef452ecb0807faa28c8c35b0e7be00faf5b0821ae231e44b4d",
+      "disposition": "contextual",
+      "fixture": "streaming"
+    },
+    {
+      "id": "streaming.bounded-runtime-test",
+      "source": "docs/deep-dives/streaming-ingestion-without-accidental-buffering.md",
+      "sha256": "35a0a761ec0e57c9254990cf3f36c3914e43c830f9881d61156be3acfdbaa13e",
+      "disposition": "contextual",
+      "fixture": "streaming"
+    },
+    {
+      "id": "worker.bounded-queue-pipeline",
+      "source": "docs/deep-dives/structured-concurrency-through-a-bounded-worker.md",
+      "sha256": "8a55f91b5786d864b21d05982409f7d40ae4dcb1f6e99563cb926069cdfa69dc",
+      "disposition": "contextual",
+      "fixture": "worker"
+    },
+    {
+      "id": "worker.failure-as-result",
+      "source": "docs/deep-dives/structured-concurrency-through-a-bounded-worker.md",
+      "sha256": "df890472b6e8a68904a604487174ae7c0c06b1f507a9dbc36fc21b463d797bef",
+      "disposition": "contextual",
+      "fixture": "worker"
+    },
+    {
+      "id": "worker.shared-semaphore",
+      "source": "docs/deep-dives/structured-concurrency-through-a-bounded-worker.md",
+      "sha256": "feab66b8661b39c1456ec65e4dba56d07b70ed15b175ed04bc8f2f76e55aa096",
+      "disposition": "contextual",
+      "fixture": "worker"
+    },
+    {
+      "id": "worker.dynamic-fiber-set",
+      "source": "docs/deep-dives/structured-concurrency-through-a-bounded-worker.md",
+      "sha256": "576d8d52360c061da36d97f40f92479e311c7b22b5f837d4997b979be11282e0",
+      "disposition": "contextual",
+      "fixture": "worker"
+    },
+    {
+      "id": "testing.deterministic-layer",
+      "source": "docs/deep-dives/testing-an-effect-application.md",
+      "sha256": "4374dacc4106a02de8430c11fb83e890d99b3a8a02e0db8c8fb98dfcd890993a",
+      "disposition": "contextual",
+      "fixture": "testing"
+    },
+    {
+      "id": "testing.success-order",
+      "source": "docs/deep-dives/testing-an-effect-application.md",
+      "sha256": "0827b0f6819590aff8ef66ff1ec09a60735ee501db12f8bcd078db040f238b5e",
+      "disposition": "contextual",
+      "fixture": "testing"
+    },
+    {
+      "id": "testing.typed-failure",
+      "source": "docs/deep-dives/testing-an-effect-application.md",
+      "sha256": "74dd9a0a49805e872ac11378b95fda502bf8a8981b50491f0f0958489eaa25fa",
+      "disposition": "contextual",
+      "fixture": "testing"
+    },
+    {
+      "id": "configuration.test-provider",
+      "source": "docs/foundations/configuration-secrets.md",
+      "sha256": "4de1b2db04cf5b4852367f6c4fa1ac1cc4603c19186b80702fadcb54f260d362",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "effect.catch-tags-result",
+      "source": "docs/foundations/core-runtime-execution.md",
+      "sha256": "0654b1084e96f06517050bf9659f90d2c62d73dc613eea9b56e1782e20de47fc",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "layer.application-graph",
+      "source": "docs/foundations/services-context-layers.md",
+      "sha256": "900b241b10a977a6f847cace9c3219fcdcbdbf9dbe1e0dfc67f667434d542cc2",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "layer-map.department-service",
+      "source": "docs/foundations/services-context-layers.md",
+      "sha256": "9810497f47facbaa3982b69d6efdf7105d7961555b713541a5377674d2de4b0b",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "resource.auto-refresh",
+      "source": "docs/foundations/services-context-layers.md",
+      "sha256": "6e9ab3198bab418f412f7d1674646d42c5ae9bb12698acb814b790f88ee9071f",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "effect.type-signature",
+      "source": "docs/index.md",
+      "sha256": "05450a81a2be20b7064c8e68da7ef2696b77f970aa3fe400c0d93134d83c6f3e",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "context.service-layer",
+      "source": "docs/index.md",
+      "sha256": "a261fd674784b85f545d36f8e01e6c29de8528c2f643f24d7631e8879671c63f",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "httpapi.endpoint-contract",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "2bc5099ca5aa925bc32aff93170f4ddf8267d96e159b2de4a0841e30f2d60198",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.group-contract",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "3199ec374fa9305b1fd1fcc2a215f2d6f5550929f23136447e799c7d358b053b",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.application-contract",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "7d760ed52f4b59aeec5c1947437abdaa413cda6480b4ec6362a3b40019e55bd9",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.response-schema",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "9adff0117296dfe140312f418e75b511d6bb46a1f7cae2cf91a00d7ace683a98",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.authorization-contract",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "b76ac2fa6930c9738e6b0bcc92046c245c5565b98f3d0e25c5b281fb3bf1b06b",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.authorization-layer",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "dd25fcbd8345bc041696de333a54778e98aa2d1ff84e897536e4a66895406145",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.group-handlers",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "edfaf0c2f734406664db1647c9d6dc64f3489f46c9920df6bb61b67563668553",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.server-layer",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "c7af32cdd7c39fa7cf18a0c74f5c294a41de3fc06b936bb9e5d40c516aba0d7c",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.typed-client",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "258afc5aa23405145e36c10fc00a30220f2eab49eb9480f5b15f1819c777f135",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.openapi-document",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "dc96beb0ad6f42bef0042c282290bef773f41a73d05e03adff7eb56017b8118b",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.swagger-route",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "7c50af42157afec30fd758c77d78bab4202d99cb866f590571d054c355be59de",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.scalar-route",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "3403252b2f66f57ec8968104f62b863b95e7392fc59864ddb1465980a16de9c8",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "httpapi.in-process-test",
+      "source": "docs/interfaces/http-api.md",
+      "sha256": "df92df085dfe9295f7163363e22179ad0a0eb15a2333583a45cf0086e388ca0d",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "rpc.server-http-route",
+      "source": "docs/interfaces/rpc.md",
+      "sha256": "7d5d963cfce596dd26f02a060517a9528040cd43ae784a61ae84a445c071afa6",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "rpc.typed-client",
+      "source": "docs/interfaces/rpc.md",
+      "sha256": "3cde978dde7adccefbe0c3d01dd8887601120548e606e0be7f7c1577ed23e969",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "rpc.client-error-recovery",
+      "source": "docs/interfaces/rpc.md",
+      "sha256": "90a0348e776c6e62cb4d688bf8cf0901fae32391f9b890039b91baa72d6e0bb9",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "rpc.authenticated-middleware-layer",
+      "source": "docs/interfaces/rpc.md",
+      "sha256": "affb232630faf49aa8b12c1418089261c982a7201e0f61899e7ac85ff22af1cc",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "rpc.in-process-test",
+      "source": "docs/interfaces/rpc.md",
+      "sha256": "f33d2b1458bdd5b6fb08591338838c1973f5401e55df3c222d0d19f44a9f29cd",
+      "disposition": "contextual",
+      "fixture": "http-rpc"
+    },
+    {
+      "id": "request.class-definitions",
+      "source": "docs/operations/caching-batching.md",
+      "sha256": "920d6b7b8bf844a0cd9e1add23bef2ce382ed85a35f87cffa2d8a5109d3a7652",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "request.primary-key",
+      "source": "docs/operations/caching-batching.md",
+      "sha256": "8b7f1c98beab4d46e4be41b61d678048ec61abd883207890f69b755dba934d4e",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "observability.minimum-log-level",
+      "source": "docs/operations/observability.md",
+      "sha256": "ebf2b3f537a2c4d6743fe083671b320823fec4acb2ff8ccb1d81ed12b015ed23",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "observability.merit-tracing",
+      "source": "docs/operations/observability.md",
+      "sha256": "da59fce3e9d86ed5c20232d72cd24a4d4c97c4b5f702a88b724bea2ae763afe4",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "observability.runtime-metrics",
+      "source": "docs/operations/observability.md",
+      "sha256": "4440cae255591344918de061be6cd047a0bd0d5cfcd23607ac791a78e90a2f70",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "observability.otlp-layer",
+      "source": "docs/operations/observability.md",
+      "sha256": "12036a61ded54097e852e27a28952a7e2859d10e2d7fe1339e838356501147c4",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "observability.devtools-layer",
+      "source": "docs/operations/observability.md",
+      "sha256": "3fe8f3031251473155905628dc97de39b7010f954e01bc337b261888755819a3",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "observability.otel-node-sdk",
+      "source": "docs/operations/observability.md",
+      "sha256": "5c1fc810dd3dd5e8f7db6d037b21f7b6a8889752a68887bdf4e5e099f08f75f4",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "cluster.department-client-call",
+      "source": "docs/systems/cluster-sharding.md",
+      "sha256": "e800590a8d558b7a0885f4f1fa4dd060b74a5732c7047006b7e6c9493eaa7831",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "reactivity.atom.core-kinds",
+      "source": "docs/systems/reactivity-atom.md",
+      "sha256": "027fd2b519fb4d5f44b8a43bb3c454218cfa61ba8aaba8da7529ff378b43db40",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.atom.runtime-service",
+      "source": "docs/systems/reactivity-atom.md",
+      "sha256": "497f350badd02bd3d77c06ab702b78fc0332969fcc98df607fbf83783dfd8321",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.async-result-matching",
+      "source": "docs/systems/reactivity-atom.md",
+      "sha256": "941362e9392cc7c7db6938ea39aef9dcd21b81c3e37e3824ba7eda7aaabe13ed",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.atom-rpc-client",
+      "source": "docs/systems/reactivity-atom.md",
+      "sha256": "e58e5f6934df50177ae7f30144b85916dec581b454b5d45c21d4574437ab4d20",
+      "disposition": "contextual",
+      "fixture": "reactivity-transport"
+    },
+    {
+      "id": "reactivity.hydration-round-trip",
+      "source": "docs/systems/reactivity-atom.md",
+      "sha256": "1e2db086d940662c7e87f2f8f2db2fa612eb626dddfded5e030a26ddeb2b3cfd",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.mutation-invalidation",
+      "source": "docs/systems/reactivity-atom.md",
+      "sha256": "3fa6dc6e407fe2e907a1b4daff6d818f913ea804bdfd6ad08ad0f9d200fc65ab",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "reactivity.react-summary-card",
+      "source": "docs/systems/reactivity-atom.md",
+      "sha256": "7306cef5d95f2bea7f21ae706567edef3de5751a32412e264252db2e73a8041e",
+      "disposition": "contextual",
+      "fixture": "reactivity-core"
+    },
+    {
+      "id": "tooling.doctest.plugin-config",
+      "source": "docs/tooling/testing-dev-tooling.md",
+      "sha256": "9e58a176fcc771df9955f2595f03e706949cd899e814678ff0b21fa25ec4423f",
+      "disposition": "contextual",
+      "fixture": "base"
+    },
+    {
+      "id": "troubleshooting.effect-not-run",
+      "source": "docs/troubleshooting/troubleshooting-and-anti-patterns.md",
+      "sha256": "24e33c904d6ad50b45860ed5a17d5d2904210b18c0eb86af7bfa0d8e66df499d",
+      "disposition": "contextual",
+      "fixture": "troubleshooting"
+    },
+    {
+      "id": "troubleshooting.missing-service",
+      "source": "docs/troubleshooting/troubleshooting-and-anti-patterns.md",
+      "sha256": "215b74afe76f8128bdff691e3ab609ae0c0a3c2434762da5d1986f44c10e525e",
+      "disposition": "contextual",
+      "fixture": "troubleshooting"
+    },
+    {
+      "id": "troubleshooting.failure-vs-defect",
+      "source": "docs/troubleshooting/troubleshooting-and-anti-patterns.md",
+      "sha256": "4ca96c9bbf6a3a6d3a8213a19e4a0e3de806d9086152572f6909fe951893741f",
+      "disposition": "contextual",
+      "fixture": "troubleshooting"
+    },
+    {
+      "id": "troubleshooting.scope-lifetime",
+      "source": "docs/troubleshooting/troubleshooting-and-anti-patterns.md",
+      "sha256": "7e0a19b0a320bd60b8489d9e3ea5c546730267bf07a9f802b42f177896bb1c64",
+      "disposition": "contextual",
+      "fixture": "troubleshooting"
+    },
+    {
+      "id": "troubleshooting.hanging-clock-fiber",
+      "source": "docs/troubleshooting/troubleshooting-and-anti-patterns.md",
+      "sha256": "c6978ee40ed73a28acc48148b1bb3dd89d3ec90d22c4907872f0f0441283a2e7",
+      "disposition": "contextual",
+      "fixture": "troubleshooting"
+    },
+    {
+      "id": "troubleshooting.typed-retry-channel",
+      "source": "docs/troubleshooting/troubleshooting-and-anti-patterns.md",
+      "sha256": "51bb61739104fa3ce8eb336376f4c6aa7e9f636ad5a0a3461305d6d2df4683a4",
+      "disposition": "contextual",
+      "fixture": "troubleshooting"
+    },
+    {
+      "id": "troubleshooting.schema-type-encoded",
+      "source": "docs/troubleshooting/troubleshooting-and-anti-patterns.md",
+      "sha256": "9c0923f18fa3155ff709632a6eb779a682f6548df11546f7cb291833df2874a1",
+      "disposition": "contextual",
+      "fixture": "troubleshooting"
+    },
+    {
+      "id": "streaming.write-bounded-overlap",
+      "source": "docs/deep-dives/streaming-ingestion-without-accidental-buffering.md",
+      "sha256": "686f60d1ce57bc92160e8fb94d4b602b1c4259c3b153c0b6e65701ebc68c9f68",
+      "disposition": "pseudocode",
+      "reason": "Shows the bounded-overlap operator choice only; writeBatch is intentionally left as an application adapter declaration."
+    },
+    {
+      "id": "eventlog.compensation-event-contract",
+      "source": "docs/deep-dives/durability-and-distribution-ladder.md",
+      "sha256": "4a349ce28b9e59cac62363f5351c86101db4b3c41bcef68828238b26b7b51ede",
+      "disposition": "pseudocode",
+      "reason": "Shows the portable event contract only; handlers, journal, identity, storage, and synchronization Layers are intentionally omitted."
+    },
+    {
+      "id": "cluster.employee-entity-contract",
+      "source": "docs/deep-dives/durability-and-distribution-ladder.md",
+      "sha256": "5dbab1d7af50b8d927ee6c9ab795c3c9e210cb7e7f944b9b38ef9f4dc4daaf37",
+      "disposition": "pseudocode",
+      "reason": "Shows the entity RPC contract and persistence annotation only; handlers and cluster runtime Layers are intentionally omitted."
+    },
+    {
+      "id": "ai.approval-gated-tool",
+      "source": "docs/deep-dives/building-a-production-ai-capability.md",
+      "sha256": "b693e51251d2f3dd81b88426561eba1e83a02ed84e346aed2c3758e2b64bc694",
+      "disposition": "pseudocode",
+      "reason": "Shows approval metadata on the tool contract only; the authorized handler and persisted approval response are intentionally omitted."
+    },
+    {
+      "id": "service-live-test-layers",
+      "source": "docs/recipes/service-and-layers.md",
+      "sha256": "6dda990062e30f5ff3842137eed9a6101f111bba8788abc0e3fe8b17f7d1c9d3",
+      "disposition": "run",
+      "runtime": "service-live-test-layers"
+    },
+    {
+      "id": "schema-httpapi-sql",
+      "source": "docs/recipes/schema-httpapi-sql-boundary.md",
+      "sha256": "081b70e42dde9eafe4566defe5345a57c9783efa89263cf401a113baade821ad",
+      "disposition": "run",
+      "runtime": "schema-httpapi-sql"
+    },
+    {
+      "id": "resource-safe-bounded-worker",
+      "source": "docs/recipes/resource-safe-bounded-worker.md",
+      "sha256": "50029f9f9f651519242d0de6aa91b4ecea72bac543d48435f840835209e56d85",
+      "disposition": "run",
+      "runtime": "resource-safe-bounded-worker"
+    },
+    {
+      "id": "typed-retry-testclock",
+      "source": "docs/recipes/retry-with-test-clock.md",
+      "sha256": "5468ecfca4eb4281b23849eb4bf24c3950424d4c1610bb86b3173425a9da71e7",
+      "disposition": "run",
+      "runtime": "typed-retry-testclock"
+    },
+    {
+      "id": "production-observability",
+      "source": "docs/recipes/production-observability.md",
+      "sha256": "1015648080e9fd25d2764cbde9943543650c27b9d900d097e7737e8494c1812c",
+      "disposition": "run",
+      "runtime": "production-observability"
+    },
+    {
+      "id": "graceful-entrypoint-shutdown",
+      "source": "docs/recipes/graceful-entrypoint-and-shutdown.md",
+      "sha256": "0a3c9a7e9ee0add1221bd9974078d69fc6cdafd5c314cf22d4fd29f449a69089",
+      "disposition": "run",
+      "runtime": "graceful-entrypoint-shutdown"
+    },
+    {
+      "id": "managed-runtime-integration",
+      "source": "docs/recipes/managed-runtime-integration.md",
+      "sha256": "06ee7f71647054f49922b513a137e5ce55009ee0999afe845451cc217163c232",
+      "disposition": "run",
+      "runtime": "managed-runtime-integration"
+    },
+    {
+      "id": "tooling.doctest.run",
+      "source": "docs/tooling/testing-dev-tooling.md",
+      "sha256": "85377ef5c8f4053ed861848e702d1b58e06a5a17b631d670b61df6a8cd41d7eb",
+      "disposition": "run",
+      "runtime": "doctest"
+    }
+  ],
+  "runtimes": {
+    "service-live-test-layers": {
+      "mode": "complete",
+      "expect": ["Hello, Ada!", "[test] Ada"]
+    },
+    "schema-httpapi-sql": {
+      "mode": "complete",
+      "expect": ["[{\"id\":1,\"name\":\"Ada\",\"email\":\"ada@example.com\"}]"]
+    },
+    "resource-safe-bounded-worker": {
+      "mode": "complete",
+      "expect": ["{\"results\":[2,4,6,8,10],\"released\":5,\"maxActive\":2}"]
+    },
+    "typed-retry-testclock": {
+      "mode": "complete",
+      "expect": ["{\"value\":\"ready\",\"attempts\":3}"]
+    },
+    "production-observability": {
+      "mode": "complete",
+      "expect": ["order accepted", "ord-42", "accepted"]
+    },
+    "graceful-entrypoint-shutdown": {
+      "mode": "signal",
+      "exitCode": 130,
+      "expect": ["worker started", "worker stopped"]
+    },
+    "managed-runtime-integration": {
+      "mode": "complete",
+      "expect": ["Hello, Ada", "Hello, Grace", "runtime disposed"]
+    },
+    "doctest": {
+      "mode": "doctest",
+      "expect": ["runs Effect values explicitly"]
+    }
+  }
+}

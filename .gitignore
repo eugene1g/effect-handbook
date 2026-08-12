@@ -1,0 +1,11 @@
+.reference/
+.validation/
+.DS_Store
+node_modules/
+.vitepress/cache/
+/dist/
+/public/effect-4-handbook.md
+/public/effect-4-catalog.json
+/public/effect-4-examples.json
+/public/effect-4-*.md
+/public/llms.txt

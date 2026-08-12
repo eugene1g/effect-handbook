@@ -1,0 +1,40 @@
+{
+  "name": "effect-4-handbook",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "scripts": {
+    "docs:agent": "node scripts/build-agent-handbook.ts",
+    "docs:agent:check": "node scripts/build-agent-handbook.ts --check",
+    "docs:pages": "node scripts/build-page-markdown.ts",
+    "docs:pages:check": "node scripts/build-page-markdown.ts --check",
+    "docs:retrieval": "node scripts/build-retrieval-artifacts.ts",
+    "docs:retrieval:check": "node scripts/build-retrieval-artifacts.ts --check",
+    "docs:standalone": "node scripts/build-standalone-handbook.ts",
+    "docs:standalone:check": "node scripts/build-standalone-handbook.ts --check",
+    "docs:tools:check": "tsc --project tsconfig.tools.json",
+    "docs:skill:unit": "node --test .agents/skills/refresh-effect-handbook/scripts/*.test.ts",
+    "docs:unit": "node --test scripts/*.test.ts && pnpm --filter effect-4-handbook-example-validation test",
+    "docs:markdown": "pnpm docs:check && pnpm docs:eval",
+    "docs:links": "node scripts/check-external-links.ts",
+    "docs:release:check": "node scripts/audit-latest-effect.ts",
+    "docs:eval": "node scripts/evaluate-retrieval.ts",
+    "docs:examples": "pnpm --filter effect-4-handbook-example-validation validate",
+    "docs:check": "node scripts/verify-handbook.ts",
+    "docs:dev": "node scripts/dev-site.ts",
+    "docs:build": "pnpm docs:check && vitepress build && pnpm docs:agent && pnpm docs:pages && pnpm docs:retrieval && pnpm docs:standalone",
+    "docs:preview": "vitepress preview",
+    "docs:verify": "node scripts/verify-site.ts && pnpm docs:pages:check && pnpm docs:retrieval:check && pnpm docs:standalone:check",
+    "docs:smoke": "node scripts/smoke-site.ts && node scripts/smoke-standalone.ts",
+    "docs:test": "pnpm docs:tools:check && pnpm docs:skill:unit && pnpm docs:unit && pnpm docs:markdown && pnpm docs:examples && pnpm docs:build && pnpm docs:verify && pnpm docs:smoke"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "typescript": "7.0.2",
+    "vitepress": "2.0.0-alpha.19",
+    "vue": "3.5.41"
+  }
+}

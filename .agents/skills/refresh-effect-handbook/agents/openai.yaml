@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refresh Effect Handbook"
+  short_description: "Audit and update docs against latest Effect"
+  default_prompt: "Use $refresh-effect-handbook to audit and update this handbook against the latest published Effect version."

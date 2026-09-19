@@ -2,9 +2,9 @@
 
 `Effect` is not a running program — it's a description. The runtime spins up **fibers** to execute descriptions, **scopes** bound resource lifetimes, and a finished computation returns an **Exit** carrying a full **Cause**. Build a value of type `Effect<A, E, R>` by composing combinators; nothing runs until you execute it. Running forks a root fiber that may fork children, await deferreds, race siblings, or open scopes. When it finishes it produces an `Exit<A, E>` — either `Success<A>` or `Failure` holding a `Cause<E>` recording everything that went wrong (typed errors, defects, interruptions).
 
-> **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/04_integration).
+> **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/04_integration).
 
-> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; rc.115 returns `Fiber`). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; rc.116 returns `Fiber`). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Effect
 
@@ -133,13 +133,13 @@ export const drawDownBudget = Effect.fn("drawDownBudget")(
 | --- | --- | --- | --- |
 | `Effect.map(f)` | a plain function `A => B` | `B` | passing an effect-returning function: the result is a nested `Effect` that never runs |
 | `Effect.flatMap(f)` | `A => Effect<B>` | `B` | — |
-| `Effect.andThen(next)` | an effect, or `A => Effect<B>` | `B` | passing a plain value, Promise, `Option`, or `Result` — rc.115 accepts only the two forms on the left |
+| `Effect.andThen(next)` | an effect, or `A => Effect<B>` | `B` | passing a plain value, Promise, `Option`, or `Result` — rc.116 accepts only the two forms on the left |
 | `Effect.tap(f)` | an effect, or `A => Effect<X>` | the original `A` (a failing tap still fails the pipeline) | using `tap` to "change" the value: it is silently unchanged |
 | `Effect.as(value)` / `Effect.asVoid` | a constant / nothing | `value` / `void` | — |
 
 An effect that is created inside a callback but neither returned nor chained is silently dropped — the pipeline form of [“My Effect never ran”](../troubleshooting/troubleshooting-and-anti-patterns).
 
-> **Note:** **Yield descriptions, not handles.** Inside `Effect.gen` you can `yield*` an `Effect`, an `Exit`, a `Context.Service` key or `Context.Reference`, a `Config`, and a yieldable error (`Schema.TaggedError`, `Data.TaggedError`, the built-in `Cause.*Error` classes). Runtime handles and plain data types are **not** effects in rc.115: for a `Fiber`, `Ref`, `Deferred`, `Option`, or `Result` use `Fiber.join`, `Ref.get`, `Deferred.await`, `Effect.fromOption`, or `Effect.fromResult`. `yield* someOption` is a type error, and forcing it past the compiler dies with `Not a valid effect`. (`Option` and `Result` keep their iterators for `Option.gen` / `Result.gen`.)
+> **Note:** **Yield descriptions, not handles.** Inside `Effect.gen` you can `yield*` an `Effect`, an `Exit`, a `Context.Service` key or `Context.Reference`, a `Config`, and a yieldable error (`Schema.TaggedError`, `Data.TaggedError`, the built-in `Cause.*Error` classes). Runtime handles and plain data types are **not** effects in rc.116: for a `Fiber`, `Ref`, `Deferred`, `Option`, or `Result` use `Fiber.join`, `Ref.get`, `Deferred.await`, `Effect.fromOption`, or `Effect.fromResult`. `yield* someOption` is a type error, and forcing it past the compiler dies with `Not a valid effect`. (`Option` and `Result` keep their iterators for `Option.gen` / `Result.gen`.)
 
 Generator functions do not inherit `this`. In a class method, bind it with the options overload instead of aliasing `const self = this`: `Effect.gen({ self: this }, function*() { return this.cycleId })`.
 
@@ -165,7 +165,7 @@ const viaGen = Effect.gen(function*() {
 })
 ```
 
-Official guides: [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it says `Option` and `Result` can be yielded inside `Effect.gen`; on rc.115 they cannot), [Simplifying Excessive Nesting](https://effect.website/docs/v4/code-style/do).
+Official guides: [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it says `Option` and `Result` can be yielded inside `Effect.gen`; on rc.116 they cannot), [Simplifying Excessive Nesting](https://effect.website/docs/v4/code-style/do).
 
 ### 3. Error handling
 
@@ -242,7 +242,7 @@ const unwrapped = fetchRoster.pipe(
 
 This section is a summary. The full recovery toolkit — accumulation, folding with `Effect.match`, `mapError`, fallbacks, `ignore` versus `ignoreCause`, and when an outcome is a result rather than a failure — lives in [Errors, Option & Result](../foundations/errors-option-result#effect-error-handling). One fact belongs here because it is about the runtime's `Cause`: typed handlers such as `Effect.catch`, `catchTag`, and `orDie` act on the *first* typed failure they find and replace the **whole** cause with the handler's result, so a defect or interruption recorded next to that failure is dropped — see [recovering from a mixed Cause](#recovering-from-a-mixed-cause).
 
-Official guide: [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors) (it defines errors with `Data.TaggedError`; the handbook's house style is `Schema.TaggedError`, and both exist in rc.115).
+Official guide: [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors) (it defines errors with `Data.TaggedError`; the handbook's house style is `Schema.TaggedError`, and both exist in rc.116).
 
 ### 4. Concurrency
 
@@ -297,7 +297,7 @@ const announce = Effect.all([Effect.log("cycle open"), Effect.log("budget loaded
 
 For exactly two effects, `Effect.zip(a, b)` returns the pair and `Effect.zipWith(a, b, f)` combines them; both are sequential unless you pass `{ concurrent: true }` (a boolean — not the `concurrency` option used elsewhere). `Effect.zipLeft` / `zipRight` no longer exist; see [section 9](#9-branching-and-looping).
 
-Official guide: [Basic Concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency) (its printed `Cause` output shows nested `Parallel` / `Sequential` nodes; rc.115 causes are flat). The guide for `zip`, `forEach`, and `all` shapes is linked from [section 9](#9-branching-and-looping).
+Official guide: [Basic Concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency) (its printed `Cause` output shows nested `Parallel` / `Sequential` nodes; rc.116 causes are flat). The guide for `zip`, `forEach`, and `all` shapes is linked from [section 9](#9-branching-and-looping).
 
 ### 5. Racing & timeouts
 
@@ -359,7 +359,7 @@ const bounded = fastestBand.pipe(
 
 > **Warning:** A deadline can only fire where the fiber can be interrupted. A long synchronous section (a tight loop, a large `JSON.parse`) runs to completion — and can even beat the deadline it overran — before `Effect.timeout` can act, and an interrupted adapter that ignores its `AbortSignal` leaves the foreign work running — see [section 8](#8-cancellable-adapters-for-promises-and-callbacks).
 
-Official guides: [Timing Out](https://effect.website/docs/v4/error-management/timing-out), [Basic Concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency) (it says an all-failing `raceAll` fails with the last error; rc.115 collects every contender's failure reasons).
+Official guides: [Timing Out](https://effect.website/docs/v4/error-management/timing-out), [Basic Concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency) (it says an all-failing `raceAll` fails with the last error; rc.116 collects every contender's failure reasons).
 
 ### 6. Interruption & resource safety
 
@@ -538,9 +538,9 @@ The host side of the same chain — turning a request's `AbortSignal` into fiber
 
 ### 9. Branching and looping
 
-Effect 4 keeps the control-flow surface small: **branch with ordinary `if` / ternaries and loop with ordinary `for` / `while` inside `Effect.gen` or `Effect.fn`**, and reach for an operator only when the *condition* is itself an effect. Coding agents routinely emit the operators below, which do not exist in `rc.115`.
+Effect 4 keeps the control-flow surface small: **branch with ordinary `if` / ternaries and loop with ordinary `for` / `while` inside `Effect.gen` or `Effect.fn`**, and reach for an operator only when the *condition* is itself an effect. Coding agents routinely emit the operators below, which do not exist in `rc.116`.
 
-| Not in `rc.115` | Write instead |
+| Not in `rc.116` | Write instead |
 | --- | --- |
 | `Effect.if`, `Effect.unless` | a JavaScript conditional inside `Effect.gen`, or `Effect.suspend(() => cond ? a : b)` |
 | `Effect.whenEffect`, `Effect.unlessEffect` | `Effect.when(self, conditionEffect)`; negate the condition for "unless" |
@@ -573,11 +573,11 @@ const maybeNotified: Effect.Effect<Option.Option<void>> = notifyManager.pipe(
 )
 ```
 
-Official guide: [Control Flow Operators](https://effect.website/docs/v4/code-style/control-flow) (its `whileLoop` signature block shows an `Effect.loop`-style shape; rc.115's `whileLoop` has no state, no result array, and no `discard`).
+Official guide: [Control Flow Operators](https://effect.website/docs/v4/code-style/control-flow) (its `whileLoop` signature block shows an `Effect.loop`-style shape; rc.116's `whileLoop` has no state, no result array, and no `discard`).
 
 ### 10. When cleanup can fail
 
-In rc.115 the finalizer of `Effect.acquireRelease`, `Effect.ensuring`, `Effect.onError`, and `Effect.addFinalizer` must have error type `never`. **Finalizers are infallible by type, so a fallible `close()` forces you to decide what a failed teardown means** — before it compiles.
+In rc.116 the finalizer of `Effect.acquireRelease`, `Effect.ensuring`, `Effect.onError`, and `Effect.addFinalizer` must have error type `never`. **Finalizers are infallible by type, so a fallible `close()` forces you to decide what a failed teardown means** — before it compiles.
 
 | Policy | Shape | Choose when |
 | --- | --- | --- |
@@ -849,7 +849,7 @@ const recoverCleanFailure = <A, E, R>(self: Effect.Effect<A, E, R>, fallback: A)
   )
 ```
 
-`Effect.sandbox(self)` is the other route: it moves the whole `Cause<E>` into the error channel so ordinary typed combinators (`catch`, `mapError`, `result`) see it. rc.115 has no `unsandbox`; restore the normal model with `Effect.catch(Effect.failCause)`. For a single recovery step `catchCause` is simpler. The operator-by-operator treatment is in [Errors, Option & Result](../foundations/errors-option-result#effect-error-handling).
+`Effect.sandbox(self)` is the other route: it moves the whole `Cause<E>` into the error channel so ordinary typed combinators (`catch`, `mapError`, `result`) see it. rc.116 has no `unsandbox`; restore the normal model with `Effect.catch(Effect.failCause)`. For a single recovery step `catchCause` is simpler. The operator-by-operator treatment is in [Errors, Option & Result](../foundations/errors-option-result#effect-error-handling).
 
 ## Fiber
 
@@ -876,9 +876,9 @@ const program = Effect.gen(function*() {
 })
 ```
 
-A fork returns a **handle, not a result**, and in rc.115 a `Fiber` is not yieldable — `yield* fiber` does not compile. Turn handles back into effects and then use ordinary combinators: `Fiber.join` for one, `Fiber.joinAll(fibers)` for an array of results, `Fiber.awaitAll(fibers)` for an array of exits, `Fiber.interruptAll(fibers)` to cancel a group. Low-level integrations that read a fiber's derived state use `fiber.cache` (`scheduler`, `span`, `logLevel`, `minimumLogLevel`, `maxOpsBeforeYield`, ...); the `current*` fields of earlier release candidates are gone.
+A fork returns a **handle, not a result**, and in rc.116 a `Fiber` is not yieldable — `yield* fiber` does not compile. Turn handles back into effects and then use ordinary combinators: `Fiber.join` for one, `Fiber.joinAll(fibers)` for an array of results, `Fiber.awaitAll(fibers)` for an array of exits, `Fiber.interruptAll(fibers)` to cancel a group. Low-level integrations that read a fiber's derived state use `fiber.cache` (`scheduler`, `span`, `logLevel`, `minimumLogLevel`, `maxOpsBeforeYield`, ...); the `current*` fields of earlier release candidates are gone.
 
-Official guide: [Fibers](https://effect.website/docs/v4/concurrency/fibers) (its prose calls `Effect.yieldNow()`; in rc.115 `Effect.yieldNow` is a value, and the guide does not mention `startImmediately`).
+Official guide: [Fibers](https://effect.website/docs/v4/concurrency/fibers) (its prose calls `Effect.yieldNow()`; in rc.116 `Effect.yieldNow` is a value, and the guide does not mention `startImmediately`).
 
 **Reach for it when** you need manual control over a background task — fork work, keep the handle, and await or interrupt on your own schedule. For fixed bundles of work, prefer `Effect.all`/`forEach` with `{ concurrency }`.
 
@@ -913,7 +913,7 @@ const meritCycleServer = Effect.scoped(Effect.gen(function*() {
 
 ### When a forked fiber starts
 
-**Forking returns the handle immediately; the child is only *scheduled* and does not run until the current fiber yields or suspends.** Code that forks a listener — a `PubSub` or `SubscriptionRef.changes` consumer, a queue taker, a latch waiter — and then publishes straight away can therefore lose the first events. Letting the parent yield (`yield* Effect.yieldNow`, a value in rc.115) usually helps but is not a hard ordering guarantee. When the child must register before the parent continues, pass `{ startImmediately: true }`: the child runs synchronously up to its first suspension before the fork returns. The same option removes "has it started yet?" guesses from tests.
+**Forking returns the handle immediately; the child is only *scheduled* and does not run until the current fiber yields or suspends.** Code that forks a listener — a `PubSub` or `SubscriptionRef.changes` consumer, a queue taker, a latch waiter — and then publishes straight away can therefore lose the first events. Letting the parent yield (`yield* Effect.yieldNow`, a value in rc.116) usually helps but is not a hard ordering guarantee. When the child must register before the parent continues, pass `{ startImmediately: true }`: the child runs synchronously up to its first suspension before the fork returns. The same option removes "has it started yet?" guesses from tests.
 
 ```ts
 import { Effect, Fiber, Ref } from "effect"
@@ -1074,7 +1074,7 @@ const main = Effect.fail(new CompConfigInvalid({ key: "MERIT_BUDGET" }))
 // NodeRuntime.runMain(main)
 ```
 
-The entry-point recipe is [Recipe: A Graceful Node Entrypoint](../recipes/graceful-entrypoint-and-shutdown). Official guide: [Platform Runtime](https://effect.website/docs/v4/platform/runtime) (it describes exit codes as only `0` and `1` and names only `SIGINT`; rc.115 also uses `130` and listens for `SIGTERM`).
+The entry-point recipe is [Recipe: A Graceful Node Entrypoint](../recipes/graceful-entrypoint-and-shutdown). Official guide: [Platform Runtime](https://effect.website/docs/v4/platform/runtime) (it describes exit codes as only `0` and `1` and names only `SIGINT`; rc.116 also uses `130` and listens for `SIGTERM`).
 
 **Reach for it when** writing a platform adapter or needing bespoke exit-code logic for a process entry point. For ordinary apps, use `NodeRuntime.runMain`.
 
@@ -1236,7 +1236,7 @@ const program = Effect.gen(function*() {
 | the outcome of running an effect **once** — memoized, every waiter sees the same result | `Deferred.complete(d, effect)`; `Deferred.into(effect, d)` does the same uninterruptibly |
 | the effect **itself** — not memoized, each waiter runs it again | `Deferred.completeWith(d, effect)`; a sharp edge for side-effecting effects |
 
-**Gates are per lifecycle generation, and must complete on every outcome.** A `Deferred` cannot be reopened, so anything restartable — a scheduler generation, a reconnecting client, a readiness signal — mints a fresh one per generation; reusing a completed gate lets the next generation sail through on stale readiness. On rollover, *fail* the retired gate so its waiters are released instead of stranded, and use `Deferred.fail` for "startup failed" so waiters fail fast rather than time out. A late completion from a retired producer is then detectably ignored (`false`) rather than overwriting state. When the same gate really must reopen, use a [Latch](#latch).
+**Gates are per lifecycle generation, and must complete on every outcome.** A `Deferred` cannot be reopened, so anything restartable — a scheduler generation, a reconnecting client, a readiness signal — mints a fresh one per generation; reusing a completed gate lets the next generation sail through on stale readiness. When a generation ends, *fail* its gate so anyone still waiting on it is woken rather than left hanging, and use `Deferred.fail` for "startup failed" so waiters fail fast rather than time out. A late completion from a retired producer is then detectably ignored (`false`) rather than overwriting state. When the same gate really must reopen, use a [Latch](#latch).
 
 ```ts
 import { Deferred, Effect, Ref, Schema } from "effect"
@@ -1260,7 +1260,7 @@ const rollOver = Effect.fn("rollOver")(function*(current: Ref.Ref<SyncGeneration
 })
 ```
 
-Official guide: [Deferred](https://effect.website/docs/v4/concurrency/deferred) (its intro calls a `Deferred` a subtype of `Effect`; in rc.115 it is not yieldable, and `Deferred.poll` returns an effect of an `Option`).
+Official guide: [Deferred](https://effect.website/docs/v4/concurrency/deferred) (its intro calls a `Deferred` a subtype of `Effect`; in rc.116 it is not yieldable, and `Deferred.poll` returns an effect of an `Option`).
 
 **Reach for it when** one fiber must signal a single value or completion to others — bridging callbacks, gating on an approved result, or building single-flight/memoization.
 

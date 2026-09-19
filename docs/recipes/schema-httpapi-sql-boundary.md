@@ -5,7 +5,7 @@ Use one domain Schema across the HTTP contract and SQL result decoder, while kee
 ## Contract
 
 - **Classification:** Runnable example; complete `employees-api.ts`. It uses an in-process HttpApi client and an embedded PGlite database, so no port or external database is required.
-- **Install:** `pnpm add effect@4.0.0-rc.115 @effect/sql-pglite@4.0.0-rc.115`
+- **Install:** `pnpm add effect@4.0.0-rc.116 @effect/sql-pglite@4.0.0-rc.116`
 - **Run:** Node 26+: `node employees-api.ts`
 - **Expected output:** `[{"id":1,"name":"Ada","email":"ada@example.com"}]`.
 - **Core handler type:** after `EmployeeRepository` is supplied, the HttpApi handler Layer has no business-service requirement. `SqlSchema` retains `SchemaError | SqlError | NoSuchElementError`; this recipe treats those as invariant/infrastructure defects at the repository boundary, so endpoint handlers expose no declared domain error.
@@ -246,6 +246,7 @@ Probed on PGlite with the table declared as `constraint employees_email_key uniq
 
 - **Use `Effect.mapError`, not `Effect.catchCause`, at the repository seam.** `catchCause` also captures defects and interruption, so a programming bug would be reported as a routine storage failure and a shutdown could be swallowed.
 - **Absence is a successful empty result.** Map `NoSuchElementError` to a declared `404` only for a lookup that ran and found nothing; a timeout or a lost connection is never "not found".
+- **Decide what an unknown request field means.** By default HttpApi drops a property the payload schema does not declare, so a client's misspelled optional field is silently ignored. Annotating the API with `HttpApi.ParseOptions` `{ onExcessProperty: "error" }` (`rc.116`) turns it into the same `400` as any other decode failure, matching the `additionalProperties: false` the OpenAPI document already advertises ([HttpApi](../interfaces/http-api#httpapi)).
 - **Split the schemas the moment they diverge.** One `Employee` for the endpoint and the row decoder is honest while the public shape and the table coincide. When the table gains an internal column, or a field is renamed, keep a row schema for `SqlSchema` and a DTO for the endpoint, and map between them in the repository — the public contract must not move because a column did.
 - The status table behind these choices is in [HttpApi status mapping](../interfaces/http-api#status-mapping-is-part-of-the-contract); repository error normalization is in [SqlError](../interfaces/sql#sqlerror); making related writes atomic, and delivering side effects only after commit, is the [transactional write with outbox recipe](transactional-write-with-outbox).
 

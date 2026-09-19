@@ -1,10 +1,10 @@
 # Structured Concurrency Through a Bounded Worker
 
-A worker pool is not merely “start N promises.” It has ownership, capacity, failure, completion, cancellation, and cleanup semantics. This guide builds those semantics from Effect's structured fibers, bounded `Queue`, `Stream`, `Semaphore`, and test services against `effect@4.0.0-rc.115`.
+A worker pool is not merely “start N promises.” It has ownership, capacity, failure, completion, cancellation, and cleanup semantics. This guide builds those semantics from Effect's structured fibers, bounded `Queue`, `Stream`, `Semaphore`, and test services against `effect@4.0.0-rc.116`.
 
 Use [Core Runtime & Execution](../foundations/core-runtime-execution) for fibers and scopes, [Concurrency & Coordination](../concurrency/concurrency-coordination) for queues and semaphores, [State & Mutable References](../concurrency/state-mutable-references) for counters, [Software Transactional Memory](../concurrency/software-transactional-memory) for multi-value atomic coordination, [Streaming & Channels](../concurrency/streaming-channels) for pipeline operators, and [Testing & Dev Tooling](../tooling/testing-dev-tooling) for deterministic tests.
 
-> **Official guides:** the Fibers, Queue, and Error Accumulation guides are linked from the sections they illustrate. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** the Fibers, Queue, and Error Accumulation guides are linked from the sections they illustrate. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Write the execution policy first
 

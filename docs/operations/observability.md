@@ -2,7 +2,7 @@
 
 _Effect ships structured logging, spans, and metrics as first-class runtime citizens. The export layer is separate — use a local collector for development, an OTLP endpoint for production, or skip export in tests._
 
-> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/08_observability) cover production logging and OTLP tracing.
+> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/08_observability) cover production logging and OTLP tracing.
 
 ## Designing signals
 
@@ -18,7 +18,7 @@ Instrumentation is a design decision before it is an API call: every signal cost
 
 **Start with rate, errors, duration, saturation, and one domain outcome** (for example approved raises per merit cycle), because those cover most alerts; add a signal only when a dashboard or alert names it.
 
-Write one line per signal before shipping it: the question or alert it serves · a stable, bounded name · type, unit, and expected range · the allow-listed attributes and their series ceiling · how it correlates with other signals · privacy class and retention · volume budget · behavior under pressure (drop, truncate, aggregate) · owner. A signal without a question is cost and data exposure with no reader.
+Write one line per signal before shipping it: the question or alert it serves · a stable, bounded name · type, unit, and expected range · the allow-listed attributes and their series ceiling · how it correlates with other signals · privacy class and retention · volume budget · behavior under pressure (drop, truncate, aggregate) · owner. If no one can name the question a signal answers, it only adds spend and leaks data.
 
 ### Cardinality: names and attribute sets are bounded
 
@@ -74,7 +74,7 @@ A `Logger<Message, Output>` receives a log event (message, level, cause, fiber, 
 - **batched(logger, { window, flush })** — Collects entries for a time window then calls `flush` with the batch. Returns `Effect<Logger, never, Scope>`.
 - **toFile(logger, path, options?)** — Pipes a string logger to a file. Requires `FileSystem` (`NodeFileSystem.layer` on Node.js). Returns `Effect<Logger, PlatformError, Scope | FileSystem>`. Options are `flag` (default `"a+"`, append), `mode`, and `batchWindow` (default 1 second). Output is always batched through `Logger.batched`; the pending batch is written when the logger's scope closes, so a hard crash can lose up to one window of lines. Only opening the file can fail with `PlatformError` — later write errors are ignored.
 
-Official guide: [PlatformLogger](https://effect.website/docs/v4/platform/platformlogger) (rc.115 has no `PlatformLogger` module — the API is `Logger.toFile`, and the guide's "written as they arrive" remark does not match rc.115, where output is always batched, 1 second by default).
+Official guide: [PlatformLogger](https://effect.website/docs/v4/platform/platformlogger) (rc.116 has no `PlatformLogger` module — the API is `Logger.toFile`, and the guide's "written as they arrive" remark does not match rc.116, where output is always batched, 1 second by default).
 
 ### Installing and swapping loggers
 
@@ -178,7 +178,7 @@ const runMeritCycle = (cycleId: string, employeeId: string) =>
   )
 ```
 
-Annotations merge down the call tree: an inner `Effect.annotateLogs` adds to (and on a key clash overrides) the outer set, and the outer set is restored when the inner effect ends. That is what lets a test assert on fields instead of scraping message text.
+Nested annotation scopes combine: an inner `Effect.annotateLogs` extends the enclosing fields (its value wins when a key repeats), and the outer set is restored when the inner effect ends. That is what lets a test assert on fields instead of scraping message text.
 
 `Effect.annotateLogs` wraps one effect. `Effect.annotateLogsScoped` is a statement instead: it annotates every later log call until the surrounding `Scope` closes, which fits Layer construction and handlers that are already scoped. It adds `Scope` to the requirements.
 
@@ -252,7 +252,7 @@ This example redacts the top-level `employeeId` annotation and matching strings.
 
 **Reach for it when** swapping log format, adding a file sink, shipping logs to a remote aggregator, or adding a redaction backstop on top of Effect's structured log events.
 
-Official guide: [Logging](https://effect.website/docs/v4/observability/logging) (its "Built-in Loggers" subsection headings — `stringLogger`, `jsonLogger`, and so on — are names that rc.115 does not export; its code samples use the correct `Logger.format*` / `Logger.console*` names).
+Official guide: [Logging](https://effect.website/docs/v4/observability/logging) (its "Built-in Loggers" subsection headings — `stringLogger`, `jsonLogger`, and so on — are names that rc.116 does not export; its code samples use the correct `Logger.format*` / `Logger.console*` names).
 
 ## LogLevel
 
@@ -457,7 +457,7 @@ A failing child marks every enclosing span as failed too unless something in bet
 - **Malformed inbound trace context is dropped, never rejected**: `HttpTraceContext.fromHeaders` returns `Option.none()` for a missing or invalid header, and the built-in HTTP server middleware then creates the server span without a remote parent. Apply the same rule in custom adapters — bad trace headers must not fail otherwise valid traffic.
 - **Correlate logs through the active trace**; keep a separate request or job id only when operators need one that survives sampling.
 - **Expected business rejections, cancellations, defects, and transport failures need not share one error status** — decide which of them page someone.
-- **End streaming spans on completion, failure, and cancellation** by wrapping the whole stream effect, not just its happy path.
+- **Close a streaming span however the stream stops** (it drains, fails, or is interrupted) by wrapping the entire stream effect rather than only the success path.
 
 ### Effect.fn traces automatically
 
@@ -493,7 +493,7 @@ const finalizeApprovalChain = (priorApprovalSpan: Tracer.AnySpan) =>
 
 **Reach for it when** implementing a custom tracer backend, bridging an external trace context, or tuning sampling. For day-to-day use, `Effect.withSpan` and `Effect.fn` suffice.
 
-Official guide: [Tracing](https://effect.website/docs/v4/observability/tracing) (annotated span dumps and a one-container local Grafana stack; in rc.115 the OpenTelemetry API and SDK packages are optional peers of `@effect/opentelemetry`, so install the ones you import explicitly).
+Official guide: [Tracing](https://effect.website/docs/v4/observability/tracing) (annotated span dumps and a one-container local Grafana stack; in rc.116 the OpenTelemetry API and SDK packages are optional peers of `@effect/opentelemetry`, so install the ones you import explicitly).
 
 ## Metric
 

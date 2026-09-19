@@ -1,6 +1,6 @@
 # Anatomy of a Real Effect Application
 
-This guide turns Effect's core primitives into one application shape. It targets `effect@4.0.0-rc.115`: domain values are Schemas, expected failures are tagged errors, behavior lives behind services, Layers own construction and cleanup, and the runtime is called only at an application edge.
+This guide turns Effect's core primitives into one application shape. It targets `effect@4.0.0-rc.116`: domain values are Schemas, expected failures are tagged errors, behavior lives behind services, Layers own construction and cleanup, and the runtime is called only at an application edge.
 
 Use the concise references when you need the complete API surface: [Core Runtime & Execution](../foundations/core-runtime-execution), [Services, Context & Layers](../foundations/services-context-layers), [Configuration & Secrets](../foundations/configuration-secrets), [Errors, Option & Result](../foundations/errors-option-result), [Schema](../data/schema), [Observability](../operations/observability), and [Testing & Dev Tooling](../tooling/testing-dev-tooling).
 
@@ -313,7 +313,7 @@ A higher-level use case composes an existing use case through its service; it do
 
 **“Built once” is a claim about a specific build, so name it.** Sharing happens inside one build: every `Effect.provide` that is not nested in another build starts its own, so two sibling `program.pipe(Effect.provide(AppLive))` calls acquire `AppLive` twice, while a `provide` nested inside a live build of the same Layer value — including an effect run through a `ManagedRuntime` made from it — reuses the live instance. Provide the application Layer once at the root, and prove the claim with an acquisition counter rather than by reading the code. `Layer.fresh` and `Effect.provide(layer, { local: true })` exist for deliberate isolation; neither is a fix for a type error, because both duplicate pools, caches, and subscriptions.
 
-Official guides: [Managing Layers](https://effect.website/docs/v4/requirements-management/layers), [Layer Memoization](https://effect.website/docs/v4/requirements-management/layer-memoization) (it says local provides are simply not memoized and does not cover the nested-reuse case or the `local` option). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+Official guides: [Managing Layers](https://effect.website/docs/v4/requirements-management/layers), [Layer Memoization](https://effect.website/docs/v4/requirements-management/layer-memoization) (it says local provides are simply not memoized and does not cover the nested-reuse case or the `local` option). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Choose the correct runtime edge
 

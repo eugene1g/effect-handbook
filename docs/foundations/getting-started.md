@@ -1,30 +1,30 @@
 # Getting Started
 
-Everything else in this handbook assumes a project where `effect@4.0.0-rc.115` is installed, TypeScript is strict, and one entrypoint runs an Effect. This page gets you there and names the traps on the way: the npm dist-tag, mismatched package versions, and compiler settings that silently weaken the types.
+Everything else in this handbook assumes a project where `effect@4.0.0-rc.116` is installed, TypeScript is strict, and one entrypoint runs an Effect. This page gets you there and names the traps on the way: the npm dist-tag, mismatched package versions, and compiler settings that silently weaken the types.
 
-> **Official guides:** [Installation](https://effect.website/docs/v4/getting-started/installation) (asks for Node.js 22.18+; the `rc.115` README states Node.js 18+ as the general minimum), [Importing Effect](https://effect.website/docs/v4/getting-started/importing-effect), [The Effect Type](https://effect.website/docs/v4/getting-started/the-effect-type), [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; in `rc.115` the type is `Fiber`), [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it calls `Option` and `Result` yieldable; in `rc.115` they are not), [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Installation](https://effect.website/docs/v4/getting-started/installation) (asks for Node.js 22.18+; the `rc.116` README states Node.js 18+ as the general minimum), [Importing Effect](https://effect.website/docs/v4/getting-started/importing-effect), [The Effect Type](https://effect.website/docs/v4/getting-started/the-effect-type), [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; in `rc.116` the type is `Fiber`), [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it calls `Option` and `Result` yieldable; in `rc.116` they are not), [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Install the release candidate, not `latest`
 
 **An untagged `pnpm add effect` installs Effect 3.** Effect 4 is published under the `rc` dist-tag; `latest` still points at the v3 line. With v3 installed, no example in this handbook type-checks, and the compiler errors — `Context.Service`, `Effect.catch`, or `Effect.forkChild` "does not exist" — never mention the version.
 
-| npm dist-tag (checked 2026-09-18 with `npm view effect dist-tags`) | `effect` | `@effect/platform-node` |
+| npm dist-tag (checked 2026-09-19 with `npm view effect dist-tags`) | `effect` | `@effect/platform-node` |
 | --- | --- | --- |
 | `latest` | `3.22.2` | `0.108.2` |
-| `rc` | `4.0.0-rc.115` | `4.0.0-rc.115` |
+| `rc` | `4.0.0-rc.116` | `4.0.0-rc.116` |
 | `beta` | `4.0.0-beta.107` | `4.0.0-beta.107` |
 
 **Pin the exact version.** The `rc` tag moves with every release candidate, and release candidates still rename public APIs (rc.113 moved the `Config` and CLI constructors to PascalCase). An exact pin makes an upgrade a deliberate, audited change.
 
 ```sh
-pnpm add effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115
+pnpm add effect@4.0.0-rc.116 @effect/platform-node@4.0.0-rc.116
 pnpm add -D typescript@7 @types/node
 
 # Moving alternative, for throwaway experiments only:
 pnpm add effect@rc @effect/platform-node@rc
 ```
 
-**Every `effect` and `@effect/*` package in one project shares one version.** Effect 4 packages are released together under a single version number, and each `@effect/*` package declares `effect` as a peer dependency (`^4.0.0-rc.115` for this release). Mixing numbers is unsupported: an `@effect/*` package is built and tested against the `effect` release with the same number, and `effect/unstable/*` modules change between release candidates. Check for a single copy with `pnpm why effect` (or `npm ls effect`) after every install; the Effect language service reports a second copy as `duplicatePackage`.
+**Every `effect` and `@effect/*` package in one project shares one version.** Effect 4 packages are released together under a single version number, and each `@effect/*` package declares `effect` as a peer dependency (`^4.0.0-rc.116` for this release). Mixing numbers is unsupported: an `@effect/*` package is built and tested against the `effect` release with the same number, and `effect/unstable/*` modules change between release candidates. Check for a single copy with `pnpm why effect` (or `npm ls effect`) after every install; the Effect language service reports a second copy as `duplicatePackage`.
 
 | Install when you need | Package |
 | --- | --- |
@@ -38,9 +38,9 @@ Do not install `@effect/platform`, `@effect/cli`, `@effect/rpc`, `@effect/sql`, 
 
 ## Runtime and compiler requirements
 
-The library's floor and this handbook's validation target are different things. The first column is what `rc.115` asks of you; the second is what every example here is compiled and run with.
+The library's floor and this handbook's validation target are different things. The first column is what `rc.116` asks of you; the second is what every example here is compiled and run with.
 
-| | Required by `effect@4.0.0-rc.115` (repository README and package metadata) | Used to validate this handbook |
+| | Required by `effect@4.0.0-rc.116` (repository README and package metadata) | Used to validate this handbook |
 | --- | --- | --- |
 | TypeScript | 5.9 or newer; TypeScript 7 recommended | 7.0.2 |
 | Node.js | 18 or newer in general (`@effect/platform-node` declares `engines.node >=18.0.0`); some packages need more, for example `@effect/sql-sqlite-node` needs 22.16+ | 26, which runs `.ts` entrypoints directly |
@@ -160,7 +160,7 @@ import { TestClock } from "effect/testing"
 
 ## Stable and unstable modules
 
-| Import path | Compatibility promise | Families in `rc.115` |
+| Import path | Compatibility promise | Families in `rc.116` |
 | --- | --- | --- |
 | `effect`, `effect/<Module>`, `effect/testing` | semantic versioning | Effect, Layer, Schema, Stream, Config, the data structures, the `Tx*` transactional modules, and the rest of the core |
 | `effect/unstable/<family>` | **may break in a minor release**; modules graduate to the top level as they settle | `ai`, `arbitrary`, `cli`, `cluster`, `devtools`, `encoding`, `eventlog`, `http`, `httpapi`, `net`, `observability`, `persistence`, `process`, `reactivity`, `rpc`, `schema`, `socket`, `sql`, `workers`, `workflow` |

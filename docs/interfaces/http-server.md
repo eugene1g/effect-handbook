@@ -55,6 +55,8 @@ The shared body/headers model implemented by server requests and client response
 
 The host service behind local-file/Web-File responses and compression. Node, Bun, Deno, and Web layers implement `platform`, `fileResponse`, `fileWebResponse`, and a compressor supporting `gzip`, `deflate`, `br`, and optionally `zstd`. Most application code calls `HttpServerResponse.file` or `HttpMiddleware.compression` rather than this service directly.
 
+A file response's `Content-Type` is, in order: the `contentType` option or an explicit `content-type` header, then a non-empty `File.type` (Web files), then a type inferred from the file extension. Before `rc.116` the explicit values were lost, and the core `HttpPlatform.layer` did not infer from the extension; probed on `rc.116` with a `.csv` file on the core and Node layers, which answer `text/csv`, the `contentType` value, or the header value respectively. `rc.116` also removed the unused `contentLength` option from `HttpServerResponse.file`, a compile error for code that passed it; the length always comes from the file and the requested range.
+
 ```ts
 import { HttpMiddleware } from "effect/unstable/http"
 
@@ -70,7 +72,7 @@ Compression negotiates `Accept-Encoding`, adds `Vary`, and skips statuses/bodies
 
 `effect/unstable/http/HttpStaticServer` — unstable
 
-A safe static-file application built over `FileSystem`, `Path`, and `HttpPlatform`. `make({ root, index?, spa?, cacheControl?, mimeTypes? })` returns an HTTP app; `layer({ ..., prefix? })` mounts GET routes in `HttpRouter`. It confines paths below the configured root, resolves directory indexes, derives MIME types, supports byte ranges and 206/416 responses, and handles ETag/last-modified conditionals with 304 responses.
+A safe static-file application built over `FileSystem`, `Path`, and `HttpPlatform`. `make({ root, index?, spa?, cacheControl?, mimeTypes? })` returns an HTTP app; `layer({ ..., prefix? })` mounts GET routes in `HttpRouter`. It confines paths below the configured root, resolves directory indexes, derives MIME types (kept on the response since the `rc.116` file-response fix), supports byte ranges and 206/416 responses, and handles ETag/last-modified conditionals with 304 responses.
 
 ```ts
 import { HttpStaticServer } from "effect/unstable/http"
@@ -109,6 +111,8 @@ Errors distinguish invalid boundaries/dispositions, malformed headers, a reached
 Request router expressed as Layers. `HttpRouter.add(method, path, handler)` produces a Layer for one route; `HttpRouter.addAll([...])` contributes many. Merge them like any other Layers and pass to `HttpRouter.serve` (real server) or `HttpRouter.toWebHandler` (Fetch-style handler for serverless). Path params, prefixes, CORS, and middleware all compose at this level.
 
 **Mental model.** Each route is a Layer that registers itself on an `HttpRouter`. Route dependencies flow through Layer composition — no global app object; the router *is* the wiring.
+
+The method is `"*"` or one of `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, and, since `rc.116`, `QUERY` — the safe, idempotent HTTP method that carries its query in the request body (read it with `request.json` or a schema body decoder, as for `POST`). `HttpRouter.route` accepts any `HttpMethod`.
 
 `HttpRouter.addAll(routes, { prefix: "/internal" })` mounts a batch under a prefix. Inside a prefixed route `request.url` has the prefix removed (`request.originalUrl` keeps it), and `router.prefixed("/v1").prefixed("/comp")` nests outer-first, serving `/v1/comp/...` (the order was wrong before `rc.113`).
 
@@ -232,7 +236,7 @@ export const disconnectInterruptsTheHandler = Effect.gen(function*() {
     request.on("error", () => {})
 
     yield* Deferred.await(acquired)
-    return yield* Deferred.await(released) // "interrupted" — probed on rc.115 with Node 26
+    return yield* Deferred.await(released) // "interrupted" — probed on rc.116 with Node 26
   }).pipe(Effect.provide(ServerLive))
 })
 ```
@@ -242,8 +246,8 @@ Run the normal-completion case as a separate test (a finite stream, a client tha
 ### Own the listener: acquire late, bind port 0, prove release
 
 - **Allocate during Layer acquisition, never at module evaluation.** A module-level `createServer()`, `Ref`, or counter is shared by every build of the Layer, so two tests (or two tenants) silently share state. Pass the *constructor* (`NodeHttpServer.layer(createServer, options)`), and create mutable state inside `Layer.effect`.
-- **Bind port `0` in tests** and read the assigned port from `HttpServer.address`; fixed ports collide under parallel workers.
-- **Prove release at the OS level.** Build the server Layer into a `Scope` you hold, show that binding a plain `node:net` server to the same host and port fails with `EADDRINUSE`, close the `Scope`, and show that the same bind now succeeds (probed: exactly that sequence on `rc.115`). A finalizer flag, or a bind to a *different* ephemeral port, is not evidence that the listener is gone.
+- **Let the OS pick the port in tests** (listen on `0`, then take the real port from `HttpServer.address`), because a hard-coded port breaks as soon as test files run in parallel.
+- **Prove release at the OS level.** Build the server Layer into a `Scope` you hold, show that binding a plain `node:net` server to the same host and port fails with `EADDRINUSE`, close the `Scope`, and show that the same bind now succeeds (probed: exactly that sequence on `rc.116`). A finalizer flag, or a bind to a *different* ephemeral port, is not evidence that the listener is gone.
 - **A constructor that returns a live server and requires `Scope` must not close that `Scope` itself** — the caller owns the lifetime.
 - **Shutdown is graceful by default on Node.** Closing the serve scope stops accepting connections and gives in-flight requests up to `gracefulShutdownTimeout` (20 seconds unless set) to finish; a request still running after that is interrupted and answered with `503` (probed). `disablePreemptiveShutdown: true` removes that grace period. Size your orchestrator's termination grace period above the timeout, and see [owning lifetimes, startup, readiness, and shutdown](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown) and the [graceful entrypoint recipe](../recipes/graceful-entrypoint-and-shutdown).
 
@@ -288,7 +292,7 @@ Response builder. Constructors: `text`, `json`, `html`/`htmlStream`, `uint8Array
 
 **Mental model.** An immutable value assembled with pipes, just like a client request.
 
-`HttpServerResponse.toWeb` — and the Bun and Deno adapters — send no body for statuses `204`, `205`, and `304`, or when asked for a bodyless (`HEAD`) response, even if one was constructed; a raw `ReadableStream` body is cancelled instead of leaking (`rc.115`). `HttpServerResponse.omitsBody(response)` exposes the same predicate to custom adapters.
+`HttpServerResponse.toWeb` — and the Bun and Deno adapters — send no body for statuses `204`, `205`, and `304`, or when asked for a bodyless (`HEAD`) response, even if one was constructed; a raw `ReadableStream` body is cancelled instead of leaking (`rc.115`). `HttpServerResponse.omitsBody(response)` exposes the same predicate to custom adapters. Since `rc.116`, dropping the body of a raw Web `Response` keeps that `Response`'s headers and `Set-Cookie` values; a `204`, `205`, or `304` keeps the outer status and status text, while `HEAD` keeps the raw `Response`'s. Cookies set on the outer response are appended to the native `Set-Cookie` headers instead of replacing them.
 
 `setBody` keeps `content-type` and `content-length` aligned with the replacement body and removes stale values when it has no corresponding metadata. Because pipes apply in order, put an explicit `setHeader` after the body constructor when that header must override body-derived metadata.
 
@@ -341,7 +345,7 @@ const withTiming = HttpMiddleware.make((app) =>
 
 > **Warning:** The built-in `logger` middleware is on by default via `HttpRouter.serve`. Pass `{ disableLogger: true }` to `serve`, or layer `HttpRouter.disableLogger`, to opt out. It logs the method, the path *without* its query string, and the status; a failed request also logs its `Cause`, so keep secrets `Redacted` rather than relying on the logger to hide them.
 
-> **Warning:** **`HttpRouter.cors()` with no options answers `Access-Control-Allow-Origin: *`.** Pass an allow-list for anything that is not a public, credential-free API. With a predicate or two or more `allowedOrigins`, the request's `Origin` is echoed only when it is allowed, and `Vary: Origin` is always sent — merged with any `Vary` the response or compression already set (`rc.113`) — so a shared cache cannot serve one origin's answer to another. A single allowed origin is sent as a constant, also with `Vary: Origin`. With `allowedHeaders` left empty, a preflight reflects whatever `Access-Control-Request-Headers` the browser asked for.
+> **Warning:** **`HttpRouter.cors()` with no options answers `Access-Control-Allow-Origin: *`.** Pass an allow-list for anything that is not a public, credential-free API. With a predicate or two or more `allowedOrigins`, the request's `Origin` is echoed only when it is allowed, and `Vary: Origin` is always sent — merged with any `Vary` the response or compression already set (`rc.113`) — so a shared cache cannot serve one origin's answer to another. A single allowed origin is sent as a constant, also with `Vary: Origin`. With `allowedHeaders` left empty, a preflight reflects whatever `Access-Control-Request-Headers` the browser asked for. `allowedMethods` defaults to `GET`, `HEAD`, `PUT`, `PATCH`, `POST`, and `DELETE`; a browser only sends a cross-origin `QUERY` request (`rc.116`) after you add `"QUERY"` to that list.
 
 ```ts
 import { HttpRouter } from "effect/unstable/http"
@@ -359,7 +363,7 @@ export const Cors = HttpRouter.cors({
 
 Several server limits are **unbounded until you set them**. Decide each one explicitly; "whatever the default is" is not a policy.
 
-| Concern | Default in `rc.115` | Set it with |
+| Concern | Default in `rc.116` | Set it with |
 | --- | --- | --- |
 | Collected request body (`text`, `json`, `arrayBuffer`, buffered multipart total) | **no limit** | `HttpIncomingMessage.MaxBodySize` (a `ByteSize`), provided as a Layer or per route; on Node an over-limit request has its connection dropped rather than receiving a `413` (probed) |
 | Multipart part count / file size | **no limit** | `Multipart.MaxParts`, `Multipart.MaxFileSize`, or per endpoint with `HttpApiSchema.asMultipart({ maxParts, maxFileSize, maxTotalSize })` |
@@ -435,7 +439,7 @@ Immutable cookie jar plus a `Cookie` type with all attributes (`httpOnly`, `secu
 
 `effect/unstable/http/HttpMethod` — unstable
 
-Type-level vocabulary for HTTP verbs: the `HttpMethod` union, the `all` set, `isHttpMethod` guard, and `hasBody` (true for methods this module treats as body-capable: POST, PUT, DELETE, and PATCH; false for GET, HEAD, OPTIONS, and TRACE).
+Type-level vocabulary for HTTP verbs: the `HttpMethod` union, the `all` set, `isHttpMethod` guard, and `hasBody` (true for methods this module treats as body-capable: POST, PUT, DELETE, PATCH, and, since `rc.116`, QUERY; false for GET, HEAD, OPTIONS, and TRACE). `QUERY` is also in `all`, and `HttpClient`, `HttpRouter`, and `HttpApiEndpoint` each have a `query` constructor or accept the method.
 
 **Reach for it when** branching on request method or validating a method string.
 
@@ -481,7 +485,7 @@ UrlParams.toString(params) // "dept=ENG&dept=SALES&page=2&dept=OPS"
 
 `effect/unstable/http/Multipart` — unstable
 
-Streaming `multipart/form-data` parsing. Distinguishes `Field` (text) from `File` parts; can persist uploads to disk (`PersistedFile`). Exposes Schemas (`FilesSchema`, `SingleFileSchema`, `PersistedFileSchema`) for typed decoding. Safety limits — `MaxParts`, `MaxFileSize`, `MaxFieldSize`, `FieldMimeTypes` — are `Context.Reference`s tunable per route; only `MaxFieldSize` has a finite default (see the [edge policy checklist](#edge-policy-checklist)). Failures: `MultipartError`. `Multipart.isPart` accepts every branded part including `PersistedFile`; `Multipart.isStreamPart` (`rc.113`) is true only for a text `Field` or a streamed `File`, which is the guard a streaming consumer wants.
+Streaming `multipart/form-data` parsing. Distinguishes `Field` (text) from `File` parts; can persist uploads to disk (`PersistedFile`). Exposes Schemas (`FilesSchema`, `SingleFileSchema`, `PersistedFileSchema`) for typed decoding. Safety limits — `MaxParts`, `MaxFileSize`, `MaxFieldSize`, `FieldMimeTypes` — are `Context.Reference`s tunable per route; only `MaxFieldSize` has a finite default (see the [edge policy checklist](#edge-policy-checklist)). Failures: `MultipartError`. `Multipart.isPart` accepts every branded part including `PersistedFile`; `Multipart.isStreamPart` (`rc.113`) is true only for a text `Field` or a streamed `File`, which is the guard a streaming consumer wants. Since `rc.116`, a request body that fails while a file part is streaming fails that file's stream instead of leaving its consumer waiting, and persisting a file passes a `MultipartError` from the body through unchanged instead of re-wrapping it as an `InternalError` reason.
 
 **Mental model.** An upload is a stream of parts, not a blob. Typically used via `HttpServerRequest.schemaBodyForm(schema)` or `schemaBodyMultipart(schema)` — Multipart + Schema handle parsing and validation together.
 

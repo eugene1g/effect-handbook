@@ -1,6 +1,6 @@
 # Owning Lifetimes — Startup, Readiness, and Shutdown
 
-Audited against `effect@4.0.0-rc.115` and the matching Effect repository source on 2026-09-18. Every behavioral claim marked *probed* was run against the published packages.
+Audited against `effect@4.0.0-rc.116` and the matching Effect repository source on 2026-09-19. Every behavioral claim marked *probed* was run against the published packages.
 
 Every service is three programs: the one that starts it, the one that serves, and the one that stops it. Only the middle one is usually written on purpose. This guide follows one HR-platform service — a raise-approval worker with a payroll database pool, a telemetry exporter, and an intake loop — and makes the other two explicit: who owns each thing, in what order it comes up, what "ready" means, and what a single shutdown looks like on every host.
 
@@ -346,7 +346,7 @@ Before choosing a serverless or edge row, get five answers from the platform: ar
 
 A lifetime claim is testable, and the oracle is always the same: **live state before close, terminal state after.** Build the graph in a scope the test owns, assert what is up, close the scope, then assert the order and that every acquisition has its release. Use a handshake (`Deferred`) wherever the test must know work is in flight, and `TestClock` wherever it must know a bound — a sleep proves neither.
 
-> **Example status — Runnable in Vitest:** all three pass on `rc.115` with `@effect/vitest`.
+> **Example status — Runnable in Vitest:** all three pass on `rc.116` with `@effect/vitest`.
 
 ```ts
 import { assert, it } from "@effect/vitest"
@@ -430,7 +430,7 @@ it.effect("drains for at most the bound, then interrupts survivors before the po
   }))
 ```
 
-Paths worth a test each: success, typed failure, defect, and interruption of a request; acquisition failure *before* and *after* another resource succeeded; stop during startup; repeated or concurrent shutdown; drain that finishes early and drain that hits its deadline; a finalizer that fails while later finalizers still run; and a fresh instance after a complete shutdown.
+Give each of these its own test: a request that succeeds, fails with a typed error, dies, or is interrupted; a resource that fails to acquire as the first one and as a later one, after earlier resources are already open; a stop signal that arrives mid-startup; shutdown requested twice, or from two fibers at once; a drain that empties in time and one that runs out its deadline; a failing finalizer followed by finalizers that must still run; and a second instance started once the first has fully shut down.
 
 Recording resources are the cheapest of three fidelities, and each proves less than it seems:
 

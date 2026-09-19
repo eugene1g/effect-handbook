@@ -5,7 +5,7 @@ When a framework that is not Effect owns the request — Express, Hono, a queue 
 ## Contract
 
 - **Classification:** Runnable example; complete `request-cancellation.ts`. No network, no timers longer than 25 ms.
-- **Install:** `pnpm add effect@4.0.0-rc.115`
+- **Install:** `pnpm add effect@4.0.0-rc.116`
 - **Run:** Node 26+: `node request-cancellation.ts`
 - **Before the bridge:** `compBand(employeeId)` is `Effect<string, HrisUnavailable, HrisDirectory>`.
 - **At the bridge:** `runtime.runPromiseExit(effect, { signal })` is `Promise<Exit<string, HrisUnavailable>>`. It never rejects, so the host maps success, interruption, and typed failure to three different responses.
@@ -147,7 +147,7 @@ console.log("host: runtime disposed")
 
 ### The two broken versions
 
-Both were run against `rc.115` by editing one line of the file above:
+Both were run against `rc.116` by editing one line of the file above:
 
 | Dropped hop | Edit | What request 1 prints instead | What it costs |
 | --- | --- | --- | --- |
@@ -173,7 +173,7 @@ The constructor-level mechanics (`Effect.callback`, `Effect.promise`, the run op
 ## Variations
 
 - **The host has no `AbortSignal`.** Node's `http.ServerResponse` (and therefore Express) emits `close` instead. Create one `AbortController` per request, abort it from that listener when `response.writableEnded` is still `false`, and pass `controller.signal` as the run option — the same test Effect's own Node server uses. A host deadline is one more abort source: combine them with `AbortSignal.any([...])`, or keep the deadline inside the Effect with `Effect.timeout` so `TestClock` can drive it.
-- **An already-aborted request.** Check `signal.aborted` in the host before calling the runtime. With an aborted signal Effect still starts the fiber and interrupts it at its first asynchronous boundary, so the synchronous prefix runs — and an Effect with no asynchronous step completes normally (probed on `rc.115`).
+- **An already-aborted request.** Check `signal.aborted` in the host before calling the runtime. With an aborted signal Effect still starts the fiber and interrupts it at its first asynchronous boundary, so the synchronous prefix runs — and an Effect with no asynchronous step completes normally (probed on `rc.116`).
 - **The SDK's cancel is itself asynchronous.** Use `Effect.callback` and return the cancel as the cleanup Effect. Interruption awaits that cleanup, so the host's Promise stays pending until the driver confirms — which is what rules out "completed after it was cancelled". `Effect.tryPromise` does not wait: it aborts and moves on.
 - **The host wants a rejection, not an `Exit`.** Keep `runPromise`, but catch at the adapter and test the abort yourself (`signal.aborted`), because the rejection value is an ordinary `Error`, not a `Cause`.
 - **An Effect-native server needs only hop two.** `NodeHttpServer` interrupts the request fiber when the client closes the connection, and `HttpEffect.toWebHandler` listens to `request.signal`. This recipe is for hosts that Effect does not own; see [HTTP Server](../interfaces/http-server#httpeffect).

@@ -2,7 +2,7 @@
 
 Effect's platform layer separates service interfaces (in the core `effect` package, runtime-agnostic) from concrete implementations (provided as a Layer from `@effect/platform-node`, `@effect/platform-bun`, `@effect/platform-deno`, or `@effect/platform-browser`). Business logic imports only from `effect/*`; only the entrypoint imports the platform package. Swapping the Layer swaps the runtime.
 
-> **Official guides:** [Introduction to Effect Platform](https://effect.website/docs/v4/platform/introduction) (its module table lists a `PlatformLogger` that `rc.115` does not ship — the function is `Logger.toFile` — and it routes Deno through `@effect/platform-node`, while `rc.115` also publishes `@effect/platform-deno`). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Effect Platform](https://effect.website/docs/v4/platform/introduction) (its module table lists a `PlatformLogger` that `rc.116` does not ship — the function is `Logger.toFile` — and it routes Deno through `@effect/platform-node`, while `rc.116` also publishes `@effect/platform-deno`). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 Who owns each of these runtimes, and when it is disposed, is a separate question from which Layer implements a service: see [Choosing a host](#choosing-a-host) below and [Owning Lifetimes — Startup, Readiness, and Shutdown](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown).
 
@@ -83,7 +83,7 @@ Official guide: [FileSystem](https://effect.website/docs/v4/platform/file-system
 
 ### Testing without a disk
 
-`FileSystem.layerNoop(partial)` builds a complete service from only the methods the code under test calls (`FileSystem.makeNoop(partial)` is the same object without the Layer, for `Effect.provideService`). **A forgotten override is loud, not silent:** on `rc.115` most defaults fail with a typed `PlatformError` whose reason is `NotFound`; `makeDirectory` and the `makeTemp*` family die with `not implemented`; only `exists` (answers `false`) and `remove` (succeeds) are quiet.
+`FileSystem.layerNoop(partial)` builds a complete service from only the methods the code under test calls (`FileSystem.makeNoop(partial)` is the same object without the Layer, for `Effect.provideService`). **A forgotten override is loud, not silent:** on `rc.116` most defaults fail with a typed `PlatformError` whose reason is `NotFound`; `makeDirectory` and the `makeTemp*` family die with `not implemented`; only `exists` (answers `false`) and `remove` (succeeds) are quiet.
 
 ```ts
 import { Effect, FileSystem } from "effect"
@@ -235,7 +235,7 @@ When to use: streaming CLI tools, stdin byte processing, or typed argv access wi
 
 `effect/Crypto` — stable
 
-Platform-agnostic cryptographic primitives backed by the host's secure RNG: `randomBytes`, `digest` (SHA-1/256/384/512), `randomUUIDv4`, `randomUUIDv7`, `randomInt`, `randomBetween`, `randomIntBetween`, `randomBoolean`, `randomShuffle`. Sync-named variants are still `Effect`s — call with `yield*`.
+Platform-agnostic cryptographic primitives backed by the host's secure RNG: `randomBytes`, `digest` (SHA-1/256/384/512), `randomUUIDv4`, `randomUUIDv7`, `randomULID`, `randomInt`, `randomBetween`, `randomIntBetween`, `randomBoolean`, `randomShuffle`. Sync-named variants are still `Effect`s — call with `yield*`.
 
 Mental model: CSPRNG-backed replacement for `Math.random()` and `crypto.randomUUID()`, injected through a service. Provide a deterministic fake via `Crypto.make` for testing.
 
@@ -267,6 +267,8 @@ const program = hashNationalId("emp-001", "123-45-6789").pipe(
   Effect.provide(NodeServices.layer)
 )
 ```
+
+`crypto.randomULID` (`rc.116`) returns a 26-character, uppercase Crockford base32 ULID: 10 characters of millisecond timestamp from the current `Clock`, then 80 secure random bits. ULIDs sort by creation time across milliseconds, with no ordering within one millisecond, and because the timestamp comes from `Clock`, a `TestClock` pins the prefix in tests. Reach for it when an identifier must be time-sortable and shorter than a UUID in URLs or file names (payroll-run exports, say); `randomUUIDv7` gives the same ordering in a `uuid` column.
 
 When to use: secure randomness, UUIDs, or hashing inside an Effect with testable, non-global injection.
 
@@ -403,6 +405,22 @@ NetAddress.formatUrlHost(hris.address)  // "[2001:db8::1]"
 // Allow-list an outbound webhook target by CIDR membership, not by string prefix.
 const internalRange = IpNetwork.fromStringUnsafe("10.20.0.0/16")
 const isInternal = IpNetwork.contains(internalRange, payrollHost) // true
+```
+
+Some socket APIs take the host and the port separately (`node:net`'s `{ host, port }`, a driver's `host` field). `formatHost(address)` (`rc.116`) renders only the numeric host, without brackets or port, and keeps a nonzero IPv6 scope ID as a `%` suffix. The reverse, `inetAddressFromHostString(host, port, scopeIds?)`, parses an unbracketed numeric host plus a port into an `InetAddress` and returns a `Result`; a hostname such as `payroll.internal` is a failure, because this module never resolves DNS. A **named** IPv6 zone (`fe80::1%en0`) needs a map from interface name to numeric scope ID, which `scopeIdsFromInterfaces(Object.entries(os.networkInterfaces()))` builds from entries you supply; numeric zones need no map, and an unknown name fails with `unknown IPv6 interface`.
+
+```ts
+import { Result } from "effect"
+import { NetAddress } from "effect/unstable/net"
+import { networkInterfaces } from "node:os"
+
+// A payroll relay configured with `host` and `port` as separate settings.
+const scopeIds = NetAddress.scopeIdsFromInterfaces(Object.entries(networkInterfaces()))
+const relay = NetAddress.inetAddressFromHostString("fe80::1%lo0", 8443, scopeIds)
+if (Result.isSuccess(relay)) {
+  NetAddress.formatHost(relay.success) // "fe80::1%1" (lo0's scope ID on this host)
+  NetAddress.formatInet(relay.success) // "[fe80::1%1]:8443"
+}
 ```
 
 `Schema` ships matching codecs — `Schema.IpAddressFromString`, `Schema.InetAddressFromString`, `Schema.MacAddressFromString`, `Schema.SocketAddress`, and the v4/v6-specific variants — so a config value or request field decodes straight to an address. Migration: replace reads of a server address's old `hostname` with `NetAddress.formatIp(address.address)`, and use `address.path` for Unix sockets. Bun and Deno HTTP server layers can now fail with `ServeError` when the listener address cannot be converted.
@@ -546,7 +564,7 @@ const prodExportCmd = ChildProcess.make("payroll-cli", ["export"]).pipe(
 )
 ```
 
-`make` also has a template-literal form, with or without options first. **Interpolations are arguments, never shell text:** each interpolated value becomes exactly one argument (an array becomes several), so untrusted input cannot inject a command; the literal part is split on whitespace only, so quotes are *not* parsed — put anything containing a space in an interpolation (probed on `rc.115`; `rc.113` also fixed the template form losing the arguments that followed an astral-Unicode escape).
+`make` also has a template-literal form, with or without options first. **Interpolations are arguments, never shell text:** each interpolated value becomes exactly one argument (an array becomes several), so untrusted input cannot inject a command; the literal part is split on whitespace only, so quotes are *not* parsed — put anything containing a space in an interpolation (probed on `rc.116`; `rc.113` also fixed the template form losing the arguments that followed an astral-Unicode escape).
 
 ```ts
 import { ChildProcess } from "effect/unstable/process"
@@ -575,7 +593,7 @@ Key APIs: spawner.string(cmd), spawner.lines(cmd), spawner.spawn(cmd)
 
 Platform implementations: `NodeServices.layer` includes `NodeChildProcessSpawner.layer`; Bun uses `BunServices.layer`.
 
-**Termination waits, and only `forceKillAfter` bounds it.** On Node and Bun, closing the scope around `spawn` (or calling `handle.kill(options?)`) signals the child's whole *process group* with `killSignal` (default `SIGTERM`), then waits for the leader to exit and up to one more second for descendants to disappear. Nothing escalates by default, so a child that ignores `SIGTERM` holds the scope — and therefore your shutdown — open until it exits by itself (probed: a `trap '' TERM; sleep 4` child delayed release by the remaining four seconds). Set `forceKillAfter` on the command (or pass it to `kill`) to send `SIGKILL` to the group at that deadline; the probe then released in 300 ms. The waits use native timers rather than the Effect `Clock`, so they elapse under `TestClock` without `adjust`. On Windows the tree is ended with `taskkill /T /F` and only the leader is awaited; the Deno adapter differs again (see [Platform packages](#platform-packages)).
+**Termination waits, and only `forceKillAfter` bounds it.** On Node and Bun, closing the scope around `spawn` (or calling `handle.kill(options?)`) signals the child's whole *process group* with `killSignal` (default `SIGTERM`), then waits for the leader to exit and up to one more second for descendants to disappear. Nothing escalates by default, so a child that ignores `SIGTERM` holds the scope — and therefore your shutdown — open until it exits by itself (probed: a `trap '' TERM; sleep 4` child delayed release by the remaining four seconds). Set `forceKillAfter` on the command (or pass it to `kill`) to send `SIGKILL` to the group at that deadline; the probe then released in 300 ms. The waits use native timers rather than the Effect `Clock`, so they elapse under `TestClock` without `adjust`. Since `rc.116` the Node and Bun spawners also clean up the group when the leader has already exited, successfully or by a signal, before the scope closes: a grandchild the command left running in the background (`sh -c 'sleep 47 & exit 0'` in the probe) is gone once the scope closes. That cleanup targets a numeric process-group ID, so if the group disappears and the operating system reuses its ID first, an unrelated group can be signalled. On Windows the tree is ended with `taskkill /T /F` and only the leader is awaited; the Deno adapter differs again (see [Platform packages](#platform-packages)).
 
 ```ts
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -735,7 +753,7 @@ A platform Layer says *how* a capability is implemented. The host decides someth
 - **Edge isolates may forbid timers at module scope.** Since `rc.113` the default scheduler falls back to a microtask when setting a timer throws (Cloudflare Workers' global scope), so an Effect run at module load no longer crashes there. A module-level `ManagedRuntime` amortizes acquisition across invocations of a reused isolate, but it must not capture request data and must not assume disposal runs.
 - **Platform-specific defaults follow the host.** `Logger.consolePretty()` detects TTY versus browser rendering; pin one with `Logger.consolePrettyTty` or `Logger.consolePrettyBrowser`. `Logger.toFile` writes through the `FileSystem` service, so it needs a platform Layer in scope (both in [Observability](../operations/observability#logger)).
 
-Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime) (it gives the exit code as only `0` or `1` and names only SIGINT; `rc.115` also uses `130` and handles SIGTERM). Recipes: [a graceful Node entrypoint](../recipes/graceful-entrypoint-and-shutdown), [ManagedRuntime at an imperative boundary](../recipes/managed-runtime-integration), and [request cancellation through a host](../recipes/request-cancellation-through-a-host).
+Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime) (it gives the exit code as only `0` or `1` and names only SIGINT; `rc.116` also uses `130` and handles SIGTERM). Recipes: [a graceful Node entrypoint](../recipes/graceful-entrypoint-and-shutdown), [ManagedRuntime at an imperative boundary](../recipes/managed-runtime-integration), and [request cancellation through a host](../recipes/request-cancellation-through-a-host).
 
 ### Keep platform and unstable imports behind a capability
 

@@ -2,9 +2,9 @@
 
 Effect's test services make time, console output, randomness, and dependencies deterministic; `@effect/vitest` integrates those services with a test runner. The repository's documentation tools then compile and validate examples so docs can be treated like code rather than inert prose.
 
-> **Official companions:** Browse the release-matched authored [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src) for executable examples across Effect. [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.115/LLMS.md) is its generated single-file aggregate and begins with Effect's coding conventions.
+> **Official companions:** Browse the release-matched authored [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src) for executable examples across Effect. [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/LLMS.md) is its generated single-file aggregate and begins with Effect's coding conventions.
 
-> **Official guides:** [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 **Pick the tool by the claim you need to prove.** Each row is evidence for one kind of statement and for nothing beyond it; [Testing an Effect Application](../deep-dives/testing-an-effect-application) turns the table into a full strategy.
 
@@ -259,7 +259,7 @@ const _ = [samples, report]
 
 Generation is **size-scaled**. `size` is a local complexity budget that a check grows toward as runs complete, and at the default an *unconstrained* `Schema.Int` stays within roughly ±100 and an unconstrained `Schema.String` within about ten characters. Explicit Schema bounds are always honored regardless of size. So if a bug only appears for large values, say so in the schema (`isBetween`, `isMinLength`) or raise `size` — more `runs` alone will not reach it.
 
-Three rules keep properties trustworthy. Treat generated values as **immutable** — the runner does not clone them, so mutation corrupts shrinking and replay. Make the property **deterministic for a given input**, because it may be evaluated repeatedly; a stateful property should acquire and release its own fixture inside each evaluation. And record a failure as an **explicit regression test**: a `replay` token reproduces the current failure, but it is an unstable-module artifact that is not guaranteed across upgrades, and it is unrelated to fast-check seeds and paths.
+Three rules keep properties trustworthy. Treat generated values as **immutable** — the runner does not clone them, so mutation corrupts shrinking and replay. Make the property **deterministic for a given input**, because it may be evaluated repeatedly; a stateful property should acquire and release its own fixture inside each evaluation. And record a failure as an **explicit regression test**: a `replay` token reproduces the current failure, but it is an unstable-module artifact that is not guaranteed across upgrades, and it is unrelated to fast-check seeds and paths. `rc.116` changed it in practice: better shrinking (arrays also drop prefixes and interior blocks, composed values keep candidates they used to lose) and wider `BigInt`/`BigDecimal` generation (wider magnitude, precision, and exponent coverage, with shrinking toward numeric boundaries) mean shrunk results and replay paths can differ from `rc.115`, so re-record any saved replay token.
 
 When a custom `Schema.declare`/`instanceOf` type is opaque to derivation, annotate it with `toCodecArbitrary` (a `Schema.link` to a generatable representation) — but first check whether it already has a `toCodecJson`/`toCodec`, which derivation falls back to automatically. A selective custom filter can contribute an `arbitraryConstraint` (for example `{ order: Order.Number, minimum: 0, exclusiveMinimum: true }`) so generation constructs valid values instead of discarding invalid ones; the predicate stays authoritative.
 
@@ -308,8 +308,26 @@ const _ = [grantShares, bandAndSalary, fuzzInputs, validPayloads]
 ```
 
 - **Reach for a custom `shrink` only when the derived counterexample is not meaningful in the domain.** The callback returns the immediate simplifications of a failing value; every candidate is re-validated against the schema, invalid ones are skipped and still count against `maxShrinks`, and the function must be synchronous, deterministic, terminating, and free of mutation. It replaces derived shrinking rather than refining it: for the property `shares < 1_000` over this schema, the derived shrinker reports the exact boundary `1000`, while the halving shrinker above stops at `1953`.
-- **Derivation is eager; discards are lazy.** `Arbitrary.schema` throws at the call site when it cannot build a generator — `Schema.Never`, contradictory bounds such as `isBetween({ minimum: 10, maximum: 5 })`, a declaration without a generatable representation, or a recursive schema with no finite path. A generator that *can* be built but rejects too many candidates fails later, as `Exhausted` from `checkEffect` or `SampleError` from `sampleEffect`. The first is a schema problem; the second is a filter problem.
+- **Derivation is eager; discards are lazy.** `Arbitrary.schema` throws at the call site when it cannot build a generator — a bare `Schema.Never`, contradictory bounds such as `isBetween({ minimum: 10, maximum: 5 })`, a declaration without a generatable representation, or a recursive schema with no finite path. Since `rc.116`, `Never` nested where another finite path exists is treated as an uninhabited branch instead of an error: `Schema.optionalKey(Schema.Never)` leaves the key out, `Schema.Union([Schema.Never, S])` generates `S`, and `Schema.Array(Schema.Never)` generates `[]`. A generator that *can* be built but rejects too many candidates fails later, as `Exhausted` from `checkEffect` or `SampleError` from `sampleEffect`. The first is a schema problem; the second is a filter problem.
 - **`size` is local, not global.** Every unconstrained string, collection, and object property observes the same size independently, so a wide struct still produces a large value at a small size; recursive branches share one recursion allowance.
+
+**Sequences of custom values use `Arbitrary.array(item, { minLength?, maxLength? })`** (new in `rc.116`). It shrinks by removing blocks, including prefixes and interior runs, while keeping the order and values of what remains, then shrinks individual elements, which suits command sequences for state-machine properties. Invalid length bounds throw a `RangeError` at the call. Probed on `rc.116`, this approval-workflow property is falsified with the minimal history `["Reject", "Approve"]`:
+
+```ts
+import { Effect, Schema } from "effect"
+import { Arbitrary } from "effect/unstable/arbitrary"
+
+const reviewAction = Arbitrary.schema(Schema.Literals(["Approve", "Reject", "Reopen"]))
+const reviewHistory = Arbitrary.array(reviewAction, { minLength: 1, maxLength: 20 })
+
+// Property: once a raise is rejected, no later action approves it.
+const rejectionSticks = Arbitrary.checkEffect(reviewHistory, (actions) => {
+  const rejected = actions.indexOf("Reject")
+  return rejected === -1 || !actions.slice(rejected + 1).includes("Approve")
+}, { runs: 100, seed: 0 })
+
+const _ = Effect.map(rejectionSticks, (result) => result._tag)
+```
 
 ### What a derived generator cannot test
 
@@ -362,11 +380,11 @@ it.effect.prop(
 
 `prop` accepts either an array of schemas/arbitraries (positional) or an object record (named destructuring). Prefer a constructive check such as `Schema.isBetween` over an opaque `Schema.makeFilter` predicate for generated domains: an opaque filter works, but only as a bounded residual filter that can exhaust its discard budget.
 
-> **Migrating from the fast-check bridge:** replace `Schema.toArbitrary(schema)(FastCheck)` with `Arbitrary.schema(schema)`; `FastCheck.sample` with `Arbitrary.sampleEffect` (`numRuns` → `count`); `FastCheck.assert(FastCheck.property(...))` with `Arbitrary.checkEffect` and handle the result (`numRuns` → `runs`, `path` → `replay`, `maxSkipsPerRun` → `maxDiscards`, `endOnFailure` → `maxShrinks: 0`); and `{ fastCheck: { numRuns } }` with `{ arbitrary: { runs } }`. Raw fast-check arbitraries are no longer accepted by `@effect/vitest`. Seeds, distributions, and shrink results are not compatible, so re-record any saved failure. If a test truly needs fast-check, install it yourself and use it directly with Vitest. Effect's release-matched [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.115/packages/effect/ARBITRARY.md) and [migration guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.115/packages/effect/ARBITRARY-MIGRATION.md) go deeper.
+> **Migrating from the fast-check bridge:** replace `Schema.toArbitrary(schema)(FastCheck)` with `Arbitrary.schema(schema)`; `FastCheck.sample` with `Arbitrary.sampleEffect` (`numRuns` → `count`); `FastCheck.assert(FastCheck.property(...))` with `Arbitrary.checkEffect` and handle the result (`numRuns` → `runs`, `path` → `replay`, `maxSkipsPerRun` → `maxDiscards`, `endOnFailure` → `maxShrinks: 0`); and `{ fastCheck: { numRuns } }` with `{ arbitrary: { runs } }`. Raw fast-check arbitraries are no longer accepted by `@effect/vitest`. Seeds, distributions, and shrink results are not compatible, so re-record any saved failure. If a test truly needs fast-check, install it yourself and use it directly with Vitest. Effect's release-matched [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/packages/effect/ARBITRARY.md) goes deeper.
 
 Use when testing pure transformations, codecs, data-structure invariants, or any function where the claim is "this holds for all valid inputs."
 
-Official guide: [Schema to Arbitrary](https://effect.website/docs/v4/schema/arbitrary) (its `checkEffect` option list is shorter than `rc.115`'s, which also accepts `size`, `maxDiscards`, and `maxShrinks`).
+Official guide: [Schema to Arbitrary](https://effect.website/docs/v4/schema/arbitrary) (its `checkEffect` option list is shorter than `rc.116`'s, which also accepts `size`, `maxDiscards`, and `maxShrinks`).
 
 ## TestSchema
 

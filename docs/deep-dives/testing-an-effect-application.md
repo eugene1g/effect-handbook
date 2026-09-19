@@ -1,6 +1,6 @@
 # Testing an Effect Application
 
-> Audited **2026-09-18** against `effect@4.0.0-rc.115`. This guide uses `@effect/vitest@4.0.0-rc.115`, Vitest 5, TypeScript 7 strict mode, and the test services shipped by the same Effect release.
+> Audited **2026-09-19** against `effect@4.0.0-rc.116`. This guide uses `@effect/vitest@4.0.0-rc.116`, Vitest 5, TypeScript 7 strict mode, and the test services shipped by the same Effect release.
 
 An Effect test should exercise the same program description as production while replacing only its boundary Layers. That means testing values, typed failures, required services, time, interruption, and resource lifetime without putting `runPromise`, global mocks, or real sleeps inside application code.
 
@@ -15,7 +15,7 @@ A test is an argument, and an argument has a conclusion and a scope. Before writ
 | Question | Example answer for "a conflict stops the notification" |
 | --- | --- |
 | **Claim** — which observable invariant? | when `save` fails with `ApprovalConflict`, `send` is never called |
-| **Boundary** — pure, service, real adapter, or built artifact? | service: `ApprovalService.layer` over two replaced boundaries |
+| **Boundary** — a pure function, a service, a real adapter, or the packaged build? | service: `ApprovalService.layer` over two replaced boundaries |
 | **Channels** — which of success, typed failure, defect, interruption, cleanup matter? | typed failure only; a defect must *fail* this test, not satisfy it |
 | **Replaced vs live** — which requirements are fakes? | `ApprovalRepo` and `ApprovalNotifier` are fakes; nothing is live |
 | **Owners** — who owns scopes, fibers, ports? | the per-test `Scope` from `it.effect`; no fibers, no ports |
@@ -558,7 +558,7 @@ it.effect("interrupting a child runs its finalizer", () =>
 
 For scoped services, test through the Layer that owns the resource. `it.effect` already supplies a test Scope; adding `Effect.scoped` around the whole test changes the lifecycle being tested and is normally unnecessary.
 
-Two `rc.115` guarantees are worth a test of their own when a resource matters. A `use` callback that *throws synchronously* — before it returns an Effect — still triggers the release, and the exception stays a defect (`rc.113`). And when the body fails *and* the finalizer fails, the resulting `Cause` keeps both reasons — for example a `Fail` and a `Die` — instead of letting the cleanup failure replace the original one (`rc.111`), so assert on the reason you care about with `Cause.hasFails` or `Exit.findErrorOption`, not on "the" error.
+Two `rc.116` guarantees are worth a test of their own when a resource matters. A `use` callback that *throws synchronously* — before it returns an Effect — still triggers the release, and the exception stays a defect (`rc.113`). And when the body fails *and* the finalizer fails, the resulting `Cause` keeps both reasons — for example a `Fail` and a `Die` — instead of letting the cleanup failure replace the original one (`rc.111`), so assert on the reason you care about with `Cause.hasFails` or `Exit.findErrorOption`, not on "the" error.
 
 ### Test lifetimes, not just values
 
@@ -919,7 +919,7 @@ An adapter test is only evidence if its fixture is real, isolated, and honest ab
 | **Close the `Scope` before removing the external fixture.** | Dropping a database under open connections turns teardown errors into noise that hides real ones. |
 | **Never swallow a cleanup failure.** | A fixture that cannot be removed is tomorrow's flake; fail loudly now. |
 | **Keep logs and diagnostics when a test fails.** | The container log is usually the only explanation for a readiness timeout. |
-| **Never point tests at a developer's default database or a live account.** | The suite must be safe to run anywhere, by anyone, repeatedly. |
+| **Give every test its own disposable database and credentials.** | A suite that can reach someone's working database or a production account is not safe to run on any machine, repeatedly. |
 | **Required infrastructure that is unavailable fails the lane** or marks it visibly incomplete. | A silent skip reports green with zero evidence. |
 | **Build the block on the live clock.** | Real drivers and readiness probes do not advance with `TestClock` — see [Choose isolation deliberately](#choose-isolation-deliberately). |
 
@@ -973,7 +973,7 @@ A suite can be entirely green and entirely uninformative. Audit for these before
 | a broad mock presented as adapter evidence | the adapter has at least one test against a real fixture |
 | a typed client that cannot express malformed wire input | raw-request tests below the typed client for decode failures |
 | an integration suite that skips itself when a dependency is missing | required lanes fail when the dependency is absent; skipped counts are reported and reviewed |
-| source-level tests while the shipped artifact is never launched | the built-artifact lane above |
+| every test imports source files, and nothing ever starts the packaged build | the built-artifact lane above |
 | shared mutable Layer state under concurrent tests | per-test Layers, or state designed for interleaving |
 | real sleeps, polling loops, oversized timeouts, blanket retries | `TestClock`, handshakes, and the flake protocol below |
 | snapshots of whole `Cause`s, stacks, or rendered messages | structural assertions on `_tag` and fields |

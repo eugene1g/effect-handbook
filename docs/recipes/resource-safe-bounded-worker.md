@@ -5,7 +5,7 @@ Use a bounded Queue for producer backpressure, a fixed number of supervised cons
 ## Contract
 
 - **Classification:** Runnable example; complete `bounded-worker.ts`.
-- **Install:** `pnpm add effect@4.0.0-rc.115`
+- **Install:** `pnpm add effect@4.0.0-rc.116`
 - **Run:** Node 26+: `node bounded-worker.ts`
 - **Expected output:** `{"results":[2,4,6,8,10],"released":5,"maxActive":2}`.
 - **Program type:** `Effect<Summary, never, never>`.

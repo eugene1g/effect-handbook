@@ -2,7 +2,7 @@
 
 Effect provides fiber-safe shared-state types (`Ref`, `SynchronizedRef`, `SubscriptionRef`) and unsynchronised in-place data structures (`MutableRef`, `MutableList`, `MutableHashMap`, `MutableHashSet`) for hot paths where Effect overhead is undesirable.
 
-> **Official guides:** [Ref](https://effect.website/docs/v4/state-management/ref); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Ref](https://effect.website/docs/v4/state-management/ref); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Ref
 
@@ -93,7 +93,7 @@ const lostUpdates = Effect.gen(function*() {
 
 - **Store immutable snapshots.** A `Ref` protects the *cell*, not the object inside it. For a `Map`, array, or record, build a new value and install it in one `update` (`(m) => new Map(m).set(dept, bps)`); mutating the stored object in place bypasses the atomic transition and changes values other fibers already read.
 - **Updaters are pure, synchronous functions.** The moment the next state needs an Effect (a fetch, a decode, a log), move to `SynchronizedRef` rather than reading, running the effect, and writing back.
-- **A `Ref` is a handle, not an Effect.** `yield* ref` does not type-check in `rc.115`, and the same holds for `SynchronizedRef`, `SubscriptionRef`, `TxRef`, `Deferred`, `Queue`, and `Fiber` handles. Yield the operation on the handle — `Ref.get(ref)`, `Deferred.await(deferred)`, `Fiber.join(fiber)` — not the handle itself.
+- **A `Ref` is a handle, not an Effect.** `yield* ref` does not type-check in `rc.116`, and the same holds for `SynchronizedRef`, `SubscriptionRef`, `TxRef`, `Deferred`, `Queue`, and `Fiber` handles. Yield the operation on the handle — `Ref.get(ref)`, `Deferred.await(deferred)`, `Fiber.join(fiber)` — not the handle itself.
 
 ### Sharing one Ref through a service
 

@@ -1,12 +1,12 @@
 # Adopting Effect in an Existing TypeScript Codebase
 
-Audited against `effect@4.0.0-rc.115` and the matching Effect repository source on 2026-09-18.
+Audited against `effect@4.0.0-rc.116` and the matching Effect repository source on 2026-09-19.
 
 Most teams do not get to start over. They have a Promise-based service that works, callers that depend on its exact shape, and a list of production incidents that all sound alike: a request nobody could cancel, a failure nobody could tell apart from another failure, a batch job that opened four hundred connections. This guide takes one such service from a compensation platform and moves it to Effect without a rewrite, one verifiable step at a time.
 
 [Anatomy of a Real Effect Application](anatomy-of-a-real-effect-application) describes the destination. This page is the path. For the mechanics it relies on, see [Core Runtime & Execution](../foundations/core-runtime-execution), [Recipe: ManagedRuntime at an Imperative Boundary](../recipes/managed-runtime-integration), [Recipe: Request Cancellation Through a Host](../recipes/request-cancellation-through-a-host), and [Testing an Effect Application](testing-an-effect-application).
 
-> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; in `rc.115` the type is `Fiber`), [Managing Services](https://effect.website/docs/v4/requirements-management/services), [Runtime](https://effect.website/docs/v4/runtime). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; in `rc.116` the type is `Fiber`), [Managing Services](https://effect.website/docs/v4/requirements-management/services), [Runtime](https://effect.website/docs/v4/runtime). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 The route: audit what the signatures do not say, pin today's behavior, freeze the external contract, migrate leaf-first behind it, keep exactly one seam where Promise meets Effect, make adapters cancellable before adding policy, take the first testing win with `Effect.provideService`, graduate to Layers, then bound the fan-out and decide when you are done.
 

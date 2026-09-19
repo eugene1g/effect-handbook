@@ -2,9 +2,9 @@
 
 Effect v4 rebuilt Schema around a single `Codec` abstraction: a two-way, validating, possibly-effectful bridge between two TypeScript types. `Type` is the decoded, in-memory value; `Encoded` is the wire/storage shape. `decode` goes Encoded → Type (with validation); `encode` goes Type → Encoded. `Schema.String` is the degenerate case (both sides `string`); `Schema.FiniteFromString` (`Encoded = string`, `Type = number`) is the usual numeric boundary. Satellite modules — `SchemaParser`, `SchemaIssue`, `SchemaGetter`, `SchemaTransformation`, `SchemaRepresentation` — are the implementation; `Schema` is the interface.
 
-> **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.115/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
+> **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
 >
-> **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings predate `rc.113`); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings predate `rc.113`); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Schema
 
@@ -66,7 +66,7 @@ Effect.runPromise(Schema.encodeUnknownEffect(SalaryFromString)(192400)).then(con
 
 Per-call behavior — excess keys, error accumulation, concurrency, rejected-input reporting — is covered in [Parse options are boundary policy](#14-parse-options-are-boundary-policy).
 
-Official guide: [Getting Started](https://effect.website/docs/v4/schema/getting-started) (its `"preserve"`, `propertyOrder`, and `parseOptions`-annotation passages do not apply to `rc.115`).
+Official guide: [Getting Started](https://effect.website/docs/v4/schema/getting-started) (its `"preserve"`, `propertyOrder`, and `parseOptions`-annotation passages do not apply to `rc.116`).
 
 ### 2. Type vs Encoded — the distinction that runs everything
 
@@ -279,7 +279,7 @@ const PayComponents = Schema.Record(Schema.Literals(["base", "bonus"]), Schema.F
 
 Also available: `Schema.NonEmptyArray(item)` (infers `readonly [A, ...A[]]`), `Schema.ArrayEnsure(item)` (a single value or an array decodes to an array; a one-element array encodes back to the single value), `Schema.UniqueSymbol(sym)`, `Schema.Enum(TsEnum)` (exposes `.enums`; rejects non-finite numeric members), `Schema.JsonObject` (a string-keyed record of `Schema.Json` values — arrays and non-JSON leaves such as `Date` fail), and the primitives `BigInt`, `Symbol`, `ObjectKeyword`, `Any`, `Unknown`, `Never`, `Null`. Schema values keep their parts public — `.fields`, `.members`, `.elements`, `.rest`, `.literals`, `.key` / `.value`, `.schema` — so they can be recombined. `Schema.Literal(0)` and `Schema.Literal(-0)` each accept either signed zero and preserve the input's sign; add a transformation when a canonical sign matters.
 
-Official guide: [Basic Usage](https://effect.website/docs/v4/schema/basic-usage) (its "Transforming Keys" passage is stale: `rc.115` records accept transformed key schemas).
+Official guide: [Basic Usage](https://effect.website/docs/v4/schema/basic-usage) (its "Transforming Keys" passage is stale: `rc.116` records accept transformed key schemas).
 
 ### 5. Refinements — `check` and `refine`
 
@@ -606,7 +606,7 @@ Equal.equals(decoded, new LevelBand({ min: 150_000, max: 210_000, level: 5 })) /
 | round trip under a stated equivalence | use `Equal.equals` or `Schema.toEquivalence`, never `===` |
 | the JSON form | `JSON.stringify(instance)` is not the codec; derive `Schema.toCodecJson(Class)` |
 
-Official guide: [Class APIs](https://effect.website/docs/v4/schema/classes) (its sample output for a failing `new` shows formatted issue text; `rc.115` throws the generic message described in section 13).
+Official guide: [Class APIs](https://effect.website/docs/v4/schema/classes) (its sample output for a failing `new` shows formatted issue text; `rc.116` throws the generic message described in section 13).
 
 ### 10. Annotations and derivations
 
@@ -680,7 +680,7 @@ const auditLine = Schema.toFormatter(Employee, {
 auditLine({ id: 1, displayName: "Ada" }) // { "id": 1, "displayName": <masked> }
 ```
 
-Official guides: [Schema Annotations](https://effect.website/docs/v4/schema/annotations) (its `parseOptions` annotation row and its claim that `concurrency` reaches union members are obsolete in `rc.115`), [Schema to Equivalence](https://effect.website/docs/v4/schema/equivalence), [Schema to Formatter](https://effect.website/docs/v4/schema/formatter).
+Official guides: [Schema Annotations](https://effect.website/docs/v4/schema/annotations) (its `parseOptions` annotation row and its claim that `concurrency` reaches union members are obsolete in `rc.116`), [Schema to Equivalence](https://effect.website/docs/v4/schema/equivalence), [Schema to Formatter](https://effect.website/docs/v4/schema/formatter).
 
 ### 11. Serialization codecs
 
@@ -827,7 +827,7 @@ Level.make(42, { disableChecks: true }) // 42 — a deliberate hole
 
 **Deliberate fallbacks.** `SchemaParser.makeOption(schema)` is the standalone form of `.makeOption(...)`. `Schema.catchDecoding` can replace a decoding failure with an effectful `Option` fallback; `catchDecodingWithContext` may additionally require services. These middlewares intentionally weaken a boundary, so reserve them for an explicit compatibility/defaulting policy rather than hiding malformed input.
 
-Official guide: [Default Constructors](https://effect.website/docs/v4/schema/default-constructors) (it types `makeEffect` as failing with `SchemaError` and prints formatted text for a throwing `make`; `rc.115` behaves as the table above says).
+Official guide: [Default Constructors](https://effect.website/docs/v4/schema/default-constructors) (it types `makeEffect` as failing with `SchemaError` and prints formatted text for a throwing `make`; `rc.116` behaves as the table above says).
 
 ### 14. Parse options are boundary policy
 
@@ -931,7 +931,7 @@ Schema.decodeUnknownSync(MeritBudgetsJson)([["eng", "100"]]) // HashMap with "en
 | --- | --- |
 | `Schema.Option(A)` | `{ _tag: "None" }` or `{ _tag: "Some", value }` |
 | `Schema.Result(A, E)` | `{ _tag: "Success", success }` or `{ _tag: "Failure", failure }` |
-| `Schema.Exit(A, E, D)` | `{ _tag: "Success", value }` or `{ _tag: "Failure", cause: [...] }`, where `cause` is a flat array of reasons such as `{ _tag: "Fail", error }` and `{ _tag: "Die", defect }`; `Schema.Defect()` revives error-like defects as `{ name, message }` |
+| `Schema.Exit(A, E, D)` | `{ _tag: "Success", value }` or `{ _tag: "Failure", cause: [...] }`, where `cause` is a flat array of reasons such as `{ _tag: "Fail", error }` and `{ _tag: "Die", defect }`; `Schema.Defect()` revives error-like defects as `{ name, message }`. Since `rc.116`, `Schema.Cause` encodes each reason to exactly these wire fields, so strict encoding (`onExcessProperty: "error"`) yields the same output |
 | `ReadonlySet` / `HashSet` | array of items |
 | `ReadonlyMap` / `HashMap` | array of `[key, value]` entries |
 | `Schema.Duration` | `{ _tag: "Millis", value }`, `{ _tag: "Nanos", value: "<digits>" }`, or an infinity tag, so infinite and sub-millisecond durations survive |
@@ -951,7 +951,7 @@ The general lesson: when the encoded carrier is narrower than the `Type`, either
 
 | Area | Schemas | Notes |
 | --- | --- | --- |
-| Secrets | `Schema.Redacted(S, { label?, disallowJsonEncode? })`, `Schema.RedactedFromValue(S, { label?, disallowEncode? })` | the first expects a `Redacted` on both sides; the second decodes a raw value and wraps it. The "refuse to encode" option is spelled differently on each |
+| Secrets | `Schema.Redacted(S, { label?, disallowJsonEncode? })`, `Schema.RedactedFromValue(S, { label?, disallowEncode? })` | the first expects a `Redacted` on both sides and, since `rc.116`, rewraps the inner schema's transformed result (`Schema.Redacted(Schema.NumberFromString)` decodes a `Redacted<string>` to a `Redacted<number>`, keeping the label); the second decodes a raw value and wraps it. The "refuse to encode" option is spelled differently on each |
 | Sizes | `Schema.ByteSize`, `ByteSizeFromString`, `ByteSizeFromBigInt`, `ByteSizeFromNumber` | the string form requires a unit (`"5 MiB"`) and encodes the exact count as `"5242880 bytes"`; see [ByteSize](functional-toolkit#bytesize) |
 | Graphs | `Schema.Graph("directed" \| "undirected", node, edge)` | immutable [Graph](data-structures#graph) values; derive `toCodecJson` for a `{ type, nodes, edges }` snapshot |
 | Network (unstable) | `Schema.IpAddressFromString`, `Ipv4AddressFromString`, `Ipv6AddressFromString`, `IpNetworkFromString`, `InetAddressFromString`, `MacAddressFromString` | text to `effect/unstable/net` values; malformed text fails with a specific message |
@@ -1086,7 +1086,7 @@ if (SchemaAST.isObjects(ast)) {
 const title = SchemaAST.resolveTitle(Schema.String.annotate({ title: "Name" }).ast)
 ```
 
-> **Note:** Handy AST utilities: `SchemaAST.getAST(schema)` (the node), `toType`/`toEncoded`/`flip` (memoized tree rewrites that power the `Schema`-level functions of the same name), `annotate`/`appendChecks`/`replaceEncoding` (build derived nodes), and `resolveTitle`/`resolveDescription`/`resolveIdentifier` (read annotations). The node classes — `Objects`, `Arrays`, `Union`, `Literal`, `Declaration` — are exported if you need to construct one. Since `rc.113` the `SchemaAST` and `SchemaIssue` nodes, `SchemaGetter.Getter`, and the `SchemaTransformation` models are published as **structural instance interfaces**: `new` and `instanceof` still work, but a constructor's `prototype` is no longer part of the TypeScript API, so name the instance interface (`SchemaAST.AST`, `SchemaGetter.Getter<T, E, R>`) in type positions. `SchemaAST.Base` is gone; accept `SchemaAST.AST` and narrow with the `is*` guards.
+> **Note:** Handy AST utilities: `SchemaAST.getAST(schema)` (the node), `toType`/`toEncoded`/`flip` (memoized tree rewrites that power the `Schema`-level functions of the same name), `annotate`/`appendChecks`/`replaceEncoding` (build derived nodes), and `resolveTitle`/`resolveDescription`/`resolveIdentifier` (read annotations). The node classes — `Objects`, `Arrays`, `Union`, `Literal`, `Declaration` — are exported if you need to construct one. Since `rc.113` the `SchemaAST` and `SchemaIssue` nodes and the `SchemaTransformation` models are published as **structural instance interfaces**: `new` and `instanceof` still work, but a constructor's `prototype` is no longer part of the TypeScript API, so name the instance interface (`SchemaAST.AST`, `SchemaTransformation.Transformation<T, E>`) in type positions. `SchemaGetter.Getter<T, E, R>` is a tagged union with no constructor at all since `rc.116` ([SchemaGetter](#schemagetter)). `SchemaAST.Base` is gone; accept `SchemaAST.AST` and narrow with the `is*` guards. Since `rc.116`, `SchemaAST.Context.constructorDefault` holds the constructor-default `Effect` directly rather than a `SchemaAST.Link`; code that builds or reads a `Context` by hand passes or reads that `Effect`.
 
 **Reach for it when** building tooling on top of schemas: custom JSON-Schema dialects, schema-driven UI generation, schema linters, or any code that reasons about a schema's structure rather than just runs it.
 
@@ -1139,7 +1139,103 @@ Schema.asserts(Rating, input) // throws if not a rating; otherwise narrows
 input.toUpperCase()
 ```
 
+Since `rc.116`, parsers look up each exact AST in a shared decoder registry. By default that entry is the interpreter; [SchemaJITCompiler](#schemajitcompiler) and [SchemaAOTCompiler](#schemaaotcompiler) can install compiled entries whose optional synchronous `decode`, `is`, and `make` fast paths the parser tries first, falling back to the detailed decoder to build the issue when a fast path rejects the input. The `SchemaParser` API and its results stay the same either way.
+
 **Reach for it when** writing a custom `declare` codec and needing to decode/encode inner schemas, or building a low-level tool that wants the raw `Effect<A, Issue>` traversal. Day to day, call through `Schema`.
+
+## SchemaCompiler
+
+`effect/unstable/schema/SchemaCompiler` — unstable (new in `rc.116`)
+
+The shared registry that maps an exact `SchemaAST.AST` to a `CompiledDecoder`: a required `decodeEffect` (complete decoding with detailed issues) plus optional `is`, `decode`, `make`, and `makeEffect` operations. The JIT and AOT compilers are both clients of this registry; `SchemaCompiler.set(ast, decoder)` is the manual entry point, and `SchemaCompiler.invalid` / `SchemaCompiler.missing` are the sentinels a fast path returns for "rejected, ask the detailed decoder" and "no value produced".
+
+**Mental model.** A cache of parser implementations keyed by AST identity, never of parse results. A fast path only has to be right about valid input; everything else is delegated to `decodeEffect`, which produces the issue.
+
+```ts
+import { Effect, Schema, SchemaIssue } from "effect"
+import { SchemaCompiler } from "effect/unstable/schema"
+
+const EmployeeId = Schema.String.check(Schema.isPattern(/^E\d{6}$/))
+
+// A hand-written fast path for a hot identifier check. The decoder is trusted to
+// implement the AST's semantics exactly; decodeEffect supplies the detailed issue.
+SchemaCompiler.set(EmployeeId.ast, {
+  decode: (input) => typeof input === "string" && /^E\d{6}$/.test(input) ? input : SchemaCompiler.invalid,
+  decodeEffect: (input) =>
+    typeof input === "string" && /^E\d{6}$/.test(input)
+      ? Effect.succeed(input)
+      : Effect.fail(new SchemaIssue.InvalidValue({ message: "expected an employee id" }, input))
+})
+```
+
+`set` replaces an earlier entry for the same AST, but parser functions that have already resolved an entry keep it. Type-side (`SchemaAST.toType`) and flipped (`SchemaAST.flip`, used for encoding) ASTs are separate keys.
+
+**Reach for it when** you are writing a compiler or an integration that supplies decoders for specific ASTs. Application code normally goes through `SchemaJITCompiler` or `SchemaAOTCompiler` instead; a hand-written entry that disagrees with its schema silently changes what decodes.
+
+## SchemaJITCompiler
+
+`effect/unstable/schema/SchemaJITCompiler` — unstable (new in `rc.116`)
+
+Generates decoder source for a schema at runtime and installs it through `new Function`. Two entry points: the side-effect import `effect/unstable/schema/SchemaJITCompiler/enable` compiles every schema lazily on first use, and `SchemaJITCompiler.enable(schema.ast)` compiles one schema and its parsing dependencies.
+
+**Mental model.** A drop-in accelerator for the same parser. Operations compile lazily on first use; checks, transformations, and defaults are never executed at installation. Validators, structs, and homogeneous arrays get generated code; most transformations and all middleware still run through the interpreter, with compiled children.
+
+```ts
+import { Schema } from "effect"
+import { SchemaJITCompiler } from "effect/unstable/schema"
+
+const PayrollLine = Schema.Struct({
+  employeeId: Schema.NonEmptyString,
+  grossCents: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  costCenters: Schema.Array(Schema.String)
+})
+
+// Selective: enable before the first decode of this schema anywhere in the process.
+SchemaJITCompiler.enable(PayrollLine.ast)
+
+const decodeLine = Schema.decodeUnknownSync(PayrollLine) // same API, same issues on failure
+
+// Global alternative, as the entrypoint's first import:
+// import "effect/unstable/schema/SchemaJITCompiler/enable"
+```
+
+Probed on `rc.116`, a four-field struct decoded about three times faster with JIT enabled and produced identical results and error messages. Where dynamic function construction is blocked (a Content Security Policy without `'unsafe-eval'`, some edge runtimes), compilation fails silently and parsing stays interpreted: nothing breaks, nothing gets faster. Enable **before first use**: a parser function that has already run keeps its interpreted entry, while one created but not yet called picks up the compiled entry.
+
+**Reach for it when** profiling shows schema decoding on a hot path (high-volume ingestion, large payload arrays) in a runtime that allows `new Function`. Leave it off otherwise; results do not change, only speed.
+
+## SchemaAOTCompiler
+
+`effect/unstable/schema/SchemaAOTCompiler` — unstable (new in `rc.116`)
+
+The build-time twin of the JIT compiler. `SchemaAOTCompiler.compile(targets)` returns the source of a static JavaScript module whose `install(asts)` export registers the generated decoders, so no code is constructed at runtime. The companion entrypoint `effect/unstable/schema/SchemaAOTCompiler/Build` exposes `build(options)`, which loads your schema modules, compiles their **direct** `Schema` exports, and writes a module that installs itself when imported. It needs `FileSystem` and `Path` and fails with `BuildError` or `PlatformError`.
+
+**Mental model.** JIT output frozen into a file. Operations are opt-in per build (`"decode"` by default; add `"encode"`, `"is"`, `"make"`); anything not generated falls back to the interpreter.
+
+```ts
+import { NodeServices } from "@effect/platform-node"
+import { Effect } from "effect"
+import { build } from "effect/unstable/schema/SchemaAOTCompiler/Build"
+
+// A build script: compile the schemas exported by the payroll module.
+declare const loadPayrollSchemas: () => Promise<unknown> // () => import("./payroll/schemas.ts")
+
+const writeAotModule = build({
+  modules: { "./payroll/schemas.ts": loadPayrollSchemas },
+  baseUrl: new URL("../src/", import.meta.url),
+  outFile: "src/generated/schemas.aot.js",
+  operations: ["decode", "encode"]
+}).pipe(
+  Effect.tap(({ schemas }) => Effect.log(`compiled ${schemas} schemas`)),
+  Effect.provide(NodeServices.layer)
+)
+
+// Application entrypoint, before any schema is used:
+// import "./generated/schemas.aot.js"
+```
+
+Probed on `rc.116`: the generated module installed and decoded correctly with `globalThis.Function` blocked, at a speed comparable to JIT. Regenerate the file whenever a schema definition or the Effect version changes; installation trusts that the ASTs match what was compiled. Bundler configurations that mark modules side-effect free must keep the generated import.
+
+**Reach for it when** you want compiled decoders where `new Function` is unavailable (strict CSP, locked-down runtimes) or you want no code generation at startup. It trades a build step and a regenerate-on-change rule for that.
 
 ## SchemaGetter
 
@@ -1147,7 +1243,23 @@ input.toUpperCase()
 
 A `Getter<T, E, R>` is one direction of a conversion: takes an optional encoded value and returns an optional decoded value, possibly failing with an issue or requiring services. Getters are the atoms of the v4 transformation model.
 
-**Mental model.** A validating, possibly-effectful `map` for one leg of a codec. Built-in getters: `transform` (pure map), `transformEffect` (map that can reject or use services; `transformOrFail` before `rc.113`), `forbiddenEncoding` (the encode leg of a decode-only conversion), `transformOptional` (operate on the `Option` of presence — key to optional-field migrations), `checkEffect` (async validation), `passthrough`/`required`/`omit`, and ready-made conversions `String()`, `Number()`, `trim()`, `parseJson()`, `encodeBase64()`.
+**Mental model.** A validating, possibly-effectful `map` for one leg of a codec. Built-in getters: `transform` (pure map), `transformEffect` (map that can reject or use services; `transformOrFail` before `rc.113`), `forbiddenEncoding` (the encode leg of a decode-only conversion), `transformOptional` (operate on the `Option` of presence — key to optional-field migrations), `checkEffect` (async validation), `passthrough`/`required`/`omit`, and ready-made conversions `String()`, `Number()`, `trim()`, `parseJson()`, `encodeBase64()`. When a getter must see a missing value *and* run an Effect, use `transformOptionalEffect((option, parseOptions) => Effect<Option>)`.
+
+**Getters are data, operated on by functions (`rc.116`).** A `Getter` is a tagged union (`Passthrough`, `Transform`, `TransformOptional`, `TransformEffect`, `TransformOptionalEffect`) whose values expose only `pipe`. Chain and run them with the dual functions `SchemaGetter.map`, `SchemaGetter.compose`, and `SchemaGetter.run`; the former `getter.map`, `getter.compose`, and `getter.run` members, the public `new SchemaGetter.Getter(...)` constructor, and `SchemaGetter.onSome` / `onNone` are gone (use `transformEffect` for present values and `transformOptionalEffect` when the missing case matters).
+
+```ts
+import { Effect, Option, SchemaGetter } from "effect"
+
+// Parse a pasted salary, then clamp negatives to zero: two steps, one getter.
+const salaryCents = SchemaGetter.transform((text: string) => Number(text.replaceAll(",", ""))).pipe(
+  SchemaGetter.compose(SchemaGetter.transform((cents: number) => Math.max(0, cents))),
+  SchemaGetter.map(Math.round)
+)
+
+// Run a getter outside a schema (tests, tooling). The result is always an Effect of an Option.
+const decoded = SchemaGetter.run(salaryCents, Option.some("12,500"), {})
+const value = Effect.runSync(decoded) // Option.some(12500)
+```
 
 ```ts
 import { Option, Schema, SchemaGetter } from "effect"
@@ -1227,6 +1339,20 @@ const TitleCased = Schema.String.pipe(
 ```
 
 **Ready-made codecs, so you do not rebuild them:** text — `Schema.Trim`, `StringFromBase64`, `StringFromBase64Url`, `StringFromHex`, `StringFromUriComponent`; numbers — `FiniteFromString`, `NumberFromString`, `BigIntFromString`, `BigDecimalFromString`; bytes — `Uint8ArrayFromBase64`, `Uint8ArrayFromHex`; time and web — `DateFromString`, `DateFromMillis`, `DateTimeUtcFromString`, `DateTimeUtcFromMillis`, `URLFromString`. Case codecs are assembled the way `TitleCased` is above: a checked target (`Schema.isLowercased()`, ...) plus `SchemaTransformation.toLowerCase()`, `toUpperCase()`, `capitalize()`, or `uncapitalize()`; `snakeToCamel()` serves key and identifier conversion.
+
+**Composing and wrapping (`rc.116` names).** Chain two transformations with the dual `SchemaTransformation.composeTransformation(first, second)` or `first.pipe(SchemaTransformation.composeTransformation(second))`: decoding runs `first` then `second`, encoding runs them in reverse. The `first.compose(second)` method is gone. Pair two existing getters with `SchemaTransformation.makeTransformation({ decode, encode })` (formerly `SchemaTransformation.make`). `Transformation` and `Middleware` values are `Pipeable`.
+
+```ts
+import { Schema, SchemaTransformation } from "effect"
+
+// Normalize a pasted work email: trim, then lowercase, as one reusable two-way step.
+const normalizeEmail = SchemaTransformation.trim().pipe(
+  SchemaTransformation.composeTransformation(SchemaTransformation.toLowerCase())
+)
+
+const WorkEmail = Schema.String.pipe(Schema.decode(normalizeEmail))
+const email = Schema.decodeUnknownSync(WorkEmail)("  Ada.Lovelace@Example.COM ") // "ada.lovelace@example.com"
+```
 
 **Reach for it when** a transformation has a clean, symmetric decode/encode pair and you want it as a single reusable value, or when a library prebuilt covers the case.
 
@@ -1389,7 +1515,7 @@ const closed = Schema.toJsonSchemaDocument(CompBand, { onExcessProperty: "error"
 // closed.schema.additionalProperties === false
 ```
 
-Two generation defaults changed in `rc.113` for documents you generate yourself with `Schema.toJsonSchemaDocument`. (OpenAPI documents derived by `HttpApi` are a separate path: probed on `rc.115`, `OpenApi.fromApi` still emits **closed** objects, `"additionalProperties": false` — see [HTTP API](../interfaces/http-api).)
+Two generation defaults changed in `rc.113` for documents you generate yourself with `Schema.toJsonSchemaDocument`. (OpenAPI documents derived by `HttpApi` are a separate path: probed on `rc.116`, `OpenApi.fromApi` still emits **closed** objects, `"additionalProperties": false` — see [HTTP API](../interfaces/http-api).)
 
 - **Objects are open by default.** Generation now mirrors Effect decoding, which ignores excess properties unless told otherwise, so a `Struct` emits `"additionalProperties": true`. The old `{ additionalProperties }` generation option is gone: use `{ onExcessProperty: "ignore" }` (the default) or `{ onExcessProperty: "error" }` for a closed object, and model a schema-valued "rest" with `Schema.Record` or `Schema.StructWithRest` rather than an option. If a consumer relied on the previous closed default — a strict validator, a generated client, a structured-output provider — opt back in explicitly.
 - **Check constraints and annotations are compacted** into the node when no keyword collides (`"type": "integer", "description": …`) instead of being wrapped in `allOf`. `allOf` still appears when merging would overwrite a keyword. Snapshot tests of generated documents need refreshing.
@@ -1424,9 +1550,9 @@ const orgDoc = Schema.toJsonSchemaDocument(OrgNode)
 const draft07 = JsonSchema.toDocumentDraft07(orgDoc) // also toDocumentDraft04, toMultiDocumentOpenApi3_1
 ```
 
-**Which model owns which artifact.** A value schema knows a shape. It does not know methods, paths, parameter locations, status codes, per-endpoint errors, security, or media types; those facts live on the assembled `HttpApi`. So **derive JSON Schema from `Schema` for value contracts, and derive the OpenAPI document from the API** with [`OpenApi.fromApi`](../interfaces/http-api#openapi). Feeding either generator the other model yields a document missing exactly the facts the other model owns.
+**Which model owns which artifact.** A value schema knows a shape. It does not know methods, paths, parameter locations, status codes, per-endpoint errors, security, or media types; those facts live on the assembled `HttpApi`. So **derive JSON Schema from `Schema` for value contracts, and derive the OpenAPI document from the API** with [`OpenApi.fromApi`](../interfaces/http-api#openapi). Point a generator at the wrong model and its output silently lacks everything that only the other model records.
 
-Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) (it documents an `additionalProperties` generation option and closed-by-default output; `rc.115` uses `onExcessProperty` and is open by default).
+Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) (it documents an `additionalProperties` generation option and closed-by-default output; `rc.116` uses `onExcessProperty` and is open by default).
 
 **Reach for it when** you need a machine-readable *value* contract for external consumers: JSON Schema config validation, cross-language codegen of a payload, or structured-output LLM prompting. For an HTTP API description, generate OpenAPI from `HttpApi` instead.
 

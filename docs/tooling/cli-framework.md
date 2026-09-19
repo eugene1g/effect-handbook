@@ -2,7 +2,7 @@
 
 The CLI modules define parsers, help, completions, prompts, and command handlers as typed values that compose with ordinary Effects and Layers. Import the barrel with `import { Argument, Command, Flag, Prompt } from "effect/unstable/cli"`, or use the module paths shown in each section.
 
-> **Warning:** The framework lives under `effect/unstable/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/70_cli) provides a compact runnable companion.
+> **Warning:** The framework lives under `effect/unstable/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/70_cli) provides a compact runnable companion.
 
 ## CliConfig
 
@@ -328,7 +328,7 @@ const optionalPlanSource = Flag.File("plan-file").pipe(
 const _ = [approver, planSource, planSourceTagged, optionalPlanSource]
 ```
 
-| Situation | Behavior in `rc.115` |
+| Situation | Behavior in `rc.116` |
 | --- | --- |
 | Neither flag of an `orElse` chain is given | the chain fails with `MissingOption` naming the *last* alternative; wrap it in `Flag.optional` (supported since `rc.113`) or `Flag.withDefault` to make absence legal |
 | A `KeyValuePair` value contains `=` | only the first `=` splits: `--label note=a=b` yields `{ note: "a=b" }` (since `rc.113`) |

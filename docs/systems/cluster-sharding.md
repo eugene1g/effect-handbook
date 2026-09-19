@@ -4,7 +4,7 @@ Effect Cluster provides *entities*: stateful, addressable actors keyed by id, di
 
 > **Note:** The spine: **Entity** defines an addressable actor and its RPC protocol. **Sharding** routes every message. **Runner**/**Runners** host shards and talk to each other. **MessageStorage** makes delivery durable. **Singleton**, **Snowflake**, **EntityProxy**, **ClusterCron**, **ShardingConfig** hang off those four. Define entities, merge their layers, provide a cluster layer.
 
-> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/80_cluster) defines and runs a distributed entity.
+> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/80_cluster) defines and runs a distributed entity.
 
 > **Warning:** The entire cluster surface lives under `effect/unstable/cluster`. APIs may shift between minor versions. Pin your version and re-check signatures when you upgrade. Transport entrypoints (`NodeClusterSocket`, `NodeClusterHttp`) come from `@effect/platform-node`; `@effect/platform-bun` and `@effect/platform-deno` ship the matching `BunCluster*` / `DenoCluster*` modules.
 
@@ -461,6 +461,8 @@ A branded integer marking the machine component of a runner — the middle bits 
 
 Server side of the runner protocol: receives ping/notify/request/stream/envelope messages from other runners and forwards them into local `Sharding`. `layer` is the full server; `layerClientOnly` for nodes that send but do not serve.
 
+From `rc.116`, a **volatile** (non-`Persisted`) request that is interruptible is bound to the calling runner's connection: when that caller disconnects, the entity handler is interrupted and its mailbox slot is released, instead of running on for nobody. Persisted requests and `Uninterruptible` RPCs are unaffected and still run to completion, so a caller that reconnects must not assume a volatile call it lost was abandoned before its side effects.
+
 ## RunnerHealth
 
 `effect/unstable/cluster` — unstable
@@ -533,7 +535,7 @@ The typed service contract for runner registration and shard-lock state (which r
 
 `effect/unstable/cluster` — unstable
 
-Annotations that add cluster behavior to RPCs and entities without touching payload/result schemas: `Persisted` (durable delivery), `WithTransaction`, `Uninterruptible` (`true`, `"client"`, or `"server"`), `ShardGroup` (route ids to a group), `ClientTracingEnabled`, and `Dynamic` (compute server-side annotations from the decoded request). Attach with `.annotate` / `.annotateRpcs`.
+Annotations that add cluster behavior to RPCs and entities without touching payload/result schemas: `Persisted` (durable delivery), `WithTransaction`, `Uninterruptible` (`true`, `"client"`, or `"server"`), `ShardGroup` (route ids to a group), `ClientTracingEnabled`, and `Dynamic` (compute server-side annotations from the decoded request). Attach with `.annotate` / `.annotateRpcs`. A `WithTransaction` value computed through `Dynamic` is kept when the entity re-runs a request, after a handler defect or after an interrupt that a server-uninterruptible persisted request ignores (fixed in `rc.116`; earlier releases fell back to the RPC's static annotation there).
 
 `ClusterSchema.Abandon` is different: it is not something you attach. It marks the *interruption* a runner raises when it abandons a persisted request that must continue under another owner (shutdown, shard loss). `ClusterWorkflowEngine` recognizes that mark and treats the interrupt as an abandoned run attempt — see [Workflows & Durable Execution](workflows-durable-execution#abandoned-run-attempts). Application code should let such an interrupt propagate rather than catching it.
 
@@ -610,6 +612,7 @@ Runs durable `Workflow` executions on top of cluster sharding and message storag
 
 - **Its entities passivate after a fixed ten seconds.** Workflow and durable-clock entities ignore `entityMaxIdleTime`: a completed or suspended execution releases its residency slot quickly and is rebuilt from storage when its next message arrives. Do not keep process-local state in a workflow body and expect it to survive a suspension.
 - **A transient interrupt is an abandoned attempt, not a failure.** When the owning runner shuts down or loses the shard, the run stops with nothing persisted, without compensation and without resuming a parent, and replays on the next owner.
+- **Deferred completions survive a handover.** From `rc.116` a `DurableDeferred` completion that reaches a new owner before its first local run of the execution is retained for that run, and the wake-up waits until the current run's reply is persisted, so a completion racing a shard move is no longer lost. See [DurableDeferred](workflows-durable-execution#durabledeferred).
 - **Residency applies to workflows too.** Each running execution occupies an entity slot, so size `maxResidentEntities` for the number of executions a runner may have active at once.
 
 > **Tip:** Use cluster entities when work is naturally addressed to a sharded identity and needs single-runner ownership. For the workflow definition, activity, retry, and durable-clock model that `ClusterWorkflowEngine` distributes, continue with [Workflows & Durable Execution](workflows-durable-execution).

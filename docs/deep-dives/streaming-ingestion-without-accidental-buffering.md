@@ -1,6 +1,6 @@
 # Streaming Ingestion Without Accidental Buffering
 
-> Audited **2026-09-18** against `effect@4.0.0-rc.115`. Stable stream primitives come from `effect`; the NDJSON codec used here is the unstable `effect/unstable/encoding` surface and should be version-pinned.
+> Audited **2026-09-19** against `effect@4.0.0-rc.116`. Stable stream primitives come from `effect`; the NDJSON codec used here is the unstable `effect/unstable/encoding` surface and should be version-pinned.
 
 A streaming import is not constant-memory merely because its type is `Stream`. Constant-memory behavior comes from the whole pipeline: a pull-based source, incremental framing, bounded records, bounded concurrency, bounded batches, and a terminal consumer that does not collect the complete input.
 
@@ -307,7 +307,7 @@ The capstone uses fail-fast semantics. `Ndjson.decodeSchema` fails the channel o
 
 This is the general rule for every stream recovery operator: a failure is terminal for the failed region, and `Stream.catch`, `catchTag`, or `catchCause` can only *append a different stream* after the elements already delivered — rows written before the failure stay written. The operator table, including `Stream.timeout` ending a stalled source **silently** rather than failing, is in [Handling stream failures](../concurrency/streaming-channels#5-handling-stream-failures).
 
-Official guide: [Error handling in streams](https://effect.website/docs/v4/stream/error-handling) (its "timeoutFail"-style headings are stale names; rc.115 has `Stream.timeoutOrElse`).
+Official guide: [Error handling in streams](https://effect.website/docs/v4/stream/error-handling) (its "timeoutFail"-style headings are stale names; rc.116 has `Stream.timeoutOrElse`).
 
 ## Delivery and transaction semantics
 

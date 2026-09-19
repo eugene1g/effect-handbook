@@ -18,7 +18,7 @@ test("builds a validated catalog and every focused domain bundle", async () => {
   const result = await buildRetrievalArtifacts()
   assert.ok(capabilities.length >= 50)
   assert.equal(result.catalog.capabilities.length, capabilities.length)
-  assert.equal(result.catalog.snippets.length, 8)
+  assert.equal(result.catalog.snippets.length, 10)
   assert.ok(result.catalog.snippets.every((snippet) => snippet.disposition === "run" && typeof snippet.runtimeCheckId === "string"))
   assert.deepEqual(
     result.artifacts.map((artifact) => artifact.relativePath),

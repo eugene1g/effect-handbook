@@ -4,9 +4,11 @@ Effect Cluster provides *entities*: stateful, addressable actors keyed by id, di
 
 > **Note:** The spine: **Entity** defines an addressable actor and its RPC protocol. **Sharding** routes every message. **Runner**/**Runners** host shards and talk to each other. **MessageStorage** makes delivery durable. **Singleton**, **Snowflake**, **EntityProxy**, **ClusterCron**, **ShardingConfig** hang off those four. Define entities, merge their layers, provide a cluster layer.
 
-> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.108/ai-docs/src/80_cluster) defines and runs a distributed entity.
+> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/80_cluster) defines and runs a distributed entity.
 
-> **Warning:** The entire cluster surface lives under `effect/unstable/cluster`. APIs may shift between minor versions. Pin your version and re-check signatures when you upgrade. Transport entrypoints (`NodeClusterSocket`, `NodeClusterHttp`) come from `@effect/platform-node`.
+> **Warning:** The entire cluster surface lives under `effect/unstable/cluster`. APIs may shift between minor versions. Pin your version and re-check signatures when you upgrade. Transport entrypoints (`NodeClusterSocket`, `NodeClusterHttp`) come from `@effect/platform-node`; `@effect/platform-bun` and `@effect/platform-deno` ship the matching `BunCluster*` / `DenoCluster*` modules.
+
+> **Upgrade warning — runner wire format:** From `rc.113` the socket and HTTP/WebSocket runner transports serialize runner-to-runner traffic with `SchemaBinary` by default (`serialization: "binary"`). Earlier releases defaulted to MessagePack, which no longer exists, so **an `rc.108`-era runner and an `rc.113`+ runner cannot talk to each other with default settings**. `"ndjson"` is the only serialization both generations offer. For a rolling upgrade, first pin every runner and client-only node to `serialization: "ndjson"` on the old release, roll the new release out with the same pin, and only then move the whole fleet to `"binary"` in a further stop-and-start. Rehearse the mixed-version pair in staging before relying on it — these are unstable APIs — or simply stop the cluster and start it on the new release. See [Transport options](#transport-options).
 
 ## Entity
 
@@ -79,7 +81,9 @@ const program = Effect.gen(function*() {
 
 > **Tip:** `toLayer` is the idiomatic path. For actor purists who want to own the message loop, `toLayerQueue` hands a `Queue.Dequeue` of request envelopes plus a `Replier` (`succeed`/`fail`/`failCause`/`complete`). Same delivery guarantees, lower-level control.
 
-> **Note:** `toLayer` takes `maxIdleTime` (passivation), `concurrency` (defaults to sequential per instance), `mailboxCapacity`, and a `defectRetryPolicy`. Inside a handler read `Entity.CurrentAddress` (this entity's type/id/shard) and call `Entity.keepAlive(true)` to pin an instance alive while it holds a resource. For tests without transport, `Entity.makeTestClient(entity, layer)` builds an in-memory client.
+> **Note:** `toLayer` takes `maxIdleTime` (passivation; the `ShardingConfig.entityMaxIdleTime` default is one minute), `concurrency` (defaults to sequential per instance), `mailboxCapacity`, a `defectRetryPolicy`, `disableFatalDefects`, and `spanAttributes`. By default a handler defect is *fatal to the instance*: the runtime logs it, waits according to `defectRetryPolicy`, rebuilds the instance, and re-delivers the requests that were in flight — so handlers must tolerate redelivery. With `disableFatalDefects: true` only the failing call reports the defect and the instance keeps running. Inside a handler read `Entity.CurrentAddress` (this entity's type/id/shard) and call `Entity.keepAlive(true)` to pin an instance alive while it holds a resource. For tests without transport, `Entity.makeTestClient(entity, layer)` builds an in-memory client. It honors the entity layer's `disableFatalDefects` setting: without it, one handler defect also fails the other calls pending on that entity id in the test.
+
+> **Note:** Handlers resolve services from the context in which the entity is *registered* — what you provide to the `entity.toLayer(...)` layer wins. Services that were only present when `Sharding` itself was constructed remain a fallback, not an override.
 
 **Reach for it when** you have per-key state that you want distributed across machines while keeping each key's logic single-threaded and addressable.
 
@@ -116,6 +120,44 @@ const RunnerProgram = DepartmentLayer.pipe(Layer.provide(ClusterLayer))
 Service interface: `registerEntity` and `registerSingleton` (called under the hood by `Entity.toLayer` / `Singleton.make`), `makeClient` (called by `entity.client`), `getShardId`, `hasShardId`, `getSnowflake`, `isShutdown`, `getRegistrationEvents` (stream of registration events — handy to await startup), `pollStorage` to force a durable read.
 
 > **Tip:** A process whose `ShardingConfig.runnerAddress` is `None` joins as a *client*: it can send messages but hosts no shards. Use the `layerClientOnly` variants on transport modules.
+
+### Transport options
+
+`NodeClusterSocket.layer(options?)` and `NodeClusterHttp.layer({ transport, ...options })` (and the Bun and Deno equivalents) take the same option set. Every runner **and** every client-only node of one cluster must agree on the serialization.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `transport` (`NodeClusterHttp` only, required) | — | `"http"` or `"websocket"` between runners. |
+| `serialization` | `"binary"` | `"binary"` = `RpcSerialization.layerSchemaBinary` (schema-derived frames); `"ndjson"` = newline-delimited JSON. This is the runner wire format, so it is a deployment-wide choice. |
+| `serializationMaxBufferSize` | 16 MiB | Largest frame (`"binary"`) or buffered line (`"ndjson"`) a runner accepts; `"unbounded"` removes the limit. Raise it deliberately — it bounds memory per connection. |
+| `clientOnly` | `false` | `true` builds a node that sends but hosts no shards and opens no server. |
+| `storage` | `"sql"` | `"sql"` = `SqlMessageStorage` + `SqlRunnerStorage` (requires a `SqlClient`); `"local"` = no message persistence and in-memory runner storage (single process only); `"byo"` = you provide `MessageStorage` and `RunnerStorage`. |
+| `runnerHealth` | `"ping"` | `"k8s"` reads pod readiness instead (`runnerHealthK8s: { namespace, labelSelector }`). |
+| `shardingConfig` | — | Partial `ShardingConfig` merged over the environment-derived values. |
+
+```ts
+import { Layer } from "effect"
+import { NodeClusterSocket } from "@effect/platform-node"
+import type { SqlClient } from "effect/unstable/sql"
+
+declare const SqlClientLayer: Layer.Layer<SqlClient.SqlClient>
+
+// Pinned for a rolling upgrade from a release whose default was different.
+const UpgradeSafeCluster = NodeClusterSocket.layer({
+  serialization: "ndjson",
+  serializationMaxBufferSize: 8 * 1024 * 1024,
+  shardingConfig: { maxResidentEntities: 5_000 }
+}).pipe(Layer.provide(SqlClientLayer))
+```
+
+For what the serialization layers do on the wire, see [RPC](../interfaces/rpc).
+
+### Rebalance and shutdown behavior
+
+- **Shard assignment comes from `HashRing`** (the stable `effect/HashRing` module): one ring per shard group, each runner added with its `weight`. `HashRing.getShards` was fixed in `rc.113` so an eligible runner sitting at the first ring position is no longer skipped once other runners have reached their allocation quota.
+- **A persisted call never fails just because ownership is moving.** The caller keeps waiting on message storage; only a shutdown of the caller's own runner ends the wait, and it does so by interruption (see [EntityProxy](#entityproxy)).
+- **Teardown bookkeeping is bounded.** Whether an interrupt is "transient" is decided from live teardown state — entity, shard, singleton, entity type, or node shutdown — rather than from a growing set of fiber ids, so mass passivation does not leak memory.
+- **Process death skips finalizers.** Entity finalizers and `Entity.keepAlive` scopes run on graceful passivation and shutdown only; recovery after a kill relies on runner health checks, shard-lock release or expiry (`shardLockExpiration` defaults to 35 seconds), and redelivery of persisted messages — never on cleanup code having run.
 
 **Reach for it when** building cluster tooling or custom routing. Otherwise, provide its *layer*.
 
@@ -178,7 +220,7 @@ The node-to-node communication service. Where `Sharding` *decides* where a messa
 
 **Mental model.** The RPC transport between cluster members, expressed as its own `RpcGroup` (`Runners.Rpcs`). When a department lives on another machine, Sharding asks `Runners` to forward the envelope; the remote `RunnerServer` feeds it back into its own Sharding. Implementations: `layerNoop` (single-process, no networking), and the RPC-backed one driven by transport modules.
 
-> **Note:** Configure `Runners` by choosing a transport layer. `SingleRunner.layer` and `TestRunner.layer` use `Runners.layerNoop`; `SocketRunner` / `HttpRunner` (via `NodeClusterSocket` / `NodeClusterHttp`) wire the RPC-backed version over real socket or HTTP/WebSocket. The pluggable seam is `Runners.RpcClientProtocol`.
+> **Note:** Configure `Runners` by choosing a transport layer. `SingleRunner.layer` and `TestRunner.layer` use `Runners.layerNoop`; `SocketRunner` / `HttpRunner` (via `NodeClusterSocket` / `NodeClusterHttp`) wire the RPC-backed version over real socket or HTTP/WebSocket. The pluggable seam is `Runners.RpcClientProtocol`. The platform transport layers choose the RPC serialization for that protocol (`SchemaBinary` by default, NDJSON on request — see [Transport options](#transport-options)).
 
 **Reach for it when** implementing a new cluster transport. Otherwise, pick a runner layer.
 
@@ -195,6 +237,10 @@ The durability boundary. `MessageStorage` is the pluggable backend that makes ma
 - **SqlMessageStorage** — Production choice: encodes envelopes and reply chunks into SQL tables, with migrations and dedup. Pairs with any `@effect/sql-*` client.
 
 The save path returns a `SaveResult` tagged enum — `Success` or `Duplicate` (carrying the existing reply) — for raise-request dedup.
+
+**Reads are bounded and claim only what they return.** `unprocessedMessages(shardIds, { limit?, addresses? })` reads at most `limit` messages (the runner passes `ShardingConfig.unprocessedMessageBatchSize`) and can be restricted to specific entity addresses. Only the returned messages are claimed; everything else stays eligible for a later poll, which is what lets a runner at its residency cap keep serving resident entities without starving the rest. The in-memory driver applies the same ten-minute claim window as SQL, and `resetAddress` / `resetAddresses` / `resetShards` make claimed messages eligible again immediately.
+
+**Custom backends.** `MessageStorage.makeEncoded(encoded)` lifts an `Encoded` driver (strings and bytes) into the typed service. The driver contract has a batched `resetAddresses(addresses)` — the single-address `Encoded.resetAddress` was removed in `rc.109`, so a hand-written driver must implement the batched form. `SqlMessageStorage.makeEncoded({ prefix? })` returns the SQL `Encoded` driver on its own when you want to wrap or compose it.
 
 **Reach for it when** you mark RPCs `Persisted`. Pick `SqlMessageStorage` in production, `layerMemory` in tests.
 
@@ -234,7 +280,17 @@ Schemas: `SnowflakeFromBigInt` (branded bigint) and `SnowflakeFromString` (decod
 
 A bridge that exposes a clustered entity to the outside world as a normal RPC service or HTTP API. `EntityProxy.toRpcGroup(entity)` derives an `RpcGroup`; `EntityProxy.toHttpApiGroup(name, entity)` derives an `HttpApiGroup`. Each entity RPC becomes a public operation whose payload gains an `entityId`, plus a fire-and-forget `...Discard` variant.
 
-Normal derived RPC and HTTP request operations include `EntityNotAssignedToRunner` in their typed error channel when no runner currently owns the entity. The fire-and-forget `...Discard` variants deliberately do not expose that error, so use a normal request whenever assignment acknowledgement matters.
+Normal derived RPC and HTTP request operations include `EntityNotAssignedToRunner` in their typed error channel. The fire-and-forget `...Discard` variants deliberately do not expose that error, so use a normal request whenever assignment acknowledgement matters.
+
+**What `EntityNotAssignedToRunner` means now.** Treat it as *genuine* non-assignment — typically a volatile send that reached a runner which does not own the shard. For a **persisted** message, the transient states of a rebalance no longer surface as errors:
+
+| Situation while a caller awaits a persisted reply | Caller observes |
+| --- | --- |
+| The entity moves to another runner, or is shut down before replying | Nothing — the caller keeps waiting and receives the reply from message storage once the next owner has processed the request. |
+| The **local** runner (the one hosting the caller) is shutting down | The call is **interrupted**, not failed: the request is already durable and will be served by the next owner. Do not map this interrupt to a domain error or a retry. |
+| The runner is at `maxResidentEntities` | The send succeeds; the message waits in storage for a free slot. |
+
+Volatile sends have no storage to fall back on, so they still fail fast: `EntityNotAssignedToRunner`, `RunnerUnavailable`, or `MailboxFull`.
 
 **Mental model.** The entity protocol is internal — it assumes the caller is inside the cluster. EntityProxy wraps it so an external client can hit a plain HTTP endpoint or RPC method. The generated handler (from `EntityProxyServer`) reads `entityId`, grabs the entity client, and forwards the call.
 
@@ -315,6 +371,20 @@ const FromEnv = ShardingConfig.layerFromEnv()
 ```
 
 > **Tip:** `layerDefaults` gives stock config; `layerFromEnv` reads a `Config` description for env-var-driven containers. Transport entrypoints default to `layerFromEnv` internally.
+
+### Capacity limits and their defaults
+
+Every limit below is per runner. Environment names are the constant-case form of the field (`MAX_RESIDENT_ENTITIES`, `ENTITY_MAILBOX_CAPACITY`, …).
+
+| Field | Default | What happens at the limit |
+| --- | --- | --- |
+| `maxResidentEntities` | `10_000` | No new entity is spawned. The storage read loop stops admitting messages for **new** addresses (they stay in storage until a slot frees up) and keeps serving resident ones; a **volatile** send to a new address fails with `MailboxFull`; a **persisted** send still succeeds. `"unbounded"` restores the old behavior and can only be set programmatically — the environment form accepts positive integers only. |
+| `unprocessedMessageBatchSize` | `1024` | Upper bound on messages read from storage in one poll; a full batch that delivered work triggers an immediate follow-up read instead of waiting for the poll interval. |
+| `entityMailboxCapacity` | `4096` | A request to a resident entity whose mailbox is full fails with `MailboxFull` (volatile) or stays in storage for redelivery (persisted). |
+| `entityMaxIdleTime` | 1 minute | Idle instances are passivated, which frees a residency slot. |
+| `entityTerminationTimeout` | 15 seconds | Longest wait for an entity to terminate during shutdown or rebalance (chosen to fit inside Kubernetes' default grace period). |
+
+**Size `maxResidentEntities` from memory, not from traffic.** It is a safety valve against an activation storm (for example a cold start draining a large backlog); when it engages, persisted work is delayed rather than lost, so alert on the `entities` gauge from [`ClusterMetrics`](#clustermetrics) approaching the cap and on storage backlog age.
 
 **Reach for it when** tuning cluster behavior, setting a runner's address/groups, or flipping a node into client-only mode.
 
@@ -413,7 +483,7 @@ Runs runner RPCs over a raw socket transport on a provided `SocketServer`. `laye
 
 `effect/unstable/cluster` — unstable
 
-Connects runner RPCs to HTTP and WebSocket transports — client protocol layers for dialing runner addresses, effects to serve handlers, and route layers for an `HttpRouter`. The engine under `NodeClusterHttp`.
+Connects runner RPCs to HTTP and WebSocket transports — client protocol layers for dialing runner addresses, effects to serve handlers, and route layers for an `HttpRouter`. The engine under `NodeClusterHttp`. Client URLs are built from the runner address plus the configured path, inserting a `/` only when the path lacks one, so a slash-prefixed path such as `/cluster/rpc` is used as written (earlier builds produced a doubled slash).
 
 ## TestRunner
 
@@ -427,13 +497,19 @@ The smallest useful cluster runtime for tests: `Sharding` over in-memory message
 
 A thin HTTP client for the in-cluster Kubernetes API, using the mounted service-account token. Backs the K8s-aware health check and pod helpers (list pods, create pod) for runners that manage their own infrastructure.
 
+## K8sTypes
+
+`effect/unstable/cluster/K8sTypes` — unstable (new in `rc.109`)
+
+Type-only Kubernetes declarations used by the cluster helpers: the transitive closure of `Pod` (spec, containers, volumes, affinity, status, metadata), vendored from `kubernetes-types` 1.30 so the `kubernetes-types` dependency could be dropped. `K8sHttpClient.makeCreatePod` takes a `K8sTypes.Pod`. It carries no runtime code and is not a general Kubernetes client model — import it when you construct a pod spec for the cluster helpers, not as a substitute for a full Kubernetes SDK.
+
 **Durable storage backends**
 
 ## SqlMessageStorage
 
 `effect/unstable/cluster` — unstable
 
-The production `MessageStorage`: encodes envelopes and reply chunks into SQL tables, redelivers unprocessed messages after restart, deduplicates by primary key, and replays reply chunks until acknowledged. Ships migrations and an optional table prefix. Provide via `layer` with any `@effect/sql-*` client.
+The production `MessageStorage`: encodes envelopes and reply chunks into SQL tables, redelivers unprocessed messages after restart, deduplicates by primary key, and replays reply chunks until acknowledged. Ships migrations and an optional table prefix (`layerWith({ prefix })`; default `cluster`). Provide via `layer` with any `@effect/sql-*` client; the layer also requires a `Crypto` service, which the platform cluster entrypoints supply. `makeEncoded({ prefix? })` exposes the SQL `MessageStorage.Encoded` driver by itself for custom storage composition. Changing the prefix after deployment points the runtime at a different set of tables, including the migration history.
 
 ## SqlRunnerStorage
 
@@ -442,6 +518,8 @@ The production `MessageStorage`: encodes envelopes and reply chunks into SQL tab
 SQL-backed runner registration and shard-ownership: records runners, health flags, machine ids, and shard locks so multiple processes coordinate who owns each shard. Uses advisory locks on Postgres/MySQL when enabled.
 
 > **Upgrade warning:** PostgreSQL advisory shard locks are namespaced by the `SqlRunnerStorage` table prefix. When upgrading a deployment that used unnamespaced lock keys, stop the whole cluster before rollout; mixing lock schemes can allow split ownership.
+
+> **Note:** Advisory locks live on a reserved connection. From `rc.113`, while lock storage is unhealthy the liveness probe runs on the shared pool instead of that reserved connection, so a hung reserved connection can no longer stall shard-lock recovery, and failed probes are logged as warnings instead of being swallowed. Locks are leases, not fencing: a paused former owner can still issue a write after takeover, so protect external writes with idempotency keys or a version check in the sink.
 
 ## RunnerStorage
 
@@ -455,13 +533,22 @@ The typed service contract for runner registration and shard-lock state (which r
 
 `effect/unstable/cluster` — unstable
 
-Annotations that add cluster behavior to RPCs and entities without touching payload/result schemas: `Persisted` (durable delivery), `WithTransaction`, `Uninterruptible`, `ShardGroup` (route ids to a group), and `ClientTracingEnabled`. Attach with `.annotate` / `.annotateRpcs`.
+Annotations that add cluster behavior to RPCs and entities without touching payload/result schemas: `Persisted` (durable delivery), `WithTransaction`, `Uninterruptible` (`true`, `"client"`, or `"server"`), `ShardGroup` (route ids to a group), `ClientTracingEnabled`, and `Dynamic` (compute server-side annotations from the decoded request). Attach with `.annotate` / `.annotateRpcs`.
+
+`ClusterSchema.Abandon` is different: it is not something you attach. It marks the *interruption* a runner raises when it abandons a persisted request that must continue under another owner (shutdown, shard loss). `ClusterWorkflowEngine` recognizes that mark and treats the interrupt as an abandoned run attempt — see [Workflows & Durable Execution](workflows-durable-execution#abandoned-run-attempts). Application code should let such an interrupt propagate rather than catching it.
 
 ## ClusterError
 
 `effect/unstable/cluster` — unstable
 
 Structured, schema-backed failures of the cluster runtime: `EntityNotAssignedToRunner`, `MailboxFull`, `AlreadyProcessingMessage`, `PersistenceError`, `MalformedMessage`, `RunnerUnavailable`, `RunnerNotRegistered`. Catch with `Effect.catchTag`.
+
+| Error | Raised when | Usual response |
+| --- | --- | --- |
+| `EntityNotAssignedToRunner` | The addressed shard is genuinely not owned by the runner that received a volatile send. Transient rebalance states of a *persisted* message no longer produce it (see [EntityProxy](#entityproxy)). | Retry after a short delay; `refreshAssignmentsInterval` defaults to 3 seconds. |
+| `MailboxFull` | An entity's mailbox is at `entityMailboxCapacity`, **or** the runner is at `maxResidentEntities` and a volatile send targets a new address. | Back-pressure the caller, or mark the RPC `Persisted` so it waits in storage instead. |
+| `RunnerUnavailable` | The owning runner could not be reached. | Bounded retry; a volatile message may not have been delivered. |
+| `PersistenceError` | Message storage failed. | Treat as infrastructure failure; do not assume the message was saved. |
 
 ## ClusterMetrics
 
@@ -507,7 +594,7 @@ A protocol for message payloads that carry their own scheduled delivery time. Im
 
 `effect/unstable/cluster` — unstable
 
-The handler side of EntityProxy: `layerRpcHandlers(entity)` and `layerHttpApi(api, name, entity)` implement the derived RPC/HTTP operations by reading `entityId`, calling the entity client, and forwarding the payload — including the discard variants.
+The handler side of EntityProxy: `layerRpcHandlers(entity)` and `layerHttpApi(api, name, entity)` implement the derived RPC/HTTP operations by reading `entityId`, calling the entity client, and forwarding the payload — including the discard variants. Both layers require `Sharding` plus the entity RPCs' server-side **and client-side** schema services (`Rpc.ServicesServer` and `Rpc.ServicesClient`), because the proxy decodes the public request and then re-encodes it as an entity client. If a payload or result schema needs a service to encode or decode, provide it to the proxy layer too.
 
 ## EntityResource
 
@@ -520,5 +607,9 @@ Keeps a long-lived resource alive across routine entity restarts, tied to an ent
 `effect/unstable/cluster` — unstable
 
 Runs durable `Workflow` executions on top of cluster sharding and message storage. Adapts `WorkflowEngine` so executions, activities, deferred completions, resumes, interrupts, and durable clock wakeups all become persisted cluster entity messages — durable, distributed orchestration for multi-step workflows. Provide its `layer` to back a workflow runtime with the cluster.
+
+- **Its entities passivate after a fixed ten seconds.** Workflow and durable-clock entities ignore `entityMaxIdleTime`: a completed or suspended execution releases its residency slot quickly and is rebuilt from storage when its next message arrives. Do not keep process-local state in a workflow body and expect it to survive a suspension.
+- **A transient interrupt is an abandoned attempt, not a failure.** When the owning runner shuts down or loses the shard, the run stops with nothing persisted, without compensation and without resuming a parent, and replays on the next owner.
+- **Residency applies to workflows too.** Each running execution occupies an entity slot, so size `maxResidentEntities` for the number of executions a runner may have active at once.
 
 > **Tip:** Use cluster entities when work is naturally addressed to a sharded identity and needs single-runner ownership. For the workflow definition, activity, retry, and durable-clock model that `ClusterWorkflowEngine` distributes, continue with [Workflows & Durable Execution](workflows-durable-execution).

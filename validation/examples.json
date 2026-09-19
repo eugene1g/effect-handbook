@@ -68,7 +68,7 @@
     {
       "id": "ai.provider-neutral-service",
       "source": "docs/deep-dives/building-a-production-ai-capability.md",
-      "sha256": "c1490e8115fda9bf7718309e97e9c0e68ad4273c4f0200cb4ad848c2e36de5db",
+      "sha256": "e094aca6bd1de90991dd0b4e7819c9f8c5849ea04813cbfe4db1a04533d69b94",
       "disposition": "contextual",
       "fixture": "ai"
     },
@@ -194,7 +194,7 @@
     {
       "id": "schema.derived-tooling",
       "source": "docs/deep-dives/schema-from-external-input-to-domain-and-back.md",
-      "sha256": "f2c9b2737ab44614d7c760db2742c48f1a7d5c9fc8cedfbb0b9319c186bc208b",
+      "sha256": "843954bd80e46eccd2201c9090486aa0bb90a2cb4d7a8ede8abe6ffbb82f0618",
       "disposition": "contextual",
       "fixture": "schema"
     },
@@ -215,7 +215,7 @@
     {
       "id": "streaming.file-source",
       "source": "docs/deep-dives/streaming-ingestion-without-accidental-buffering.md",
-      "sha256": "7fc029d766d8c3bcec478e5d1845ca7a855ebb3aa5df4056050bb9f306d94c47",
+      "sha256": "b9aef475635913ec20e34e16db1b2501cb91c450e78295a26b980531c31fa11f",
       "disposition": "contextual",
       "fixture": "streaming"
     },
@@ -285,7 +285,7 @@
     {
       "id": "configuration.test-provider",
       "source": "docs/foundations/configuration-secrets.md",
-      "sha256": "4de1b2db04cf5b4852367f6c4fa1ac1cc4603c19186b80702fadcb54f260d362",
+      "sha256": "b6f813b26041a64b9e4251acb9d8bcdcf00ae5c392d6888f769d11801a1e037d",
       "disposition": "contextual",
       "fixture": "base"
     },
@@ -299,7 +299,7 @@
     {
       "id": "layer.application-graph",
       "source": "docs/foundations/services-context-layers.md",
-      "sha256": "900b241b10a977a6f847cace9c3219fcdcbdbf9dbe1e0dfc67f667434d542cc2",
+      "sha256": "2543a60b9cd583e2e9bfca9e8527d30163d8ae1f558a240a312807c4eb02c3a4",
       "disposition": "contextual",
       "fixture": "base"
     },
@@ -439,7 +439,7 @@
     {
       "id": "rpc.client-error-recovery",
       "source": "docs/interfaces/rpc.md",
-      "sha256": "90a0348e776c6e62cb4d688bf8cf0901fae32391f9b890039b91baa72d6e0bb9",
+      "sha256": "2a73a3ec99a6b4aa294a834476cef2cb252091c26b305c652334fb9ea9ce1427",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
@@ -502,7 +502,7 @@
     {
       "id": "observability.devtools-layer",
       "source": "docs/operations/observability.md",
-      "sha256": "3fe8f3031251473155905628dc97de39b7010f954e01bc337b261888755819a3",
+      "sha256": "f0580f7a9f19d2611e603eedd67789f021edfbaa0e655a0121a4609f3ea8e1a0",
       "disposition": "contextual",
       "fixture": "base"
     },
@@ -682,9 +682,23 @@
       "runtime": "typed-retry-testclock"
     },
     {
+      "id": "transactional-outbox",
+      "source": "docs/recipes/transactional-write-with-outbox.md",
+      "sha256": "d8381d643174873cd331db6f8af4c3f3b08adf90548871dac3c5716ca8145029",
+      "disposition": "run",
+      "runtime": "transactional-outbox"
+    },
+    {
+      "id": "request-cancellation-host",
+      "source": "docs/recipes/request-cancellation-through-a-host.md",
+      "sha256": "308aa071f4376792009beafb96350a61bdca8f70988cd331837451075ade54de",
+      "disposition": "run",
+      "runtime": "request-cancellation-host"
+    },
+    {
       "id": "production-observability",
       "source": "docs/recipes/production-observability.md",
-      "sha256": "1015648080e9fd25d2764cbde9943543650c27b9d900d097e7737e8494c1812c",
+      "sha256": "2a5a7162db1095cc8bb44564bd33752058ef5f982cb8a0dbf7c766d3a444df69",
       "disposition": "run",
       "runtime": "production-observability"
     },
@@ -739,6 +753,14 @@
     "managed-runtime-integration": {
       "mode": "complete",
       "expect": ["Hello, Ada", "Hello, Grace", "runtime disposed"]
+    },
+    "transactional-outbox": {
+      "mode": "complete",
+      "expect": ["\"step\":\"approve grace\",\"outcome\":\"MeritBudgetExceeded overBy=5000\",\"salary\":150000,\"outboxRows\":1", "\"step\":\"relay 2\",\"delivered\":1,\"failed\":0", "\"step\":\"payroll\",\"received\":2,\"duplicates\":1,\"applied\":[\"raise-approved:2026:1\"]"]
+    },
+    "request-cancellation-host": {
+      "mode": "complete",
+      "expect": ["sdk: lookup emp-1042 aborted, socket freed", "effect: rate-limit permit returned (interrupted)", "host: request 1 -> 499 client closed request", "host: request 2 -> 200 emp-2077 is in band L5", "host: runtime disposed"]
     },
     "doctest": {
       "mode": "doctest",

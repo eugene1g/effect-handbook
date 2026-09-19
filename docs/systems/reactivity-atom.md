@@ -67,7 +67,7 @@ const submitRaise = Atom.fn(
 
 > **Tip:** `Atom.map` / `Atom.mapResult` transform an atom's value (the latter maps inside the `AsyncResult` success). Every atom uses `Object.is` by default; `Atom.withEquality<A>(equals)` installs a comparator that suppresses dependent and listener updates when successive values compare equal. `Atom.keepAlive` stops an atom being disposed when it has no subscribers; `Atom.setIdleTTL(atom, "30 seconds")` disposes it after a quiet period instead. `Atom.family((employeeId) => Atom.make(...))` memoizes one atom per argument (via `WeakRef` where available). `Atom.withLabel` tags an atom for debugging. `Atom.subscriptionRef` bridges a `SubscriptionRef` into an atom, and `Atom.pull` turns a `Stream` into a paginated, writable "load more" atom.
 
-Other high-value combinators stay on the same graph: `debounce(duration)` delays noisy publications; `withRefresh(duration)` schedules a refresh; `swr({ staleTime, ... })` adds stale-while-revalidate behavior; `withFallback(fallback)` supplies an async result while the primary is `Initial`; and `optimistic` / `optimisticFn` model provisional mutation state with refresh or rollback. `batch(fn)` coalesces synchronous writes. Persistence and URL helpers include platform-neutral `kvs` (schema-typed `KeyValueStore` persistence), browser-oriented `searchParam`, and browser-only `refreshOnWindowFocus`; on the server, `withServerValue`, `withServerValueInitial`, and `getServerValue` provide deterministic reads. The Reactivity deep dive shows these in a connected application.
+Other high-value combinators stay on the same graph: `debounce(duration)` delays noisy publications; `withRefresh(duration)` schedules a refresh; `swr({ staleTime, ... })` adds stale-while-revalidate behavior; `withFallback(fallback)` supplies an async result (marked `waiting`) while the primary is `Initial` — when the primary is writable the combined atom stays writable and **forwards every write and refresh to the primary**, never to the fallback; and `optimistic` / `optimisticFn` model provisional mutation state with refresh or rollback. `batch(fn)` coalesces synchronous writes. Persistence and URL helpers include platform-neutral `kvs` (schema-typed `KeyValueStore` persistence), browser-oriented `searchParam`, and browser-only `refreshOnWindowFocus`; on the server, `withServerValue`, `withServerValueInitial`, and `getServerValue` provide deterministic reads. The Reactivity deep dive shows these in a connected application.
 
 **Where services come from.** An effectful atom that needs services can't conjure a Layer out of thin air. `Atom.runtime(layer)` builds an `AtomRuntime` — itself an atom holding the built `Context` — and gives you `runtime.atom(...)`, `runtime.fn(...)`, and `runtime.pull(...)` constructors that run Effects with that layer provided. By default its `Layer.MemoMap` is registry-scoped: derived atoms share built services inside one `AtomRegistry`, while separate SSR requests and tests build isolated instances. Use `Atom.context({ memoMap })` only when you intentionally need custom or cross-registry sharing.
 
@@ -230,7 +230,22 @@ const summary1042 = CompClient.query("comp", "getCompSummary", {
 })
 ```
 
-Query atoms preserve endpoint and middleware errors in the typed error channel. The client catches transport and response-decoding failures and converts them to defects, so render those through the `Cause`/`onDefect` path. A declared write endpoint would be exposed with `CompClient.mutation(group, endpoint)`; this read-only example deliberately does not invent one.
+Query atoms preserve endpoint and middleware errors in the typed error channel. The client catches transport and response-decoding failures of the **request itself** and converts them to defects, so render those through the `Cause`/`onDefect` path. A declared write endpoint would be exposed with `CompClient.mutation(group, endpoint)`; this read-only example deliberately does not invent one.
+
+**Result types follow the generated client (`rc.113`+).** The success type of a query or mutation atom is exactly what the generated `HttpApiClient` method returns for that endpoint and `responseMode`, including the non-JSON shapes:
+
+| Endpoint / mode | Atom success value | Where failures show up |
+| --- | --- | --- |
+| Ordinary endpoint, `"decoded-only"` (the query default) | the decoded success type | endpoint + middleware errors typed; transport/decoding as defects |
+| `responseMode: "decoded-and-response"` / `"response-only"` | a `[decoded, HttpClientResponse]` tuple, or the `HttpClientResponse` alone | same; `"response-only"` drops the endpoint's error type |
+| Server-sent events (`HttpApiSchema.StreamSse`) | a `Stream` of event values | **in the stream's error channel**: the declared stream error plus `HttpClientError`, `Schema.SchemaError`, `Sse.Retry`, and `Sse.SseError` (it was `never` before), so whoever consumes the stream must handle them |
+| Binary stream (`HttpApiSchema.StreamUint8Array`) | a `Stream` of `Uint8Array` | `HttpClientError` in the stream's error channel |
+| Header-wrapped success (`HttpApiSchema.WithHeaders`) | the value together with its decoded headers | as for an ordinary endpoint |
+
+- **`timeToLive: 0` is an explicit opt-out.** Omitting `timeToLive` leaves the query under the registry's `defaultIdleTTL`; passing `0` (or `0n`) sets a zero idle TTL, so an unmounted query is disposed as soon as it is unused and fetched again on remount. A finite duration keeps it that long; an infinite one keeps it alive.
+- **Per-call SSE decoding options.** A request may carry `sseOptions` (native `Sse.DecodeOptions`); they are part of the query key, so two queries that differ only in `sseOptions` are distinct atoms.
+- **Top-level groups work.** Endpoints of an `HttpApiGroup` declared with `topLevel: true` are dispatched on the client root rather than under a group property; you still pass the group identifier to `query` / `mutation`.
+- **Only `"decoded-only"` results are serializable.** `serializationKey` has no effect in the other response modes, and a `Stream` is not a value a hydration packet can carry — do not give streaming queries a serialization key.
 
 **Reach for it when** you have an `HttpApi` and want its endpoints as cache-aware, hydratable, auto-invalidating query/mutation atoms.
 
@@ -275,6 +290,13 @@ const vested = CompRpcClient.query(
 // registry.set(grant, { payload: { employeeId: "emp_1042", shares: 1200 }, reactivityKeys: ["equity"] })
 ```
 
+**Error and retention rules.**
+
+- **The result error type is the full client-side union:** the RPC's declared error, `RpcClientError`, and — from `rc.113` — both the declared error and the client-side error of every middleware on that RPC. A streaming query's `PullResult` error also includes the stream's own error type. Matching exhaustively on `_tag` now has to account for middleware failures such as an expired-session error.
+- **RPCs whose middleware declares `requires` are queryable.** `query` used to resolve to `never` for them; it now infers the same types as `mutation`.
+- **`timeToLive: 0` opts out of idle retention**, exactly as in `AtomHttpApi`; omit the option to inherit the registry default.
+- **Mutations cannot target streaming RPCs** (the type is `never`); use `query` and pull.
+
 **Reach for it when** your backend speaks Effect RPC and you want the frontend to consume it as atoms — including streaming procedures surfaced as incremental pull atoms.
 
 ## Hydration
@@ -296,7 +318,9 @@ const packet = Hydration.dehydrate(serverRegistry)
 Hydration.hydrate(clientRegistry, packet)
 ```
 
-For custom serializable atoms, the codec covers the atom's complete value. In particular, an effectful atom needs an `AsyncResult.Schema(...)`, not just its success schema; the release-matched [comprehensive upstream Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.108/packages/effect/SCHEMA.md) covers codecs and serialization in depth.
+**One bad atom does not abort the packet.** If a serializable atom's current value cannot be encoded by its schema (a `SchemaError`), `dehydrate` skips that atom and encodes the rest; any other exception still propagates. The skipped atom simply refetches on the client, so treat a missing key as "not hydrated", not as an error — and log encode failures in development, because the usual cause is a schema that does not cover the atom's whole value.
+
+For custom serializable atoms, the codec covers the atom's complete value. In particular, an effectful atom needs an `AsyncResult.Schema(...)`, not just its success schema; the release-matched [comprehensive upstream Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.115/packages/effect/SCHEMA.md) covers codecs and serialization in depth.
 
 **Reach for it when** you do SSR or static rendering and want fetched atom state to survive the trip to the browser instead of refetching on mount.
 
@@ -320,15 +344,19 @@ const recordRaise = (rec: RaiseRecommendation) =>
   })
 ```
 
+- **`Reactivity.Reactivity` is both the Context key and the branded service type.** There is no `Reactivity.Service` alias; annotate a dependency as `Reactivity.Reactivity`, and build a custom instance with `Reactivity.make` (it adds the `[Reactivity.TypeId]` brand) rather than an object literal.
+- **Keys may repeat.** A `query` or `stream` whose key list names the same key twice (or a record form that expands to a key you also listed) stores its handler once per key, and its scope cleanup no longer fails on the repeat (fixed in `rc.113`).
+- **Reruns are serialized and coalesced.** While one rerun is in flight, further invalidations collapse into a single pending rerun.
+
 **Reach for it when** you need key-based invalidation outside the atom layer (e.g. a SQL repo), or to understand what `reactivityKeys` are doing.
 
 ## Framework bindings
 
 The core above is framework-agnostic. Each binding (1) provides an `AtomRegistry` through the framework's context and (2) exposes hooks/primitives that subscribe a component to that registry.
 
-- **pkg @effect/atom-react** — React hooks + `RegistryProvider`. `useAtomValue(atom)` reads, `useAtom(writable)` returns `[value, set]`, `useAtomSet` / `useAtomRefresh` / `useAtomMount` give write/refresh/keep-alive without subscribing, and `useAtomSuspense` reads an `AsyncResult` atom through React Suspense. `HydrationBoundary` applies dehydrated state; `ScopedAtom.make` makes a subtree-local atom.
+- **pkg @effect/atom-react** — React hooks + `RegistryProvider`. Peer range: `react >=19.0.0 <20.0.0` and `scheduler >=0.25.0 <0.28.0` (relaxed from `react >=19.2.7`, so any React 19 works). `useAtomValue(atom)` reads, `useAtom(writable)` returns `[value, set]`, `useAtomSet` / `useAtomRefresh` / `useAtomMount` give write/refresh/keep-alive without subscribing, and `useAtomSuspense` reads an `AsyncResult` atom through React Suspense. `HydrationBoundary` applies dehydrated state; `ScopedAtom.make` makes a subtree-local atom.
 
-- **pkg @effect/atom-solid** — The Solid binding. `useAtomValue(() => atom)` returns an accessor, `useAtom(() => writable)` returns an accessor/setter tuple, and `useAtomResource` bridges an `AsyncResult` atom to a Solid resource.
+- **pkg @effect/atom-solid** — The Solid binding. `useAtomValue(() => atom)` returns an accessor, `useAtom(() => writable)` returns an accessor/setter tuple, and `useAtomResource` bridges an `AsyncResult` atom to a Solid resource. Its `RegistryProvider` may leave `defaultIdleTTL` undefined, matching React: unused atoms are then cleaned up immediately instead of lingering for a provider-imposed TTL.
 
 - **pkg @effect/atom-vue** — The Vue binding. `useAtomValue(() => atom)` returns a readonly `Ref`, while `useAtom(() => writable)` returns a readonly `Ref` plus a setter through Vue's provide/inject registry.
 

@@ -1,6 +1,6 @@
 # Schema — From External Input to Domain and Back
 
-Effect Schema is most useful when it owns a complete boundary, not just an isolated validation call. This guide follows one value from untrusted JSON, form, or query input into a domain model, through application logic, and back to a JSON-safe representation. It targets `effect@4.0.0-rc.108`.
+Effect Schema is most useful when it owns a complete boundary, not just an isolated validation call. This guide follows one value from untrusted JSON, form, or query input into a domain model, through application logic, and back to a JSON-safe representation. It targets `effect@4.0.0-rc.115`.
 
 Use [Schema](../data/schema) for the complete module reference, [Errors, Option & Result](../foundations/errors-option-result) for failure modeling, [Configuration & Secrets](../foundations/configuration-secrets) for StringTree-backed configuration, and [HttpApi](../interfaces/http-api), [RPC](../interfaces/rpc), [SQL](../interfaces/sql), and [Persistence](../tooling/persistence) for the boundaries that consume Schemas.
 
@@ -16,6 +16,21 @@ A robust data path has five explicit stages:
 
 The important distinction is `Type` versus `Encoded`. `Schema.DateFromString` has `Type = Date` and `Encoded = string`; `Schema.FiniteFromString` has `Type = number` and `Encoded = string`. A plain `Schema.Date` validates an in-memory `Date` but does not by itself claim that the wire contains an ISO string.
 
+### Answer eight questions before writing the schema
+
+A boundary schema is a small contract. Write the answers down (a comment above the schema is enough) before choosing combinators:
+
+1. **Producer and trust** — who creates this input, and why is it trusted or not?
+2. **`Encoded`** — the exact wire shape, including which keys may be absent, `null`, or `undefined`.
+3. **`Type`** — the value application code wants to hold.
+4. **Decode behavior** — normalization, defaults, and any service the decoder needs.
+5. **Encode behavior** — what is written back, and what is lost if decoding normalized.
+6. **Failure detail** — first error or all errors, and whether rejected input may be reported.
+7. **Excess-key policy** — strip or reject ([parse options](../data/schema#14-parse-options-are-boundary-policy)).
+8. **Equivalence** — the relation under which a round trip is expected to hold.
+
+Separate schemas for one concept are legitimate when representation or disclosure differs (a public DTO and a persisted row). Join them with a named, tested mapping or a shared field set — never with `as`, an object spread that happens to type-check, or a duplicated field list.
+
 ### Pick the runner for the surrounding code
 
 The same Schema can be run in several styles. Pick at the boundary rather than forcing the whole application into one error representation.
@@ -28,7 +43,9 @@ The same Schema can be run in several styles. Pick at the boundary rather than f
 | Validated trusted edge | `decodeUnknownSync` / `encodeUnknownSync` | throws `SchemaError` |
 | Promise-only host | `decodeUnknownPromise` / `encodeUnknownPromise` | rejected Promise |
 
-Prefer the Effect runner inside services. Use a throwing runner only at an edge that already communicates through exceptions, and catch there.
+Prefer the Effect runner inside services. Use a throwing runner only at an edge that already communicates through exceptions, and catch there. A schema whose getters use services or asynchronous work can *only* run through the Effect runner.
+
+> **Warning:** `Effect.sync(() => Schema.decodeUnknownSync(S)(input))` compiles, has error type `never`, and turns bad input into a defect that no `Effect.catchTag("SchemaError", ...)` can handle. Malformed input is an *expected* boundary outcome: keep it in the typed channel with `Schema.decodeUnknownEffect`.
 
 ## Start with the external contract
 
@@ -137,6 +154,64 @@ const acceptGrant = Effect.fn("acceptGrant")(
 
 Schema validation answers “does this input have the required shape and local constraints?” Domain policy answers “may this operation happen now?” Keep that distinction visible. A current-budget lookup or uniqueness check is application behavior, not a synchronous field validator.
 
+## Treat stored rows as another encoded form
+
+A database row is a third representation of the same concept, with its own rules: snake_case columns, integer booleans, exact numerics delivered as text, driver-specific timestamps. Two shortcuts cause most storage bugs: using the decoded domain type as the row type (a cast at the driver), and assuming the HTTP encoding is also the storage encoding.
+
+- **Give the row its own schema wherever naming or representation differs**, and **reuse the field schemas** (ids, brands, checked numbers) so each rule is defined once.
+- **Decode rows inside the repository.** A malformed row then fails at the storage boundary — before any service sees it — with a diagnostic that names the field and the rule.
+- **Encode on the way in** with the same schema, so the write path cannot drift from the read path.
+
+> **Example status — Contextual:** the block type-checks on its own; `selectGrantRows` stands for a query supplied by the application.
+
+```ts
+import { Effect, Schema, SchemaTransformation } from "effect"
+
+const EmployeeId = Schema.Int.check(Schema.isGreaterThan(0)).pipe(
+  Schema.brand("EmployeeId")
+)
+
+// SQLite-style boolean column: 0 | 1 on disk, boolean in the domain.
+const BooleanFromBit = Schema.Literals([0, 1]).pipe(
+  Schema.decodeTo(
+    Schema.Boolean,
+    SchemaTransformation.transform({
+      decode: (bit) => bit === 1,
+      encode: (flag) => (flag ? 1 : 0)
+    })
+  )
+)
+
+// The row is its own Encoded form: snake_case keys, integer booleans, exact numeric text.
+const GrantRow = Schema.Struct({
+  employeeId: EmployeeId, // the same field schema the API contract uses
+  shares: Schema.Natural,
+  strikePrice: Schema.BigDecimalFromString, // NUMERIC as text; never through a float
+  cancelled: BooleanFromBit,
+  grantedAt: Schema.DateFromString
+}).pipe(
+  Schema.encodeKeys({
+    employeeId: "employee_id",
+    strikePrice: "strike_price",
+    grantedAt: "granted_at"
+  })
+)
+
+declare const selectGrantRows: (
+  employeeId: number
+) => Effect.Effect<ReadonlyArray<unknown>>
+
+// Decode inside the repository: a bad row fails here, naming the field and the rule.
+const findGrants = Effect.fn("GrantRepository.findGrants")(
+  function*(employeeId: typeof EmployeeId.Type) {
+    const rows = yield* selectGrantRows(employeeId)
+    return yield* Schema.decodeUnknownEffect(Schema.Array(GrantRow))(rows)
+  }
+)
+```
+
+[SqlSchema](../interfaces/sql#sqlschema) wires this decoding into query helpers, and [Model](../data/schema#model) derives the select, insert, update, and JSON variants from one definition when the shapes differ only per operation.
+
 ## Encode outbound values deliberately
 
 `Schema.Date` validates a runtime `Date`, but `Date` is not a JSON value. `Schema.toCodecJson(domainSchema)` derives a JSON-safe representation for supported values such as `Date`, `BigInt`, `Uint8Array`, maps, sets, classes, and `Option`. Compose that representation with `fromJsonString` when the carrier itself is JSON text.
@@ -163,7 +238,7 @@ console.log(restored.recordedAt instanceof Date) // true
 
 Do not assume `JSON.stringify(domainValue)` is the inverse of parsing it. Native JSON loses `Date`, `BigInt`, `Map`, `Set`, class identity, and other domain semantics. A canonical codec states and tests the reversible representation.
 
-Custom declared types can attach a `toCodecJson` annotation. JSON Schema generation reuses that representation, keeping runtime serialization and published contracts aligned. If a type has no valid JSON representation, derivation should fail instead of silently inventing one.
+Custom declared types can attach a `toCodecJson` annotation. JSON Schema generation reuses that representation, keeping runtime serialization and published contracts aligned. A declaration *without* such an annotation still derives: the resulting codec rejects the value when encoding (`Expected JSON value`), and JSON Schema generation emits an unconstrained `{}`. Derivation will not complain for you, so test the encode direction of every custom type.
 
 ## Adapt forms, query strings, config, and JSON
 
@@ -208,7 +283,7 @@ This same StringTree model powers `Config.schema`. For plain JSON input, use `fr
 
 A codec has a decode and an encode direction. A transformation that lowercases an email address on decode but cannot reconstruct the original spelling is not an isomorphism. That may be fine for an ingress-only parser, but it is a poor choice for a Schema later used to persist or round-trip the value.
 
-Use `Schema.decodeTo(target, transformation)` for explicit two-way conversion. `SchemaTransformation.transform` is for total conversion; `SchemaGetter.transformOrFail` is for a direction that may reject. Test both directions for every custom transformation.
+Use `Schema.decodeTo(target, transformation)` for explicit two-way conversion. `SchemaTransformation.transform` is for total conversion; `SchemaGetter.transformEffect` (named `transformOrFail` before `rc.113`) is for a direction that may reject or needs a service. When a conversion is honestly decode-only — a digest, a lowercased lookup key — say so with `SchemaGetter.forbiddenEncoding` as the encode leg, so encoding fails with a clear issue instead of inventing a value. Test both directions for every custom transformation.
 
 > **Example status — Runnable:** the cents representation is exact in both directions for safe integers.
 
@@ -232,6 +307,10 @@ console.log(dollars, cents) // 123.45 12345
 ```
 
 For money with arbitrary precision, use `BigDecimal` and an appropriate string codec rather than the floating-point example above. The point is ownership of the representation, not a recommendation to store currency in `number`.
+
+The same ownership question applies to every carrier narrower than its `Type`: `Schema.DurationFromMillis` cannot round-trip a nanosecond-precision duration, while `DurationFromNanos` and `DurationFromString` can. Pick the codec by the precision you promise ([Effect data types at the boundary](../data/schema#16-effect-data-types-at-the-boundary)).
+
+Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it still spells `transformEffect` as `transformOrFail`). The official guides track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
 
 ## Make error reporting a boundary concern
 
@@ -264,12 +343,62 @@ Use first-error mode for fast machine-to-machine rejection when extra detail has
 
 Do not catch a decoding failure and replace it with an arbitrary default unless compatibility policy explicitly permits that. `Schema.catchDecoding` is powerful precisely because it weakens the boundary.
 
+Wording is a separate decision from structure. Put text that belongs to the contract on the schema (`message`, `expected`, `identifier`, `messageMissingKey`, `messageUnexpectedKey` — see [Custom error messages](../data/schema#17-custom-error-messages)); put text that belongs to one UI, or translation keys, in the formatter's `leafHook` / `checkHook` ([SchemaIssue](../data/schema#schemaissue)).
+
+### Keep "malformed" and "does not match" as different outcomes
+
+Some boundaries both *parse* a document and *evaluate* it: a payroll export checked against its declared totals, an HRIS webhook checked against a partner contract. They have two failures with different owners and different policies. Malformed input means the producer is broken — retrying is pointless and the alert goes to the integration owner. A well-formed document that does not match is a business signal — it may be retried after a correction and the alert goes to the domain owner. Collapse both into "validation failed" and bad configuration looks like a failing partner, or the reverse.
+
+> **Example status — Runnable:** the block defines both outcomes and the function that separates them.
+
+```ts
+import { Effect, Schema } from "effect"
+
+class MalformedPayrollFile extends Schema.TaggedError<MalformedPayrollFile>()(
+  "MalformedPayrollFile",
+  { message: Schema.String }
+) {}
+
+class PayrollTotalsMismatch extends Schema.TaggedError<PayrollTotalsMismatch>()(
+  "PayrollTotalsMismatch",
+  { declaredCents: Schema.Int, actualCents: Schema.Int }
+) {}
+
+const PayrollFile = Schema.Struct({
+  declaredTotalCents: Schema.Int,
+  lines: Schema.Array(
+    Schema.Struct({ employeeId: Schema.NonEmptyString, netCents: Schema.Int })
+  )
+})
+
+const acceptPayrollFile = Effect.fn("acceptPayrollFile")(function*(input: unknown) {
+  // Outcome 1: not a payroll file at all. Fix the producer; do not retry.
+  const file = yield* Schema.decodeUnknownEffect(PayrollFile)(input).pipe(
+    Effect.mapError((error) => new MalformedPayrollFile({ message: error.message }))
+  )
+
+  // Outcome 2: a well-formed file whose content is wrong. A signal for finance.
+  const actualCents = file.lines.reduce((sum, line) => sum + line.netCents, 0)
+  if (actualCents !== file.declaredTotalCents) {
+    return yield* new PayrollTotalsMismatch({
+      declaredCents: file.declaredTotalCents,
+      actualCents
+    })
+  }
+  return file
+})
+```
+
+Degenerate-but-valid input stays valid: a file with no lines and a declared total of zero is a correct file, not a malformed one. Reserve the malformed outcome for input the schema cannot read.
+
+Official guides: [Error Messages](https://effect.website/docs/v4/schema/error-messages), [Error Formatters](https://effect.website/docs/v4/schema/error-formatters).
+
 ## Derive tooling from the same contract
 
 The same Schema can produce more than a decoder:
 
-- `Schema.toJsonSchemaDocument` for OpenAPI/tooling contracts;
-- `Schema.toArbitrary` for generated test inputs;
+- `Schema.toJsonSchemaDocument` for *value* contracts: config validation, structured-output prompts, cross-language codegen of a payload;
+- `Arbitrary.schema` (from `effect/unstable/arbitrary`) for generated test inputs;
 - `Schema.toEquivalence` for domain-aware equality;
 - `Schema.toFormatter` for readable values;
 - `Schema.toIso` for an optic between a Schema value and its isomorphic representation;
@@ -277,15 +406,17 @@ The same Schema can produce more than a decoder:
 
 Annotations such as title, description, examples, and constraints should live on the definition that owns them. Derived artifacts then change together instead of drifting as parallel documents.
 
-> **Example status — Contextual:** it uses `CreateGrantRequest` from the first example and requires `fast-check` only for arbitrary generation.
+**Derive each artifact from the model that owns its facts.** A value schema knows a shape; it does not know methods, paths, parameter locations, status codes, per-endpoint errors, security, or media types. Those live on the assembled `HttpApi`, so the OpenAPI document is projected from it with [`OpenApi.fromApi`](../interfaces/http-api#openapi), which reuses your schemas for the payload parts. JSON Schema describes the `Encoded` side, is open to extra properties by default, and names `$defs` after `identifier` annotations — see [JsonSchema](../data/schema#jsonschema).
+
+> **Example status — Contextual:** it uses `CreateGrantRequest` from the first example. Generation uses Effect's native `Arbitrary` module; the fast-check bridge (`Schema.toArbitrary`) was removed in `rc.113`.
 
 ```ts
-import { Schema } from "effect"
-import * as FastCheck from "fast-check"
+import { Effect, Schema } from "effect"
+import { Arbitrary } from "effect/unstable/arbitrary"
 
 const jsonSchema = Schema.toJsonSchemaDocument(CreateGrantRequest)
 const equivalent = Schema.toEquivalence(CreateGrantRequest)
-const arbitrary = Schema.toArbitrary(CreateGrantRequest)(FastCheck)
+const arbitrary = Arbitrary.schema(CreateGrantRequest)
 
 console.log(jsonSchema.schema)
 console.log(equivalent(
@@ -293,8 +424,9 @@ console.log(equivalent(
   { employeeId: 42 as EmployeeId, shares: 10, grantedAt: new Date(0) }
 ))
 
-FastCheck.assert(
-  FastCheck.property(arbitrary, (value) => Schema.is(CreateGrantRequest)(value))
+// checkEffect returns a structured result instead of throwing on falsification.
+const generationCheck = Arbitrary.checkEffect(arbitrary, Schema.is(CreateGrantRequest), { runs: 100 }).pipe(
+  Effect.map((result) => result._tag === "Passed" ? "ok" : Arbitrary.formatCheckFailure(result))
 )
 ```
 
@@ -310,7 +442,33 @@ Once encoded values are persisted or exchanged with another process, the `Encode
 - Tightening a check can make previously valid stored values unreadable.
 - Changing only the in-memory `Type` may still change encoding if a transformation changes.
 
-Use `withDecodingDefaultKey` for a genuine backward-compatible default, not to hide corrupt input. For long-lived persisted schema descriptions, use [SchemaRepresentation](../data/schema#schemarepresentation) with stable identities and the required revivers. For SQL table evolution, pair schema changes with [Migrator](../interfaces/sql#migrator) rather than hoping runtime decoding performs a database migration.
+**The technique for a changed representation: accept old and new shapes on the encoded side, decode both into the one domain `Type`, and encode only the new form.** A union of codecs does exactly that — every member decodes to the same `Type`, and because encoding tries members in order, putting the new form first means only the new form is ever written. Pin representative old values as regression fixtures so tightening a check cannot silently orphan stored data.
+
+> **Example status — Runnable:** legacy rows stored whole dollars as a JSON number; current rows store exact decimal text.
+
+```ts
+import { BigDecimal, Schema, SchemaGetter } from "effect"
+
+const LegacyWholeDollars = Schema.Int.pipe(
+  Schema.decodeTo(Schema.BigDecimal, {
+    decode: SchemaGetter.transform((dollars: number) => BigDecimal.fromBigInt(BigInt(dollars))),
+    encode: SchemaGetter.forbiddenEncoding // the old form is read, never written
+  })
+)
+
+// New form first: encoding tries members in order.
+const StoredSalary = Schema.Union([Schema.BigDecimalFromString, LegacyWholeDollars])
+
+const SalaryRow = Schema.Struct({ employeeId: Schema.NonEmptyString, baseSalary: StoredSalary })
+
+const legacy = Schema.decodeUnknownSync(SalaryRow)({ employeeId: "e-1", baseSalary: 185000 })
+const current = Schema.decodeUnknownSync(SalaryRow)({ employeeId: "e-1", baseSalary: "185000.50" })
+
+console.log(Schema.encodeUnknownSync(SalaryRow)(legacy))  // { employeeId: "e-1", baseSalary: "185000" }
+console.log(Schema.encodeUnknownSync(SalaryRow)(current)) // { employeeId: "e-1", baseSalary: "185000.5" }
+```
+
+For a renamed key, keep the wire name stable with [`Schema.encodeKeys`](../data/schema#3-structs-the-workhorse) while the domain name changes, or accept both shapes with the same union technique during a migration window. Use `withDecodingDefaultKey` for a genuine backward-compatible default, not to hide corrupt input. For long-lived persisted schema descriptions, use [SchemaRepresentation](../data/schema#schemarepresentation) with stable identities and the required revivers. For SQL table evolution, pair schema changes with [Migrator](../interfaces/sql#migrator) rather than hoping runtime decoding performs a database migration.
 
 ## Runnable capstone: request to domain to JSON and back
 
@@ -412,19 +570,64 @@ it("rejects malformed boundary data", () => {
 })
 ```
 
+### Assert the law that actually holds
+
+The claim a codec makes is about round trips, and three different laws hide under that name:
+
+| Law | Holds when | Notes |
+| --- | --- | --- |
+| `decode(encode(t))` is equivalent to `t` | encoding loses nothing | compare under a *named* equivalence — `Equal.equals` for `Schema.Class` values, or `Schema.toEquivalence(schema)` — never `===`, because decoding builds fresh instances |
+| `encode(decode(e))` equals `e` | decoding does not normalize | false for trimming, URL canonicalization, timestamp precision, legacy-form upgrades; do not demand it there |
+| **Idempotence after the first pass**: with `first = decode(encode(t))`, `decode(encode(first))` is equivalent to `first` | for every correct codec | the law worth asserting by default: it tolerates one normalization and still catches drift |
+
+> **Example status — Runnable:** a property over schema-derived values; `checkEffect` returns a structured result instead of throwing.
+
+```ts
+import { Effect, Equal, Schema } from "effect"
+import { Arbitrary } from "effect/unstable/arbitrary"
+
+class ReviewLink extends Schema.Class<ReviewLink>("handbook/ReviewLink")({
+  employeeId: Schema.NonEmptyString,
+  portal: Schema.URLFromString,
+  openedAt: Schema.DateTimeUtcFromString
+}) {}
+
+const roundTrip = (value: ReviewLink) =>
+  Schema.decodeUnknownSync(ReviewLink)(Schema.encodeSync(ReviewLink)(value))
+
+const stableAfterFirstPass = Arbitrary.checkEffect(
+  Arbitrary.schema(ReviewLink),
+  (sample) => {
+    const first = roundTrip(sample)
+    const second = roundTrip(first)
+    return Equal.equals(first, second) // true, while first === second is false
+  },
+  { runs: 100, seed: 11 }
+).pipe(
+  Effect.map((result) => result._tag === "Passed" ? "ok" : Arbitrary.formatCheckFailure(result))
+)
+```
+
+A schema-derived generator has two blind spots, and both need hand-written fixtures. It produces valid decoded values, so it can never exercise **key omitted → default**, an explicit falsy value that must survive, or malformed wire input; keep a handful of *named encoded* fixtures for those (a bad brand pattern, a malformed URL, an impossible timestamp, an invalid explicit default, one representative row per legacy form). And it knows only the schema: a cross-field business rule must be a schema `check`, or a residual `Arbitrary.filter`, which spends the discard budget. Record the seed and the shrunk counterexample when a property fails, and keep a regression example per representation bug. The per-requirement proof table and the four-case minimum are in [Testing schemas with TestSchema](../data/schema#testing-schemas-with-testschema).
+
 ## Operational checklist
 
 - Write down the carrier and the domain `Type`; choose a Codec when they differ.
 - Decode unknown input once at ingress and never recover trust with a cast.
+- Choose the excess-property policy per boundary (`"ignore"` strips, `"error"` rejects), pass it at the call site, and test it; use the same choice for generated JSON Schema.
+- Inside an Effect, decode with `decodeUnknownEffect`; a throwing decoder wrapped in `Effect.sync` turns bad input into a defect.
+- Keep "malformed input" and "valid input that does not match" as separately tagged outcomes.
 - Use `Finite`, integer/range checks, and brands where the domain is narrower than JavaScript's primitive.
 - Keep local shape validation in Schema and stateful business policy in services.
 - Model request/update/select variants explicitly; do not make one giant optional DTO serve every operation.
+- Give a stored row its own encoded form, reuse the field schemas, and decode rows inside the repository.
 - Encode outbound and persisted values through the Schema rather than raw `JSON.stringify`.
 - Derive a canonical JSON or StringTree codec for non-native values.
 - Preserve `SchemaIssue` until the UI/transport boundary chooses a formatter.
 - Enable all-errors and rejected-input reporting only where their detail is useful and safe.
 - Annotate the owning Schema so JSON Schema, docs, generators, and errors share metadata.
-- Test decode, encode, and round trip independently, including representative old stored values.
+- Test decode, encode, and round trip independently, including representative old stored values; assert idempotence after the first pass under a named equivalence.
+- Test every default three ways: omitted, explicit falsy, explicit invalid.
 - Treat the encoded side of an API, RPC, event, or persisted value as a versioned contract.
 
 The central rule is simple: **unknown data becomes trustworthy only by decoding, and domain data becomes portable only by encoding. One Schema should own both directions.**

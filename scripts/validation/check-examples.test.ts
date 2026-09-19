@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import path from "node:path"
 import test from "node:test"
 
-import { assertDoctestEvidence, assertExpectedDiagnostic } from "./check-examples.ts"
+import { assertDoctestEvidence, assertExpectedDiagnostic, effectDiagnosticProblems } from "./check-examples.ts"
 import { repositoryRoot } from "./example-model.ts"
 
 test("expected-invalid diagnostics require one exact code and message fragment", () => {
@@ -15,6 +15,15 @@ test("expected-invalid diagnostics require one exact code and message fragment",
   )
   assert.throws(() => assertExpectedDiagnostic("example.ts(1,7): error TS2322: Wrong\n", { code: "TS2345", message: "Wrong" }), /Expected TS2345/)
   assert.throws(() => assertExpectedDiagnostic("", { code: "TS2322", message: "Wrong" }), /exactly one TypeScript diagnostic/)
+})
+
+test("Effect diagnostics read severity from the located slot, not from paths or message text", () => {
+  const advisory = "fixtures/rpc.client-error-recovery/src/example.ts(6,3): message effect(catchConditionalRefailToCatchIf): prefer catchIf over a conditional Effect.fail"
+  const warning = "fixtures/base/src/example.ts(2,1): warning effect(floatingEffect): Effect must be yielded"
+  const error = "fixtures/base/src/example.ts(9,4): error effect(missingEffectContext): missing service"
+  assert.deepEqual(effectDiagnosticProblems([advisory, warning, error, ""].join("\n")), [warning, error])
+  assert.deepEqual(effectDiagnosticProblems("Found 1 error in 1 file"), ["Found 1 error in 1 file"])
+  assert.deepEqual(effectDiagnosticProblems("No diagnostics"), [])
 })
 
 const doctestExample = (id, source, name, runtime = id) => ({ id, source, name, openingLine: 10, runtime })

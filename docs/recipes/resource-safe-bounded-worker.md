@@ -5,7 +5,7 @@ Use a bounded Queue for producer backpressure, a fixed number of supervised cons
 ## Contract
 
 - **Classification:** Runnable example; complete `bounded-worker.ts`.
-- **Install:** `pnpm add effect@4.0.0-rc.108`
+- **Install:** `pnpm add effect@4.0.0-rc.115`
 - **Run:** Node 26+: `node bounded-worker.ts`
 - **Expected output:** `{"results":[2,4,6,8,10],"released":5,"maxActive":2}`.
 - **Program type:** `Effect<Summary, never, never>`.
@@ -92,7 +92,15 @@ console.log(JSON.stringify(await Effect.runPromise(program)))
 
 The Queue owns buffering and backpressure; the two consumers define actual concurrency. `Effect.acquireUseRelease` owns the per-job resource even though processing can be interrupted. `Queue.end` is an explicit protocol event, so consumers do not remain blocked forever after the producer finishes.
 
-For a single finite input where buffering is unnecessary, `Effect.forEach(jobs, processJob, { concurrency: 2 })` is simpler. Use the Queue shape when producers and consumers have independent lifetimes, input arrives over time, or capacity itself is operationally important.
+Three details carry more weight than they appear to:
+
+- **Overflow is the queue's contract.** `Queue.bounded(2)` suspends `offerAll` when two jobs are waiting, so the producer is paced by the workers and nothing is lost. `Queue.dropping` or `Queue.sliding` in the same position would turn this worker into a lossy one; choose them only as a stated policy and count what they shed, as described in [Make loss observable](../concurrency/concurrency-coordination#make-loss-observable).
+- **`concurrency: "unbounded"` is safe here only because the collection is the bound.** `Effect.all([worker, worker], …)` starts exactly two fibers; the number of workers is the limit. The same option over one effect per job would start a fiber per job and defeat the queue.
+- **Release runs on every exit of `use`.** `Effect.acquireUseRelease` runs the release action on success, typed failure, defect, and interruption — including a `use` function that throws synchronously before returning an Effect — and a failure inside the release action is combined with the original failure rather than replacing it. That is why `released` reaches `5` without any `try`/`finally`.
+
+In a larger program, give the producer a `Queue.Enqueue<Job, Cause.Done>` and each worker a `Queue.Dequeue<Job, Cause.Done>` so that only the wiring code can both offer and take; see [Put queue roles in function signatures](../concurrency/concurrency-coordination#put-queue-roles-in-function-signatures). If the producer is an independent fiber that can fail, pipe it through `Queue.into(queue)` so its failure reaches the workers instead of leaving them blocked in `take`.
+
+For a single finite input where buffering is unnecessary, `Effect.forEach(jobs, processJob, { concurrency: 2 })` is simpler. Use the Queue shape when producers and consumers have independent lifetimes, input arrives over time, or capacity itself is operationally important. [Structured Concurrency Through a Bounded Worker](../deep-dives/structured-concurrency-through-a-bounded-worker) builds the same design step by step, including failure policy and shutdown.
 
 ## Common wrong alternative
 

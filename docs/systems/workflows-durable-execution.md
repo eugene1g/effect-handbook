@@ -83,7 +83,82 @@ declare const writeSalary: (
 ) => Effect.Effect<void>
 ```
 
-> **Tip:** `Workflow.withCompensation(effect, (value, cause) => cleanup)` registers a saga-style rollback that runs only if the *whole* workflow fails. `Workflow.addFinalizer` provides unconditional cleanup. Compensation applies to top-level effects in the body, not steps nested inside an Activity. Two `Context.Reference`s can be set: `Workflow.CaptureDefects` and `Workflow.SuspendOnFailure`.
+> **Tip:** `Workflow.withCompensation(effect, (value, cause) => cleanup)` registers a saga-style rollback that runs only if the *whole* workflow fails. `Workflow.addFinalizer` provides unconditional cleanup. Compensation applies to top-level effects in the body, not steps nested inside an Activity. Two annotations change failure handling — attach them with `workflow.annotate(...)`: `Workflow.CaptureDefects` (default `true`: a defect becomes the run's recorded failure instead of crashing the attempt) and `Workflow.SuspendOnFailure` (default `false`: when `true`, any failure parks the run as `Suspended` so an operator can fix the cause and call `workflow.resume(executionId)`).
+
+### Finalizers, compensation, and cancellation
+
+Three cleanup mechanisms exist, and they answer to different owners.
+
+| Mechanism | Runs when | Use it for |
+| --- | --- | --- |
+| `Workflow.addFinalizer((exit) => …)` | The **execution** reaches a terminal state (`Complete`), on whichever runner finishes it. Skipped when an owner merely abandons an attempt. | Durable, terminal-state work: publish "raise workflow finished", release a durable reservation. |
+| `Workflow.withCompensation(step, undo)` | The execution terminates in failure **after** `step` succeeded. Built on `addFinalizer`, so it shares its rules. | Saga-style undo of a committed top-level step. |
+| Scope finalizers under `Workflow.provideScope(effect)` / `Workflow.scope` | The workflow scope closes on **this owner** — including when the attempt is abandoned for replay. | Process-local resources: a socket, a lock handle, a temp file. |
+
+```ts
+import { Effect, Exit, Schema } from "effect"
+import { Activity, DurableDeferred, Workflow } from "effect/unstable/workflow"
+
+const HrbpDecision = DurableDeferred.make("HrbpDecision", {
+  success: Schema.Literals(["approved", "rejected"])
+})
+
+export const EquityGrant = Workflow.make("EquityGrant", {
+  payload: { grantId: Schema.String },
+  success: Schema.String,
+  idempotencyKey: ({ grantId }) => grantId
+})
+
+export const EquityGrantLayer = EquityGrant.toLayer(
+  Effect.fn("EquityGrant")(function*({ grantId }) {
+    // Terminal-state work: runs when the EXECUTION completes, on whichever owner finishes it.
+    yield* Workflow.addFinalizer((exit) =>
+      publishGrantClosed(grantId, Exit.isSuccess(exit) ? "applied" : "abandoned-or-failed")
+    )
+
+    // Saga step: if the run later fails, release the shares that were reserved.
+    const reservationId = yield* Activity.make({
+      name: "ReserveShares",
+      success: Schema.String,
+      execute: reserveShares(grantId)
+    }).pipe(
+      Workflow.withCompensation((reservation) => releaseShares(reservation))
+    )
+
+    // Owner-local resource: closed with the workflow scope on THIS process.
+    yield* Effect.acquireRelease(openAuditSocket(grantId), (socket) => socket.close).pipe(
+      Workflow.provideScope
+    )
+
+    const decision = yield* DurableDeferred.await(HrbpDecision)
+    return `${grantId}: ${decision} (${reservationId})`
+  })
+)
+
+declare const publishGrantClosed: (grantId: string, status: string) => Effect.Effect<void>
+declare const reserveShares: (grantId: string) => Effect.Effect<string>
+declare const releaseShares: (reservationId: string) => Effect.Effect<void>
+declare const openAuditSocket: (
+  grantId: string
+) => Effect.Effect<{ readonly close: Effect.Effect<void> }>
+```
+
+- **Never release a process-local resource from `addFinalizer`.** If the owner is lost the finalizer is skipped here, and when it eventually runs it may be on another machine.
+- **Compensation is not an atomic rollback.** It is an ordinary effect that can fail, be interrupted, or run more than once; make it idempotent and record its own outcome.
+- **Registration happens on every pass through the body.** `addFinalizer`, `withCompensation`, and scope finalizers are registered by running code, and the body runs again after each suspension. A probe against `WorkflowEngine.layerMemory` on `rc.115` shows a workflow that suspended once running each of them **twice** at completion (the journaled activity itself ran once). Treat every finalizer and compensation as at-least-once.
+- **An `Effect.onExit` in the body cannot observe a workflow interrupt.** Interruption is deposited through the engine; use `addFinalizer` when terminal-state logic must see it.
+- **Cancellation is not rollback.** Distinguish five events and decide the state and side effects of each: the *caller stops waiting* (the run continues); the run *receives an interrupt* via `workflow.interrupt(id)` (terminal, finalizers and compensation run); the run *suspends* on a clock, deferred, queue, or child (nothing is lost, no cleanup runs); the *owner is lost* and the attempt is abandoned (replay elsewhere); and *cancel races completion* (whichever is recorded first wins, so the canceller must read the final status rather than assume).
+
+### Abandoned run attempts
+
+With `ClusterWorkflowEngine`, a run can be interrupted for a purely transient reason: its runner is shutting down, or the shard moved. From `rc.113` the engine classifies that interrupt as an **abandoned attempt**:
+
+- nothing about the attempt is persisted — no result, no failure, no suspension record;
+- `addFinalizer` callbacks and compensations do **not** run, and a parent workflow is **not** resumed;
+- owner-local scope finalizers still run, so process resources are released;
+- the execution is replayed from its journal by the next owner, where completed activities return their recorded results.
+
+The practical consequence is the same rule as for a crash: an activity that was in flight may execute again, so the idempotency token still matters. Interrupt finalization in the in-memory engine was aligned with the cluster engine in `rc.111` (and an interrupt now survives a replay there), so tests against `WorkflowEngine.layerMemory` exercise the same finalization rules — but the in-memory engine has no owners to lose, so it cannot produce an abandoned attempt.
 
 **Reach for it when** you have a multi-step business process that must survive restarts, suppress replay after completed steps are recorded, and be resumable and idempotent by a stable key.
 
@@ -126,6 +201,10 @@ The default `interruptRetryPolicy` is bounded and filters for interruption cause
 
 > **Tip:** `Activity.idempotencyKey(name)` derives a deterministic hash from the current execution id and the name (optionally folding in the attempt) — useful as a dedup token to pass to external systems so retried writes cannot post twice. `Activity.raceAll(name, [a, b, c])` runs several activities as a durable, success-biased race: the first success wins, or the collected failure wins only if every activity fails. The chosen result is journaled across restarts.
 
+**Scope the idempotency key to the logical operation.** `Activity.idempotencyKey(name)` hashes the execution id and the name, so every retry and every replay of that activity sends the *same* token — right when all attempts are one logical operation, such as one payroll write. Pass `{ includeAttempt: true }` only when each attempt is meant to create a distinct external resource. Never mint a fresh random key inside the activity: a replay would produce a different one and defeat the dedup.
+
+**Child workflows started from an activity.** An activity may execute child workflows, including several in parallel (`Effect.all([...], { concurrency })`). All children are dispatched before the parent suspends, the activity's resources are released while it waits durably, and the parent resumes when the children complete — including when they complete while the parent is still cleaning up. (Suspension waits for running activities to finish or suspend; from `rc.113` an activity whose start was interrupted no longer leaves that count raised, which could previously block a later suspension.)
+
 For SQL-backed workflow storage, an activity can opt into the engine's storage transaction with `.annotate(ClusterSchema.WithTransaction, true)` (the default is `false`). With `SqlMessageStorage`, database effects that use the supplied `SqlClient` then commit with the activity result. This is a backend-specific local transaction boundary: it does not make an external HTTP/API write atomic, so those calls still need an idempotency token or an outbox.
 
 **Reach for it when** a step inside a workflow touches the outside world or is otherwise non-deterministic, and its completed result must be remembered. Design the effect for at-least-once delivery with an idempotency token or transactional boundary.
@@ -161,6 +240,8 @@ declare const escalateToVp: (id: string) => Effect.Effect<void>
 ```
 
 > **Warning:** Give every sleep a **stable, unique `name`** within the workflow — it's the journal key for that wake-up. Two sleeps sharing a name will collide on replay.
+
+**`inMemoryThreshold` decides which kind of sleep you get.** A duration at or below the threshold (default 60 seconds) runs as an ordinary `Effect.sleep` inside a journaled activity named `DurableClock/<name>`: cheap, but if the owner dies mid-sleep the activity starts over, so the wait restarts from zero. A longer duration schedules a durable wake-up and suspends the run. Pass `inMemoryThreshold: 0` to force the durable path for every non-zero sleep (an explicit `0` is honored), or raise it when short waits dominate and restart precision does not matter. A zero `duration` returns immediately.
 
 **Reach for it when** a workflow must wait a meaningful amount of time (minutes to months) without pinning a fiber while staying crash-proof.
 
@@ -204,7 +285,7 @@ declare const notifyVp: (
 ) => Effect.Effect<void>
 ```
 
-> **Tip:** `DurableDeferred.into(effect, deferred)` runs an effect and records its `Exit` into the deferred, resuming waiters — the plumbing behind queues and races. `DurableDeferred.raceAll({ name, success, error, effects })` is success-biased: it persists the first success, or the collected failure only after all effects fail. In RC 108 a completion can wake an active parked workflow immediately, and replay observes the recorded result.
+> **Tip:** `DurableDeferred.into(effect, deferred)` runs an effect and records its `Exit` into the deferred, resuming waiters — the plumbing behind queues and races. `DurableDeferred.raceAll({ name, success, error, effects })` is success-biased: it persists the first success, or the collected failure only after all effects fail. A completion can wake an active parked workflow immediately, and replay observes the recorded result. Because `into` *records* an `Exit`, its requirements include the deferred's success and error schema **encoding** services as well as the decoding ones; a schema that needs a service to encode must have it provided where `into` runs.
 
 **Reach for it when** a workflow must pause until an out-of-band signal arrives — an external approval, a third-party webhook.
 
@@ -288,6 +369,10 @@ const program = Effect.gen(function*() {
 
 > **Note:** A workflow `Result` is either `Complete` (carrying an `Exit`) or `Suspended` (the run is parked on a clock, deferred, or queue). That's how `poll` distinguishes "finished" from "waiting on something."
 
+**What `layerMemory` proves, and what it does not.** It proves the contract, the control flow, replay determinism within one process, and interrupt/compensation ordering. It does not prove durability, redelivery after a kill, behavior under two owners, or compatibility of stored bytes with a new deployment. Those need the production engine and storage — see [Recovery testing and operations](#recovery-testing-and-operations).
+
+**With `ClusterWorkflowEngine`,** each execution is a cluster entity with a fixed ten-second idle time, so a suspended or finished run releases its runner slot quickly and is rebuilt from storage on its next message; see [Cluster & Sharding](cluster-sharding#clusterworkflowengine).
+
 **Reach for it when** wiring the app: `layerMemory` for tests/dev, a persistent engine for production, provided under your workflow layers.
 
 ## WorkflowProxy
@@ -297,6 +382,14 @@ const program = Effect.gen(function*() {
 `WorkflowProxy.toRpcGroup(workflows)` produces an `RpcGroup`; `WorkflowProxy.toHttpApiGroup(name, workflows)` produces an `HttpApiGroup` of POST endpoints. For each workflow you get three operations: execute, discard (fire-and-forget), and resume-by-execution-id.
 
 A caller can start or resume a run over the wire without importing the workflow's handler or the engine. The contract is generated from the workflow definitions.
+
+| Operation | RPC tag (`toRpcGroup`, optional `{ prefix }`) | HTTP endpoint (`toHttpApiGroup`) | Success |
+| --- | --- | --- | --- |
+| Execute and await | `<Tag>` | `POST /<tag>` (the tag lower-cased) | the workflow's `success` |
+| Start without waiting | `<Tag>Discard` | `POST /<tag>/discard` | the **execution id** (`Schema.String`) — keep it to `poll`, `interrupt`, or `resume` later |
+| Resume a suspended run | `<Tag>Resume` | `POST /<tag>/resume` | — (payload `{ executionId }`) |
+
+The workflow's annotations are merged onto all three generated operations, and the execute operation carries the workflow's `error` schema.
 
 ```ts
 import { Schema } from "effect"
@@ -344,5 +437,46 @@ const ApiLayer = RpcServer.layer(CompWorkflowRpcs).pipe(
 ```
 
 **Reach for it when** you've derived a workflow RPC/HTTP surface and need to mount the handlers that actually run the executions.
+
+## Replay, versioning, and rollout
+
+A journal outlives the code that wrote it. Every name and schema a run has touched is a compatibility contract for as long as that run can still replay.
+
+| Identity | Where it is stored | Changing it while runs are in flight |
+| --- | --- | --- |
+| Workflow tag and `idempotencyKey` output | Execution id (a hash of both) | Orphans live executions and lets the same business intent start a second run. |
+| `Activity` `name` | Journal key for the recorded `Exit` | Replay finds no record and **executes the activity again**. |
+| `DurableClock` / `DurableDeferred` / `DurableQueue` `name` | Journal key, and part of every deferred token | Outstanding tokens and wake-ups no longer match. |
+| `payload`, `success`, `error` schemas (workflow, activity, deferred, queue) | Encoded bytes in storage | Old records fail to decode unless the new schema still accepts them. |
+| Order and presence of steps in the body | Implicit: replay walks the same sequence | Reordering or removing a step changes which journal entries a replay consumes. |
+
+Rules that keep upgrades boring:
+
+- **Renaming an import is not a migration.** Only the string tags and names are persisted; keep them frozen and treat a new name as a new workflow.
+- **Add, do not mutate.** Evolve schemas so that old encoded values still decode (new optional fields, widened unions). For an incompatible change, introduce `ApproveMeritIncreaseV2` with its own tag and let the old tag drain.
+- **Inventory before rollout.** Know how many executions are running or suspended per workflow tag and how long the longest durable wait is; that is how long the old handler must stay registered.
+- **Pick one rollout strategy deliberately:** drain old runs first; route by version; dual-read; migrate stored records with a verified tool; or start a new identity. "Deploy and hope" is the only wrong one.
+- **Do not read mutable ambient configuration in the body.** A feature flag or limit that changes between the original run and a replay changes the path. Capture it once in an `Activity` (its recorded value is what replays see) or pass it in the payload.
+- **Validate before interpreting.** Stored bytes are input: decode with the schema, check the version and tenant you expect, and park records you cannot decode for an operator instead of retrying them forever.
+
+## Recovery testing and operations
+
+The engine's guarantees are only as good as the backend and the deployment. Test the failure windows on the real storage, and label every claim by its evidence: *proved by the library*, *depends on the adapter*, *depends on the deployment*, or *design guidance*.
+
+| Kill or fault the worker… | What must hold afterwards |
+| --- | --- |
+| before the activity's external effect | The activity runs once on replay. |
+| after the external system accepted the write, before the `Exit` was recorded | The activity runs again with the **same** idempotency token; the sink deduplicates. |
+| after the `Exit` was recorded, before the next step | Replay returns the recorded result; the external effect does not repeat. |
+| during a `DurableClock` sleep, `DurableDeferred.await`, or queue wait | The run is `Suspended` in storage and resumes on another owner at the right time. |
+| during compensation | Compensation runs again; it is idempotent. |
+| while an old owner is paused past its lease (a long GC or VM pause) | The old owner's late write is rejected by the sink's idempotency/version check — the engine does not supply a fencing token. |
+| with storage unavailable | New work is refused or waits; nothing is acknowledged that was not persisted. |
+| with old and new code on the same store | Old runs replay on new code (or stay on old workers); fixtures of old journal bytes decode. |
+| with a corrupt or undecodable record | The record is quarantined and visible to an operator; it does not become a hot retry loop. |
+
+Run these in three separate lanes: a deterministic lane (`WorkflowEngine.layerMemory`, `TestClock`) for control flow and compensation order; an adapter lane against the production storage with real kill-and-restart; and an artifact lane that exercises the built deployable. A kill bypasses every finalizer, so restart behavior must never depend on cleanup having run.
+
+**Operate it as a product surface.** Monitor suspended executions by age, activity attempt counts, replay failures, and dead-lettered queue items. Operator actions — inspect, `interrupt`, `resume`, redrive, release from quarantine — change business state, so authenticate, authorize, and audit them like any other write path. A backup that has never been restored is not a recovery plan; rehearse a restore and replay in-flight executions against it.
 
 > **Tip:** A complete durable workflow app: one or more `Workflow.make` definitions, each `.toLayer(...)` with a deterministic body composed of `Activity`/`DurableClock`/`DurableDeferred`/`DurableQueue` steps; a `WorkflowEngine` layer (memory in dev, cluster in prod) provided under them; and — if external callers need access — a `WorkflowProxy` contract served by `WorkflowProxyServer`. Keep bodies deterministic, journal every side effect.

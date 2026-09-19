@@ -1,5 +1,6 @@
 const pageDescriptions = {
   "index.md": "How to use the Effect 4 Handbook, its version contract, conventions, and official companion resources.",
+  "foundations/getting-started.md": "Installing the Effect 4 release line, TypeScript and ESM settings, a first program, import forms, and editor tooling.",
   "foundations/core-runtime-execution.md": "Effect creation, composition, execution, fibers, scopes, runtime behavior, and execution planning.",
   "foundations/services-context-layers.md": "Typed services, Context, References, Layer construction, memoization, and resource lifecycles.",
   "foundations/configuration-secrets.md": "Configuration providers, validation, secrets, redaction, and application configuration patterns.",
@@ -31,6 +32,8 @@ const pageDescriptions = {
   "reference/cheat-sheet-index.md": "A task-oriented Effect 4 cheat sheet and linked index into the concise handbook.",
   "reference/choosing-effect-primitives.md": "Contrastive decision tables for selecting Effect primitives by errors, services, lifetime, backpressure, durability, and distribution.",
   "troubleshooting/troubleshooting-and-anti-patterns.md": "Searchable symptoms, causes, fixes, and common Effect code-generation anti-patterns.",
+  "troubleshooting/migrating-from-effect-3.md": "A source-grounded Effect 3 to Effect 4 migration map: packages, renamed and removed APIs, services, errors, Schema, and an incremental upgrade order.",
+  "reference/review-checklists.md": "Design-review and code-review checklists for Effect services, errors, lifetimes, concurrency, boundaries, persistence, observability, and tests.",
   "recipes/service-and-layers.md": "A runnable service with live and test Layers, explicit requirements, and lifecycle boundaries.",
   "recipes/schema-httpapi-sql-boundary.md": "A complete typed boundary from Schema through HttpApi to SQL persistence.",
   "recipes/resource-safe-bounded-worker.md": "A bounded Queue worker with structured concurrency, backpressure, and deterministic cleanup.",
@@ -38,6 +41,8 @@ const pageDescriptions = {
   "recipes/production-observability.md": "Production logging, metrics, tracing, exporter Layers, and graceful flushing.",
   "recipes/graceful-entrypoint-and-shutdown.md": "A Node application entrypoint with scoped resources, signals, and graceful shutdown.",
   "recipes/managed-runtime-integration.md": "Safe integration of Effect services into imperative framework callbacks with ManagedRuntime.",
+  "recipes/request-cancellation-through-a-host.md": "Forwarding a host's cancellation through ManagedRuntime and into a Promise adapter so abandoned requests stop their work.",
+  "recipes/transactional-write-with-outbox.md": "An atomic SQL write with a transactional outbox, commit-before-deliver ordering, and honest at-least-once delivery.",
   "deep-dives/index.md": "Long-form Effect 4 guides that connect individual APIs into complete application patterns.",
   "deep-dives/reactivity-from-atoms-to-mastery.md": "A source-grounded journey from Atom fundamentals through invalidation, hydration, React, and a complete feature.",
   "deep-dives/testing-an-effect-application.md": "A testing strategy for typed failures, services, resources, time, concurrency, and integration boundaries.",
@@ -47,7 +52,9 @@ const pageDescriptions = {
   "deep-dives/anatomy-of-a-real-effect-application.md": "A complete application composition from domain schemas and services through resources, observability, entrypoint, shutdown, and tests.",
   "deep-dives/schema-from-external-input-to-domain-and-back.md": "Schema boundaries from encoded input to domain types and back across HTTP, RPC, SQL, persistence, evolution, and tests.",
   "deep-dives/failure-retry-fallback-and-interruption.md": "A connected model of typed failure, defects, Cause, retry, fallback, interruption, and cleanup.",
-  "deep-dives/structured-concurrency-through-a-bounded-worker.md": "A bounded worker architecture that composes Queue, fibers, Scope, backpressure, shutdown, and tests."
+  "deep-dives/structured-concurrency-through-a-bounded-worker.md": "A bounded worker architecture that composes Queue, fibers, Scope, backpressure, shutdown, and tests.",
+  "deep-dives/adopting-effect-in-an-existing-codebase.md": "An incremental strategy for bringing Effect into a Promise-based TypeScript codebase: audit, characterize, migrate leaf-first, and keep one interop seam.",
+  "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md": "Who owns each resource and fiber, startup as a transaction, readiness and draining, one shutdown path, and callback bridges across hosts."
 }
 
 const pageRelated = Object.freeze({
@@ -60,16 +67,23 @@ const pageRelated = Object.freeze({
   "deep-dives/testing-an-effect-application.md": ["tooling/testing-dev-tooling.md", "foundations/services-context-layers.md", "concurrency/scheduling-time.md"],
   "deep-dives/streaming-ingestion-without-accidental-buffering.md": ["concurrency/streaming-channels.md", "data/schema.md", "interfaces/platform-runtime-hosts.md"],
   "deep-dives/durability-and-distribution-ladder.md": ["tooling/persistence.md", "systems/event-log-event-sourcing.md", "systems/workflows-durable-execution.md", "systems/cluster-sharding.md"],
-  "deep-dives/building-a-production-ai-capability.md": ["systems/ai-language-models.md", "data/schema.md", "operations/observability.md", "foundations/configuration-secrets.md"]
+  "deep-dives/building-a-production-ai-capability.md": ["systems/ai-language-models.md", "data/schema.md", "operations/observability.md", "foundations/configuration-secrets.md"],
+  "deep-dives/adopting-effect-in-an-existing-codebase.md": ["foundations/getting-started.md", "foundations/core-runtime-execution.md", "recipes/managed-runtime-integration.md", "troubleshooting/migrating-from-effect-3.md", "tooling/testing-dev-tooling.md"],
+  "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md": ["foundations/core-runtime-execution.md", "foundations/services-context-layers.md", "interfaces/platform-runtime-hosts.md", "recipes/graceful-entrypoint-and-shutdown.md", "recipes/request-cancellation-through-a-host.md"],
+  "foundations/getting-started.md": ["foundations/core-runtime-execution.md", "tooling/testing-dev-tooling.md", "deep-dives/adopting-effect-in-an-existing-codebase.md"],
+  "troubleshooting/migrating-from-effect-3.md": ["troubleshooting/troubleshooting-and-anti-patterns.md", "foundations/getting-started.md", "deep-dives/adopting-effect-in-an-existing-codebase.md"],
+  "reference/review-checklists.md": ["reference/choosing-effect-primitives.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
+  "recipes/request-cancellation-through-a-host.md": ["recipes/managed-runtime-integration.md", "foundations/core-runtime-execution.md", "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md"],
+  "recipes/transactional-write-with-outbox.md": ["interfaces/sql.md", "recipes/schema-httpapi-sql-boundary.md", "deep-dives/durability-and-distribution-ladder.md"]
 })
 
 export const handbookRelease = Object.freeze({
   package: "effect",
-  version: "4.0.0-rc.108",
-  tag: "effect@4.0.0-rc.108",
-  commit: "bef7bf38ae4b73d5511043f707aed083de5da7cc",
-  publishedAt: "2026-08-12T14:03:51.718Z",
-  auditedAt: "2026-08-12"
+  version: "4.0.0-rc.115",
+  tag: "effect@4.0.0-rc.115",
+  commit: "4a05d4914fa2327a42bd75fe77c22c188becf3b4",
+  publishedAt: "2026-09-11T17:20:13.421Z",
+  auditedAt: "2026-09-18"
 })
 
 export const handbookGroups = [
@@ -83,7 +97,8 @@ export const handbookGroups = [
         source: "index.md",
         link: "/",
         related: pageRelated["index.md"] ?? []
-      }
+      },
+      page("Getting Started", "foundations/getting-started.md")
     ]
   },
   {
@@ -145,14 +160,18 @@ export const handbookGroups = [
     text: "Decisions & Recipes",
     items: [
       page("Choosing Effect Primitives", "reference/choosing-effect-primitives.md"),
+      page("Review Checklists", "reference/review-checklists.md"),
       page("Troubleshooting & Anti-Patterns", "troubleshooting/troubleshooting-and-anti-patterns.md"),
+      page("Migrating from Effect 3", "troubleshooting/migrating-from-effect-3.md"),
       page("Recipe: A Service with Live and Test Layers", "recipes/service-and-layers.md"),
       page("Recipe: Schema to HttpApi to SQL", "recipes/schema-httpapi-sql-boundary.md"),
       page("Recipe: A Resource-Safe Bounded Worker", "recipes/resource-safe-bounded-worker.md"),
       page("Recipe: Typed Retry with TestClock", "recipes/retry-with-test-clock.md"),
       page("Recipe: Production Observability", "recipes/production-observability.md"),
       page("Recipe: A Graceful Node Entrypoint", "recipes/graceful-entrypoint-and-shutdown.md"),
-      page("Recipe: ManagedRuntime at an Imperative Boundary", "recipes/managed-runtime-integration.md")
+      page("Recipe: ManagedRuntime at an Imperative Boundary", "recipes/managed-runtime-integration.md"),
+      page("Recipe: Request Cancellation Through a Host", "recipes/request-cancellation-through-a-host.md"),
+      page("Recipe: A Transactional Write with an Outbox", "recipes/transactional-write-with-outbox.md")
     ]
   },
   {
@@ -174,7 +193,9 @@ export const deepDiveGroups = [
     items: [
       page("Deep Dives", "deep-dives/index.md"),
       page("Reactivity — From Atoms to Mastery", "deep-dives/reactivity-from-atoms-to-mastery.md"),
+      page("Adopting Effect in an Existing TypeScript Codebase", "deep-dives/adopting-effect-in-an-existing-codebase.md"),
       page("Anatomy of a Real Effect Application", "deep-dives/anatomy-of-a-real-effect-application.md"),
+      page("Owning Lifetimes — Startup, Readiness, and Shutdown", "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md"),
       page("Schema — From External Input to Domain and Back", "deep-dives/schema-from-external-input-to-domain-and-back.md"),
       page("Failure, Retry, Fallback, and Interruption", "deep-dives/failure-retry-fallback-and-interruption.md"),
       page("Structured Concurrency Through a Bounded Worker", "deep-dives/structured-concurrency-through-a-bounded-worker.md"),
@@ -191,6 +212,8 @@ export const siteGroups = [...handbookGroups, ...deepDiveGroups]
 export const sitePages = siteGroups.flatMap((group) => group.items)
 
 export const deepDiveAgentSummaries = Object.freeze({
+  "deep-dives/adopting-effect-in-an-existing-codebase.md": "Architecture: audit each function for hidden failure, dependency, lifetime, and cancellation behavior; pin current behavior with characterization tests; migrate leaf-first behind an unchanged external contract; keep exactly one seam where Promise meets Effect; make adapters cancellable before adding retry or timeout policy; take early test wins with provideService.",
+  "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md": "Architecture: every resource and fiber has one named owner scope; startup is a transaction that either completes or releases what it acquired; readiness and draining are explicit states separate from liveness; one shutdown operation closes intake, drains, then releases in reverse order; callback bridges into host frameworks carry cancellation and never outlive their owner.",
   "deep-dives/reactivity-from-atoms-to-mastery.md": "Architecture: AtomRegistry owns the reactive graph and lifecycle; Atom.runtime supplies Effect services; Reactivity keys drive targeted invalidation; Hydration crosses the SSR boundary; framework bindings consume AsyncResult without hiding typed failures.",
   "deep-dives/anatomy-of-a-real-effect-application.md": "Architecture: schemas and tagged errors define domain boundaries; Context services separate policy from infrastructure; live and test Layers compose Config, SQL/HTTP resources, and observability; one scoped entrypoint owns startup, interruption, finalizers, and shutdown.",
   "deep-dives/schema-from-external-input-to-domain-and-back.md": "Architecture: decode unknown encoded input once at each boundary, operate on validated Type values internally, and encode deliberately for HTTP, RPC, SQL, or persistence; transformations, classes, versioned representations, and property tests preserve the contract.",
@@ -205,19 +228,24 @@ export const deepDiveAgentSummaries = Object.freeze({
 export const agentBundles = [
   bundle("core", "Effect 4 Core", "effect-4-core.md", [
     "index.md",
+    "foundations/getting-started.md",
     "foundations/core-runtime-execution.md",
     "foundations/services-context-layers.md",
     "foundations/configuration-secrets.md",
     "foundations/errors-option-result.md",
     "data/data-structures.md",
+    "data/functional-toolkit.md",
     "data/schema.md",
     "operations/caching-batching.md",
     "reference/choosing-effect-primitives.md",
+    "reference/review-checklists.md",
     "troubleshooting/troubleshooting-and-anti-patterns.md",
+    "troubleshooting/migrating-from-effect-3.md",
     "recipes/service-and-layers.md",
     "recipes/retry-with-test-clock.md",
     "recipes/graceful-entrypoint-and-shutdown.md",
     "recipes/managed-runtime-integration.md",
+    "recipes/request-cancellation-through-a-host.md",
     "tooling/testing-dev-tooling.md",
     "reference/cheat-sheet-index.md"
   ]),
@@ -229,7 +257,8 @@ export const agentBundles = [
     "interfaces/rpc.md",
     "interfaces/platform-runtime-hosts.md",
     "systems/reactivity-atom.md",
-    "recipes/schema-httpapi-sql-boundary.md"
+    "recipes/schema-httpapi-sql-boundary.md",
+    "recipes/request-cancellation-through-a-host.md"
   ]),
   bundle("concurrency", "Effect 4 Concurrency & Streaming", "effect-4-concurrency.md", [
     "foundations/core-runtime-execution.md",
@@ -247,6 +276,7 @@ export const agentBundles = [
     "systems/workflows-durable-execution.md",
     "systems/cluster-sharding.md",
     "systems/event-log-event-sourcing.md",
+    "recipes/transactional-write-with-outbox.md",
     "reference/choosing-effect-primitives.md"
   ]),
   bundle("ai", "Effect 4 AI", "effect-4-ai.md", [

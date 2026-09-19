@@ -2,6 +2,8 @@
 
 Effect's data structure modules share a common design: immutable, `pipe`-first dual APIs, and structural `Equal`/`Hash` throughout. Once familiar with one module, the rest follow the same pattern.
 
+> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is the v3 name; `rc.115` spells it `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+
 ## Array
 
 `effect/Array` — stable
@@ -79,6 +81,27 @@ Key APIs: make / makeBy / range / replicate, map / flatMap / flatten / filter / 
 
 > **Tip:** Most collection operators are dual: call `Array.map(arr, fn)` data-first, or `pipe(arr, Array.map(fn))` data-last.
 
+**`groupBy` keeps finite keys.** When the key selector returns a literal union, the result type is `Record.ReadonlyRecord.GroupByResult<K, NonEmptyArray<A>>` — every possible key is known and *optional*, because a group with no members is simply absent at runtime. A selector typed `string` still yields an open `Record<string, NonEmptyArray<A>>`. `Iterable.groupBy` is typed the same way.
+
+```ts
+import { Array } from "effect"
+
+type Rating = "exceeds" | "meets" | "below"
+interface Review {
+  readonly employeeId: string
+  readonly rating: Rating
+}
+declare const reviews: ReadonlyArray<Review>
+
+const byRating = Array.groupBy(reviews, (review) => review.rating)
+// { readonly exceeds?: NonEmptyArray<Review>; readonly meets?: ...; readonly below?: ... }
+
+const onPlan = byRating.below ?? [] // a rating nobody received has no key
+// byRating.outstanding              // type error: the selector can never produce it
+```
+
+**Counts are normalised.** Every count argument in `Array`, `Chunk`, `Iterable`, and `String` (`take`, `drop`, `takeRight`, `chunksOf`, `makeBy`, `replicate`, ...) is floored when fractional and treated as `0` when `NaN` or non-positive, so `Array.take(xs, 1.7)` takes one element and `Array.take(xs, NaN)` takes none. Constructors that promise a non-empty result (`makeBy`, `replicate`, `chunksOf`) clamp the count to at least `1`.
+
 Use for any immutable collection operation on plain arrays — sorting, grouping, deduplicating, partitioning, zipping. Covers ~90% of everyday collection work.
 
 ## Chunk
@@ -123,7 +146,21 @@ const program = pipe(
 )
 ```
 
+**Getting data in and out.** Conversion is where accidental copies and accidental sharing happen:
+
+| Direction | Function | Cost and sharing |
+| --- | --- | --- |
+| In | `Chunk.fromIterable(xs)` | Materialises a non-array iterable once; **an array input is wrapped as-is, not copied**, and a `Chunk` input is returned unchanged |
+| In | `Chunk.fromArrayUnsafe(xs)` / `fromNonEmptyArrayUnsafe(xs)` | Wraps the array without copying — the explicit spelling of the same sharing |
+| In | `Chunk.make(...)` / `Chunk.of(a)` | Fresh `NonEmptyChunk` |
+| Out | `Chunk.toReadonlyArray(chunk)` | Returns the (cached) backing array; no copy once materialised |
+| Out | `Chunk.toArray(chunk)` | A mutable copy you own |
+
+**A chunk built from an array aliases that array**, so mutating the source afterwards changes the chunk (`xs[0] = 99` shows up in both forms above). Copy first (`Chunk.fromIterable([...xs])`) when the source outlives the call and may still be written to. Both `toArray` and `toReadonlyArray` keep non-emptiness in the type: a `NonEmptyChunk<A>` converts to a non-empty array type. Chunks compare by value — `Equal.equals(Chunk.make(1, 2), Chunk.make(1, 2))` is `true` — and count arguments (`take`, `drop`, ...) follow the normalisation rule described under [Array](#array).
+
 Use when accumulating many small pieces and avoiding repeated array copies — especially in stream processing, recursive algorithms, or custom collectors.
+
+Official guide: [Chunk](https://effect.website/docs/v4/data-types/chunk) (it says `fromIterable` copies its input; in `rc.115` that is only true for non-array iterables).
 
 ## HashMap
 
@@ -131,14 +168,14 @@ Use when accumulating many small pieces and avoiding repeated array copies — e
 
 Immutable key-value map backed by a Hash Array Mapped Trie (HAMT). Lookup, insert, and delete are O(log 32 n) — effectively constant for practical sizes. Keys are hashed and compared via Effect's `Equal`/`Hash` protocol — structural equality, not reference equality.
 
-**Mental model.** `HashMap` is to JavaScript's `Map` what `Array` is to a mutable array — same shape, fully immutable, pipe-friendly. Any value implementing `Equal` and `Hash` (including `Data.Class` instances) works as a key; two different objects with the same fields are the same key.
+**Mental model.** `HashMap` is to JavaScript's `Map` what `Array` is to a mutable array — same shape, fully immutable, pipe-friendly. Keys are compared with `Equal.equals`, which in Effect 4 is structural by default: two plain object literals, two arrays, two instances of the same `Data.Class`, or two Schema-decoded structs with the same contents are the same key (a `Data.Class` instance is not equal to a bare literal with the same fields, because prototype keys such as `pipe` take part in the comparison). Reach for a custom `[Equal.symbol]` / `[Hash.symbol]` only when identity should be a *subset* of the fields.
 
 ```ts
 import { HashMap, Data, Option, pipe } from "effect"
 
-// Data.Class gives structural Equal + Hash automatically.
-// Use an Employee value-object as a HashMap key — two instances
-// with identical fields are treated as the same key.
+// Use an Employee value-object as a HashMap key — two instances with identical
+// fields are the same key. `Data.Class` is used here for the constructor and
+// `.pipe`; two plain `{ id, name, ... }` literals would dedupe the same way.
 class Employee extends Data.Class<{
   readonly id: string
   readonly name: string
@@ -148,7 +185,7 @@ class Employee extends Data.Class<{
 
 const alice1 = new Employee({ id: "e1", name: "Alice", departmentId: "d1", level: 4 })
 const alice2 = new Employee({ id: "e1", name: "Alice", departmentId: "d1", level: 4 })
-// alice1 !== alice2 by reference, but structurally Equal via Data.Class
+// alice1 !== alice2 by reference, but Equal.equals(alice1, alice2) is true
 
 // Store per-employee comp-band allocations
 let allocations = HashMap.empty<Employee, number>()
@@ -188,7 +225,9 @@ const updated = HashMap.mutate(meritBudgets, (draft) => {
 })
 ```
 
-> **Tip:** For custom value-object keys, extend `Data.Class` / `Data.TaggedClass` or implement both `[Equal.symbol]` and `[Hash.symbol]`. Equal values must always produce the same hash.
+> **Tip:** Plain objects already work as keys. Implement both `[Equal.symbol]` and `[Hash.symbol]` (see [Equal](./functional-toolkit#equal)) when only some fields define identity, and keep the law: equal values must always produce the same hash.
+
+> **Warning:** Hashes are cached per object, so **a key must not change after it has been hashed**. Mutating a field of an object that is already a `HashMap` key or `HashSet` member strands the entry: a structurally equal lookup no longer finds it. Treat anything you put in a hash collection as frozen.
 
 Use when you need an immutable key-value store, especially with value-object keys.
 
@@ -197,6 +236,23 @@ Use when you need an immutable key-value store, especially with value-object key
 `effect/HashSet` — stable
 
 Immutable set backed by the same HAMT internals as `HashMap`. Membership tests and set-algebraic ops (`union`, `intersection`, `difference`, `isSubset`) use structural `Equal`/`Hash`. Two structurally equal items (same fields, different references) count as one member.
+
+**Structural membership needs no wrapper.** Plain object literals — and therefore values decoded from a `Schema.Struct` — dedupe on their own; a native `Set` does not, because it ignores `Equal` and compares references. The flip side: *every* enumerable field participates, so an incidental field (a request id, a fetched-at timestamp) makes two records of the same entity distinct. When identity is narrower than the shape, project to the identifying fields first or give the class a custom `Equal`/`Hash`.
+
+```ts
+import { HashSet } from "effect"
+
+// Native Set compares references; HashSet compares structure
+const nativeSize = new Set([{ id: "e1" }, { id: "e1" }]).size             // 2
+const hashSetSize = HashSet.size(HashSet.make({ id: "e1" }, { id: "e1" })) // 1
+
+// An incidental field defeats dedupe — every enumerable field counts
+const withNoise = HashSet.make(
+  { id: "e1", requestId: "r-1" },
+  { id: "e1", requestId: "r-2" }
+)
+const noisySize = HashSet.size(withNoise) // 2
+```
 
 ```ts
 import { HashSet, Data, pipe } from "effect"
@@ -239,7 +295,13 @@ const ids = pipe(
 )
 ```
 
+Key APIs: empty / make / fromIterable, add / remove / has, union / intersection / difference / isSubset, map / filter / some / every / reduce, size / isEmpty
+
+**Immutable or mutable?** `HashSet` returns a new set per change, which makes it safe to share across fibers, keep in a `Ref`, or return from a function. [MutableHashSet](../concurrency/state-mutable-references#mutablehashset) updates in place and is the cheaper choice for building a set inside one synchronous loop. Converting to an array (`Array.from(set)`) copies every element, so do it once at the boundary, not inside a hot loop.
+
 Use when you need set semantics (deduplication, union/intersection) on value objects or an immutable `Set`.
+
+Official guides: [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal).
 
 ## Trie
 
@@ -272,7 +334,7 @@ const suggestions = Arr.fromIterable(Trie.keysWithPrefix(nameTrie, "alice"))
 
 // All entries under "car" — useful for typeahead with result IDs
 const carEntries = Arr.fromIterable(Trie.entriesWithPrefix(nameTrie, "car"))
-// [["carol nguyen", "e3"], ["carlos mendez", "e9"]]
+// [["carlos mendez", "e9"], ["carol nguyen", "e3"]]  (alphabetical: "carl" < "caro")
 
 // Longest-prefix match — find an employee whose name is a prefix of a longer query
 const matched = Trie.longestPrefixOf(nameTrie, "carol nguyen (engineering)")
@@ -297,7 +359,7 @@ Use when keys are strings and prefix-based lookup is a core operation.
 
 `effect/Graph` — stable
 
-Typed graph with directed and undirected support, user-defined node and edge data, and algorithms: DFS, BFS, topological sort, Dijkstra's shortest path, cycle detection, connected components, and strongly-connected component decomposition. Nodes identified by `NodeIndex` (allocated number); edges by `EdgeIndex`.
+Typed graph with directed and undirected support, user-defined node and edge data, and a broad algorithm set: DFS/BFS/topological traversal, shortest paths (Dijkstra, A*, Bellman-Ford, Floyd-Warshall), path enumeration, cycle witnesses, connectivity analysis, minimum spanning forests, transitive reduction, bipartite matching, and maximum flow / minimum cut. Nodes identified by `NodeIndex` (allocated number); edges by `EdgeIndex`.
 
 **Mental model.** Create with `Graph.directed(mutate => ...)` or `Graph.undirected(mutate => ...)`. The callback receives a mutable snapshot; the result snaps back to immutable when it returns. For incremental updates, use `Graph.mutate(graph, draft => ...)`.
 
@@ -351,7 +413,7 @@ const result = Graph.dijkstra(weightedOrg, {
   target: 3,   // Alice
   cost: (edgeData) => edgeData
 })
-// Option.some({ path: [0, 1, 2, 3], distance: 3, costs: [1, 1, 1] })
+// Option.some({ path: [0, 1, 2, 3], edges: [0, 1, 2], distance: 3, costs: [1, 1, 1] })
 
 // Sanity check — no circular reporting relationships
 console.log(Graph.isAcyclic(orgGraph))  // true
@@ -362,15 +424,97 @@ const diagram = Graph.toMermaid(orgGraph, {
 })
 ```
 
-- **Traversal** — `dfs`, `bfs`, `dfsPostOrder`, `topo` — all return lazy `NodeWalker` iterators. Traversal accepts a `radius` limit and directed graphs can be explored with `direction: "outgoing" | "incoming" | "undirected"`.
+- **Traversal** — `dfs`, `bfs`, `dfsPostOrder`, `topo` — all return lazy `NodeWalker` iterators. Traversal accepts a `radius` limit and directed graphs can be explored with `direction: "outgoing" | "incoming" | "undirected"`. `externals(graph, { direction })` walks the sources or sinks.
 
-- **Analysis** — `isAcyclic`, `isBipartite`, `connectedComponents`, `stronglyConnectedComponents`
+- **Local queries** — `neighbors` / `successors` / `predecessors` for adjacent nodes; `incidentEdges`, `outgoingEdges`, `incomingEdges`, and `edgesBetween(graph, source, target)` for edge indexes (parallel edges are all returned); `degree` for undirected graphs and `inDegree` / `outDegree` for directed ones.
 
-- **Paths** — `dijkstra` for weighted shortest paths with non-negative costs. It returns `Option.none()` when the target is unreachable and throws `GraphError` for a missing endpoint or a cost that is negative or `NaN`. Use `bellmanFord` when negative edge weights are required; negative-cycle detection belongs to that algorithm and `floydWarshall`, not Dijkstra.
+- **Reachability and connectivity** — `hasPath(graph, source, target, { direction })` answers yes/no without building a path; `unweightedDistances(graph, source)` returns a `Map` of hop counts. Whole-graph predicates are kind-specific: `isConnected` and `isTree` (undirected), `isWeaklyConnected` and `isStronglyConnected` (directed). The partitions behind them are `connectedComponents`, `weaklyConnectedComponents`, and `stronglyConnectedComponents`; `bridges`, `articulationPoints`, and `biconnectedComponents` find the single points of failure of an undirected graph.
 
-- **Composition and sets** — `make(kind)`, `compose`, `intersection`, `difference`, `symmetricDifference`, `complement`, and `sum` build graphs from graphs. `neighborhood(graph, node, { radius, direction })` returns the induced local subgraph. These operations preserve directed/undirected kind and remap node indexes, so do not assume input indexes survive in the result.
+- **Cycles** — `isAcyclic` is the boolean check; `findCycle` returns `Option<{ path, edges }>`, a concrete witness whose `path` repeats its first node at the end. Use the witness in an error message instead of reporting "there is a cycle somewhere". `isBipartite` checks two-colorability of an undirected graph.
+
+- **Paths** — `dijkstra` for weighted shortest paths with non-negative costs, `astar` when a heuristic can guide the search, `bellmanFord` when costs may be negative, `floydWarshall` for all pairs. A `PathResult` is `{ path, edges, distance, costs }`: node indexes, the traversed **edge indexes**, the numeric total, and the original edge data along the route. All of them return `Option.none()` (or `Infinity` / `null` entries for `floydWarshall`) when the target is unreachable. `simplePaths(graph, { source, target, limit })` lazily enumerates loop-free routes and `allShortestPaths(graph, { source, target, cost, limit })` enumerates every route tied for the minimum; both return an iterable `PathWalker`, and because the number of simple paths can be exponential, **pass a `limit` unless the graph is known to be small**.
+
+- **Optimisation** — `minimumSpanningForest(graph, cost)` (undirected, Kruskal; disconnected inputs give a forest), `transitiveReduction(dag)` (drops every edge implied by a longer route), `maximumBipartiteMatching(graph)` (largest set of disjoint pairs, as `{ left, right, edge }`), and `maximumFlow` / `minimumCut` (`{ source, target, capacity }` on a directed graph; `maximumFlow` reports per-edge flows, `minimumCut` the crossing edges plus the node partition on each side).
+
+- **Composition and sets** — `make(kind)`, `compose`, `intersection`, `difference`, `symmetricDifference`, `complement`, and `sum` build graphs from graphs. `neighborhood(graph, node, { radius, direction })` returns the local subgraph around a node. These operations preserve directed/undirected kind and remap node indexes, so do not assume input indexes survive in the result. **`inducedSubgraph(graph, nodeIndexes)`, `minimumSpanningForest`, and `transitiveReduction` are the index-preserving exceptions**: surviving nodes and edges keep their original indexes, so results can be joined back to the source graph.
+
+- **Bulk mutation** — inside `Graph.mutate`, `removeNodes(draft, indexes)` and `removeEdges(draft, indexes)` delete in one pass; missing and duplicate indexes are ignored, and removing a node removes its incident edges. A callback that is *transforming* a graph (`mapNodes`, `filterEdges`, ...) may not mutate that same graph — doing so throws `GraphError`.
+
+- **Snapshots** — `Graph.toSnapshot(graph)` produces plain data `{ type, nodes: [{ index, data }], edges: [{ index, source, target, data }] }` and `Graph.fromSnapshot(snapshot)` rebuilds an equal graph with the *same* indexes (`Equal.equals` holds across the round trip). This is the persistence and wire shape; `Schema.Graph(kind, nodeSchema, edgeSchema)` is the matching codec. `fromSnapshot` throws `GraphError` for out-of-order indexes or an edge whose endpoint is missing. `toJSON()` is an inspection summary, not this format.
 
 - **Export** — `toGraphViz` for DOT format, `toMermaid` for Mermaid diagram syntax — great for org-chart docs and debugging.
+
+- **Typing a parameter** — accept any immutable graph as `Graph.Graph<N, E, Graph.Kind>`. The `Graph.Proto` interface was removed in `rc.113`.
+
+> **Warning:** Graph functions are synchronous and **throw** `Graph.GraphError` (a `Data.TaggedError`) instead of returning it: a missing node index, a kind mismatch (`degree` on a directed graph, `maximumFlow` on an undirected one), a negative or `NaN` Dijkstra cost, arithmetic that leaves the finite number range, or — since `rc.110` — a negative cycle that affects the `bellmanFord` target (`floydWarshall` rejects any negative cycle). `Option.none()` is reserved for "unreachable". At an Effect boundary, wrap the call in `Effect.try` and keep the `GraphError` as a typed failure.
+
+### Witnesses, reductions, and matchings
+
+```ts
+import { Array as Arr, Effect, Equal, Graph, Option } from "effect"
+
+// Payroll-run steps; an edge means "must finish before"
+const steps = Graph.directed<string, void>((g) => {
+  const lock  = Graph.addNode(g, "lock-timesheets") // 0
+  const gross = Graph.addNode(g, "compute-gross")   // 1
+  const tax   = Graph.addNode(g, "compute-tax")     // 2
+  const net   = Graph.addNode(g, "compute-net")     // 3
+  Graph.addEdge(g, lock,  gross, undefined) // edge 0
+  Graph.addEdge(g, gross, tax,   undefined) // edge 1
+  Graph.addEdge(g, tax,   net,   undefined) // edge 2
+  Graph.addEdge(g, gross, net,   undefined) // edge 3 — implied by 1 + 2
+  Graph.addEdge(g, lock,  net,   undefined) // edge 4 — implied by 0 + 1 + 2
+})
+
+// Reachability without building a path
+const netNeedsLock = Graph.hasPath(steps, 0, 3)                                  // true
+const upstreamOfNet = Graph.hasPath(steps, 3, 0, { direction: "incoming" })      // true
+const fanIn = Graph.inDegree(steps, 3)                                           // 3
+
+// Keep only the edges that carry information; surviving edges keep their indexes
+const minimal = Graph.transitiveReduction(steps)
+const keptEdges = Graph.toSnapshot(minimal).edges.map((edge) => edge.index)      // [0, 1, 2]
+
+// Every loop-free route, lazily — bound it
+const routes = Arr.fromIterable(Graph.simplePaths(steps, { source: 0, target: 3, limit: 10 }))
+// 3 routes; routes[0] = { path: [0, 1, 2, 3], edges: [0, 1, 2], distance: 3, costs: [...] }
+
+// A cycle comes back as a witness you can print
+const broken = Graph.mutate(steps, (g) => {
+  Graph.addEdge(g, 3, 0, undefined) // edge 5: compute-net -> lock-timesheets
+})
+const witness = Graph.findCycle(broken)
+// Option.some({ path: [0, 1, 2, 3, 0], edges: [0, 1, 2, 5] })
+const describeCycle = Option.map(witness, ({ path }) =>
+  path.map((index) => Option.getOrElse(Graph.getNode(broken, index), () => "?")).join(" -> ")
+)
+
+// Snapshots round-trip with identical indexes
+const restored = Graph.fromSnapshot(Graph.toSnapshot(steps))
+const sameGraph = Equal.equals(restored, steps) // true
+
+// Calibration: pair each reviewer with one employee they are allowed to review
+const eligibility = Graph.undirected<string, void>((g) => {
+  const ana = Graph.addNode(g, "reviewer:ana") // 0
+  const ben = Graph.addNode(g, "reviewer:ben") // 1
+  const e1  = Graph.addNode(g, "employee:e1")  // 2
+  const e2  = Graph.addNode(g, "employee:e2")  // 3
+  Graph.addEdge(g, ana, e1, undefined)
+  Graph.addEdge(g, ana, e2, undefined)
+  Graph.addEdge(g, ben, e1, undefined)
+})
+const pairs = Graph.maximumBipartiteMatching(eligibility)
+// [{ left: 0, right: 3, edge: 1 }, { left: 1, right: 2, edge: 2 }] — everyone is covered
+
+// GraphError is thrown, so give it a typed channel at the Effect boundary
+const reduceSafely = (graph: Graph.Graph<string, void, "directed">) =>
+  Effect.try({
+    try: () => Graph.transitiveReduction(graph),
+    catch: (error) =>
+      error instanceof Graph.GraphError ? error : new Graph.GraphError({ message: String(error) })
+  })
+const rejected = reduceSafely(broken) // fails with GraphError: "Cannot transitively reduce cyclic graph"
+```
 
 Use when modeling relationships — hierarchies, approval chains, dependency graphs, or any domain where connectivity is the core question.
 
@@ -423,6 +567,8 @@ HashRing.remove(ring, w3)
 > **Tip:** Nodes implement `PrimaryKey` via `[PrimaryKey.symbol](): string`.
 > Membership and mutation operations (`add`, `addMany`, `has`, and `remove`)
 > compare that key, so an equivalent node value targets the same ring member.
+
+`get` and `getShards` answer different questions. `get(ring, key)` is a pure nearest-point lookup. `getShards(ring, count)` builds a *balanced* table: each node is capped at its weight's share of `count` (at least one shard), and shards whose nearest node is already full spill to the next eligible node — so a shard's owner is not always the node `get` would pick for the same hash. Both return `undefined` for an empty ring. `count` is normalised like other Effect counts: fractions are floored, and `NaN` or a non-positive value yields an empty array.
 
 Use when distributing work across a dynamic set of nodes where stable key-to-node assignments with minimal remapping are needed.
 
@@ -518,6 +664,8 @@ const adjusted = Tuple.evolve(band, [
 // [4, 133900, 164800]
 ```
 
+`Tuple.evolve` types each slot from its transform: a slot whose transform is `undefined` keeps its element type, and a slot whose transform *may* be `undefined` at the type level (an optional function) is typed as the union of the transformed and the original element, matching what happens at runtime.
+
 Use with fixed-arity tuples for type-safe manipulation — common in codegen outputs, multi-field keys, or zipped pairs.
 
 ## Struct
@@ -587,7 +735,8 @@ const EmployeeEq = Struct.makeEquivalence({
 })
 console.log(EmployeeEq(alice, { ...alice }))  // true — same field values
 
-// Derive lexicographic Order: sort employees by level desc, then name asc.
+// Derive lexicographic Order: sort employees by level, then by name (both ascending;
+// wrap a field's Order in Order.flip for descending).
 // Use Order.Number and Order.String (capitalised).
 const EmployeeOrder = Struct.makeOrder({
   level:      Order.Number,
@@ -647,6 +796,8 @@ const scenarios = Arr.fromIterable(Iterable.cartesian(levels, ratings))
 ```
 
 Key APIs: makeBy / range / replicate / repeat / forever, map / flatMap / filter / filterMap, take / takeWhile / drop, zip / zipWith / intersperse, groupBy / group / groupWith, unfold / cartesian / cartesianWith, dedupeAdjacent / dedupeAdjacentWith, getSomes / getSuccesses / getFailures, head / isEmpty / size / forEach / reduce
+
+`Iterable.groupBy` shares `Array.groupBy`'s typing: a literal-union key selector yields a record whose known keys are optional (see [Array](#array)), and count arguments such as `take(n)` and `drop(n)` are normalised the same way.
 
 > **Note:** Iterable-to-iterable transformations preserve lazy traversal. Operations that return a scalar, array, record, map, or set consume the source; consult the return type rather than assuming every `Iterable` function is lazy. Corresponding `Array` transformations work eagerly on materialized arrays.
 

@@ -25,6 +25,13 @@ Read [references/audit-contract.md](references/audit-contract.md) completely bef
 4. Write audit notes under ignored `.reference/` and disposable projects under ignored `.validation/`.
    Treat prior artifacts as leads, not evidence: require target version, source commit, canonical-source hash, and command metadata before reusing one. Regenerate any artifact that cannot prove those inputs.
 5. If subagents are available, assign independent lanes: release delta, existing-page implementation review, missing surfaces, examples/runtime probes, and final site verification. Keep one integrator responsible for shared Markdown edits.
+6. When several writers edit Markdown in parallel, give each lane a disjoint set of files and keep the manifests, registry, and generated artifacts with the integrator. `pnpm docs:examples` and `pnpm docs:build` write to the shared `.validation/generated/` and `dist/` trees, so writers must not run them. Each writer validates its own pages in an isolated scratch project instead:
+
+   ```bash
+   node <skill-dir>/scripts/check-page-examples.ts <lane-name> docs/<page>.md [docs/<page>.md ...]
+   ```
+
+   It applies the same strict TypeScript and strict Effect diagnostics to every `compile` fence of those pages (and to a not-yet-registered `check=run` recipe), and lists registered `contextual` / `run` fences as skipped. Register any new page in `handbook.ts` with a stub file before writers start, so `pnpm docs:check` stays green for every lane. Run a cross-cutting lane (decision guide, troubleshooting, cheat sheet) last, after generating a heading inventory it can deep-link against.
 
 ## 2. Resolve and pin the target release
 
@@ -129,6 +136,15 @@ Give every TypeScript fence one disposition:
 - `invalid`: deliberately fails with one exact asserted diagnostic contract.
 
 Require explicit stable ids for `contextual`, `run`, and `invalid`; never identify fixtures by a global ordinal or line number. The manifest must retain source page, heading, line, code hash, fixture/platform/packages, and TypeScript/Effect/runtime results. Reject stale hashes, orphan fixtures/probes, duplicate ids, missing coverage, and unclassified exceptions.
+
+A registry hash is evidence that a fence body was reviewed, so any edit to a `contextual` or `run` fence — including a mechanical API rename applied with `sed` across the corpus — makes its entry stale (inline id) or orphaned (hash-only). After reading the fence diff, re-bind deliberately rather than editing JSON by hand:
+
+```bash
+node <skill-dir>/scripts/rebind-example-hash.ts --all-inline          # entries whose fence carries an inline id; lists hash-only orphans
+node <skill-dir>/scripts/rebind-example-hash.ts <registry-id> "<unique substring of the edited fence>"
+```
+
+Never use it to silence a hash change you did not make. A new runnable recipe needs both an `examples` entry (`disposition: "run"`, `runtime`) and a `runtimes` entry whose `expect` strings are substrings of the program's real stdout.
 
 Run:
 

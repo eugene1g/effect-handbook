@@ -2,7 +2,75 @@
 
 Caching avoids repeating the same lookup result; batching combines many logically independent requests into fewer physical calls. `Cache` stores both successful and failed lookup `Exit` values, while `ScopedCache` owns resource lifetimes. `Request` and `RequestResolver` describe data fetching so Effect can deduplicate and batch it safely.
 
-> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.108/ai-docs/src/05_batching) builds a batched `RequestResolver`.
+> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/05_batching) builds a batched `RequestResolver`.
+
+> **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option rc.115 does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+
+## Which problem do you have?
+
+Repeated work shows up on a dashboard as "too many HRIS calls", but it has several shapes, and each tool fixes exactly one of them. Measure first — hit ratio, lookup count per request, resolver batch size — then pick the smallest tool.
+
+| Waste shape | What the measurement looks like | Tool | Why the neighbors do not help |
+| --- | --- | --- | --- |
+| **One expensive effect, no key** — load all comp bands, fetch a service token | The same effect runs once per caller instead of once per freshness window | [`Effect.cached` / `cachedWithTTL`](#caching-a-single-effect) | A keyed cache is machinery you do not need |
+| **Repeat lookup** — the same key again inside a freshness window | Lookup count ≈ request count; the same keys recur | [`Cache`](#cache): key, capacity, TTL | Batching shrinks one burst; it remembers nothing afterwards |
+| **Cold stampede** — many callers, same key, nothing warm yet | A burst of identical lookups at startup or right after expiry | Already solved by `Cache.get`: concurrent misses for one key share a single lookup. No promise map or lock needed | — |
+| **N+1** — many *different* keys at once that the backend could answer together | Lookups scale with rows; every backend call carries one id | [`RequestResolver`](#requestresolver) + `Effect.request` | A cache cannot help: remembering `L4` does nothing for `L5` and `L6` |
+| **Entries own resources** — a connection per tenant shard | Handles leak or linger after eviction | [`ScopedCache`](#scopedcache) | `Cache` drops the value without releasing it |
+| **Results must survive a restart** | Cold start repeats work another instance already did | `RequestResolver.persisted` or [PersistedCache](../tooling/persistence#persistedcache) | In-memory caches die with the process |
+
+**Single-flight is not batching.** Single-flight collapses concurrent cold gets of the *same* key into one lookup. Batching collapses concurrent requests for *different* keys into one backend call. A service often needs both, and they compose: `RequestResolver.withCache` and `RequestResolver.asCache` put a cache in front of a batched resolver.
+
+For the neighboring choices (`Resource`, `Pool`, `Semaphore`) see [Cache vs ScopedCache vs Resource vs RequestResolver](../reference/choosing-effect-primitives#cache-vs-scopedcache-vs-resource-vs-requestresolver).
+
+## Caching a single Effect
+
+`effect/Effect` — stable
+
+`Effect.cached(effect)` has the type `Effect<Effect<A, E, R>>`: running the *outer* effect creates a memo cell and returns a handle; the first evaluation of the *handle* runs the work, and later and concurrent evaluations share that one stored `Exit`.
+
+**Mental model.** A lazy, single-slot, single-flight cache with no key. Construct it once where the owner lives — usually a `Layer` — and hand out the handle.
+
+```ts
+import { Context, Effect, Exit, Layer, Schema } from "effect"
+
+class HrisUnavailable extends Schema.TaggedError<HrisUnavailable>()("HrisUnavailable", {}) {}
+
+declare const loadAllCompBands: Effect.Effect<ReadonlyMap<string, number>, HrisUnavailable>
+
+export class CompBands extends Context.Service<CompBands, {
+  readonly all: Effect.Effect<ReadonlyMap<string, number>, HrisUnavailable>
+  readonly invalidate: Effect.Effect<void>
+}>()("app/CompBands") {
+  static readonly layer = Layer.effect(
+    CompBands,
+    Effect.gen(function*() {
+      // Yield the outer effect ONCE; every caller of `all` shares the inner handle.
+      const [all, invalidate] = yield* Effect.cachedInvalidateWithTTL(loadAllCompBands, "5 minutes")
+      return { all, invalidate }
+    })
+  )
+}
+
+// Exit-based TTL: successes live 5 minutes; failures and interruptions are not retained.
+export const makeCompBandsHandle = Effect.cachedWithTTL(
+  loadAllCompBands,
+  (exit) => Exit.isSuccess(exit) ? "5 minutes" : 0
+)
+```
+
+| API | Keeps the result | Reset |
+| --- | --- | --- |
+| `Effect.cached(e)` | For as long as the handle lives | None |
+| `Effect.cachedWithTTL(e, ttl)` | For `ttl`, a `Duration.Input` **or** `(exit) => Duration.Input` (Exit-based since rc.114) | Expiry, read from the `Clock` — `TestClock.adjust` controls it in tests |
+| `Effect.cachedInvalidateWithTTL(e, ttl)` | For a fixed `Duration.Input` (the public rc.115 signature does not accept the Exit function) | Expiry, or the returned `invalidate` effect |
+
+- **Yield the outer effect once and share the handle.** `yield* Effect.cached(load)` at every call site builds a fresh, empty cell each time and caches nothing.
+- **The whole `Exit` is stored — failures included.** With `Effect.cached` or a fixed TTL, a transient `HrisUnavailable` is replayed to every caller until expiry, which for `cached` is never. Branch on the `Exit` and return `0` for non-success so the next caller retries.
+- **The work runs on the first caller's fiber, so that caller's interruption is an outcome too.** If the first caller is interrupted mid-load, `Effect.cached` and a fixed-TTL `cachedWithTTL` hand that interruption to every later caller; the Exit-based TTL above avoids it. `Cache` differs here: it runs each lookup in its own fiber and never retains an interrupted lookup.
+- **Reach for [`Cache`](#cache) as soon as there is a key**, and for [`Resource`](../foundations/services-context-layers#resource) when the value needs scheduled refresh or owns a resource.
+
+Official guide: [Caching Effects](https://effect.website/docs/v4/caching/caching-effects) (its "once" heading is not an rc.115 API; the code under it uses `Effect.cached`).
 
 ## Cache
 
@@ -11,6 +79,14 @@ Caching avoids repeating the same lookup result; batching combines many logicall
 Effectful memoization table with bounded capacity and optional TTL. A lookup effect is provided at construction; the cache handles concurrent requests, LRU eviction, and TTL expiry. Two fibers racing for the same missing key share one in-flight lookup.
 
 **Mental model.** Bounded `Map<Key, Deferred<A, E>>` that deduplicates concurrent misses. The first fiber to request a missing key starts the lookup and parks a deferred; subsequent fibers await that same deferred. On completion its full `Exit` is stored, so failures are cached too. Reading an existing entry—including a pending or failed one—moves it to the end of the map, and capacity pressure evicts the least recently accessed entry.
+
+| Lookup outcome | Stored? | Consequence |
+| --- | --- | --- |
+| Success | Yes, until its TTL passes or it is evicted | Later `get` calls are hits |
+| Typed failure or defect | **Yes, for the same TTL** | Every caller receives the stored failure without a new lookup — protection against a stampede on a failing backend, and a recovery delay if the TTL is long (see [Failure and freshness policy](#failure-and-freshness-policy)) |
+| Interruption | No — an interrupted lookup is removed | The next `get` starts a fresh lookup. A pending lookup can also be interrupted once no caller is waiting for it, so keep lookups safe to interrupt and to repeat |
+
+The TTL is measured from the moment the lookup completes and is read from the `Clock`; a hit moves the entry to the fresh end of the eviction order but does not extend its TTL.
 
 ```ts
 import { Cache, Effect } from "effect"
@@ -63,23 +139,152 @@ const program = Effect.gen(function*() {
 })
 ```
 
+### Keys are logical values
+
+`Cache` stores entries in a `MutableHashMap`, so keys are compared with Effect's `Equal` and `Hash`. In rc.115 that comparison is structural for primitives, plain objects, arrays, dates, and `Data`/`Schema` classes alike: two separately built `{ region: "us", level: "L4" }` values address the same entry. Identity problems therefore come from the *input*, not from object references — `"L4"`, `"l4"`, and `" L4 "` are three keys, and so are `hris.example` and `HRIS.example`.
+
+1. **Normalize where raw input enters** (trim, case-fold, canonical URL, sorted id list), so equal real-world things become equal values before anything looks them up.
+2. **Carry the key as a small value class** — `Data.Class` or `Schema.Class` — so the type says "this is a stable identity", there is one constructor to normalize in, and nobody passes a whole employee record as a key.
+
+```ts
+import { Cache, Data, Effect } from "effect"
+
+class BandKey extends Data.Class<{ readonly region: string; readonly level: string }> {
+  // The only way in: normalize once, at ingress.
+  static fromInput(region: string, level: string): BandKey {
+    return new BandKey({ region: region.trim().toLowerCase(), level: level.trim().toUpperCase() })
+  }
+}
+
+declare const fetchBandMidpoint: (key: BandKey) => Effect.Effect<number>
+
+export const program = Effect.gen(function*() {
+  const midpoints = yield* Cache.make({ capacity: 500, timeToLive: "30 minutes", lookup: fetchBandMidpoint })
+
+  yield* Cache.get(midpoints, BandKey.fromInput("US", "l4")) // lookup
+  yield* Cache.get(midpoints, BandKey.fromInput(" us ", "L4")) // hit — same logical key
+})
+```
+
+- **Keep keys small and immutable.** Hashing and equality walk the key's structure, and a key mutated after insertion may never be found again.
+- **Symptom of a skipped step:** a low hit ratio and duplicate lookups for keys that look identical in the logs.
+- To opt a value *out* of structural comparison, wrap it with `Equal.byReference`.
+
 ### Key API surface
 
 | Function | What it does |
 | --- | --- |
-| `Cache.make({ lookup, capacity, timeToLive? })` | Create a cache. `timeToLive` is a `Duration.Input` string or millis. |
-| `Cache.makeWith(lookup, { capacity, timeToLive: (exit, key) => Duration })` | Dynamic TTL — vary per-key or per-error. |
+| `Cache.make({ lookup, capacity, timeToLive? })` | Create a cache. `timeToLive` is a `Duration.Input` string or millis; omitted means entries never expire. |
+| `Cache.makeWith(lookup, { capacity, timeToLive: (exit, key) => Duration })` | Dynamic TTL — vary per key or per outcome. A zero TTL means "share the in-flight lookup, retain nothing afterwards". |
 | `Cache.get(cache, key)` | Get or compute. Concurrent misses share one lookup. |
 | `Cache.getOption(cache, key)` | Read without starting a lookup. Returns `None` if absent/expired, awaits an existing pending entry, returns `Some<A>` on success, and fails with the cached lookup error on failure. |
+| `Cache.getSuccess(cache, key)` | Non-blocking peek: `Some<A>` only for an entry that has already resolved successfully; `None` for missing, expired, pending, or failed entries. Never fails. |
 | `Cache.refresh(cache, key)` | Force and await a new lookup. An existing entry remains readable by other fibers until it completes, then is replaced. Unlike concurrent `get` misses, concurrent `refresh` calls are not deduplicated. |
-| `Cache.invalidate(cache, key)` | Remove one entry. |
+| `Cache.invalidate(cache, key)` | Remove one entry, whatever its outcome. |
+| `Cache.invalidateWhen(cache, key, predicate)` | Remove the entry only if it holds a *successful* value matching the predicate; returns whether it did. A cached failure is never removed this way. |
 | `Cache.invalidateAll(cache)` | Clear everything. |
 | `Cache.set(cache, key, value)` | Manually populate an entry (useful for seeding). |
 | `Cache.has(cache, key)` | Check for an unexpired entry without lookup. |
+| `Cache.size` / `keys` / `values` / `entries` | Inspect the table. Expiry is lazy: `size` counts stored entries, including ones whose TTL has passed but that nothing has touched yet, while `keys`, `values`, and `entries` skip (and drop) expired ones; `values` and `entries` list successful entries only. |
 
 > **Tip:** By default, services needed by `lookup` are captured at construction time. Pass `requireServicesAt: "lookup"` to instead capture them at call time — useful when the lookup needs request-scoped services that weren't available when the cache was built.
 
+### Failure and freshness policy
+
+**A cached failure lives exactly as long as a cached success unless you say otherwise.** With `Cache.make({ timeToLive: "30 minutes" })`, one transient `HrisUnavailable` is replayed to every caller for thirty minutes after the HRIS has recovered. Give failures their own, deliberately chosen lifetime with `Cache.makeWith` and branch on the `Exit`:
+
+```ts
+import { Cache, Effect, Exit, Schema } from "effect"
+
+class HrisUnavailable extends Schema.TaggedError<HrisUnavailable>()("HrisUnavailable", {}) {}
+
+declare const fetchBandMidpoint: (level: string) => Effect.Effect<number, HrisUnavailable>
+
+export const makeMidpointCache = Cache.makeWith(fetchBandMidpoint, {
+  capacity: 500,
+  // Long for successes, short for failures. The key is available as the second argument.
+  timeToLive: (exit) => Exit.isSuccess(exit) ? "30 minutes" : "5 seconds"
+})
+```
+
+| Failure TTL | Behavior | Choose it when |
+| --- | --- | --- |
+| Same as success (the `Cache.make` default) | The failure is served for the full TTL | Almost never what you want |
+| Short (seconds) | Callers share one failure briefly, then one of them retries | The usual answer: it shields a struggling backend from a stampede and still recovers quickly |
+| Zero | Concurrent callers share the in-flight lookup; the next caller starts a new one | The lookup is cheap, or an outer retry policy already paces the calls |
+
+**TTL is a deadline; invalidation is an event.** When something tells you an entry is wrong *now* — a comp-band update arrived, a retry path just saw a transient failure — call `Cache.invalidate` (any outcome), `Cache.invalidateWhen` (successful values only), or `Cache.refresh` (replace while readers keep the old value). Do not shorten the TTL to approximate an event you could have handled.
+
+> **Note:** rc.113 closed several races that matter when upgrading from earlier release candidates: `invalidateWhen` no longer deletes a replacement entry written while it was waiting; an interrupted or zero-TTL `refresh` of a missing key no longer removes a newer value written by `Cache.set`; `refresh` no longer exceeds `capacity` when its key is evicted mid-refresh; and synchronously interrupted lookups are never retained. The same fixes apply to `ScopedCache`.
+
+### Testing a cache deterministically
+
+Count lookups with a `Ref`, move time with `TestClock`, and prove overlap with a `Deferred` gate instead of a sleep. Assert just before and just after each deadline.
+
+```ts
+import { assert, describe, it } from "@effect/vitest"
+import { Cache, Deferred, Effect, Exit, Fiber, Ref } from "effect"
+import { TestClock } from "effect/testing"
+
+describe("band midpoint cache", () => {
+  it.effect("retries a failure after its own TTL, keeps a success for the long one", () =>
+    Effect.gen(function*() {
+      const lookups = yield* Ref.make(0)
+      const cache = yield* Cache.makeWith(
+        (_level: string) =>
+          Ref.updateAndGet(lookups, (n) => n + 1).pipe(
+            Effect.flatMap((n) => n === 1 ? Effect.fail("HrisUnavailable" as const) : Effect.succeed(140_000))
+          ),
+        { capacity: 10, timeToLive: (exit) => Exit.isSuccess(exit) ? "30 minutes" : "5 seconds" }
+      )
+
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(Cache.get(cache, "L4"))))
+      yield* TestClock.adjust("4 seconds")
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(Cache.get(cache, "L4")))) // replayed
+      assert.strictEqual(yield* Ref.get(lookups), 1)
+
+      yield* TestClock.adjust("1 second") // failure TTL reached
+      assert.strictEqual(yield* Cache.get(cache, "L4"), 140_000)
+      yield* TestClock.adjust("29 minutes")
+      assert.strictEqual(yield* Cache.get(cache, "L4"), 140_000)
+      assert.strictEqual(yield* Ref.get(lookups), 2)
+    }))
+
+  it.effect("collapses concurrent cold gets into one lookup", () =>
+    Effect.gen(function*() {
+      const lookups = yield* Ref.make(0)
+      const started = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const cache = yield* Cache.make({
+        capacity: 10,
+        lookup: (_level: string) =>
+          Ref.update(lookups, (n) => n + 1).pipe(
+            Effect.andThen(Deferred.succeed(started, undefined)),
+            Effect.andThen(Deferred.await(release)),
+            Effect.as(140_000)
+          )
+      })
+
+      const callers = yield* Effect.forkChild(
+        Effect.all([Cache.get(cache, "L4"), Cache.get(cache, "L4"), Cache.get(cache, "L4")], {
+          concurrency: "unbounded"
+        })
+      )
+      yield* Deferred.await(started) // the lookup is running; no caller has a value yet
+      assert.strictEqual(yield* Ref.get(lookups), 1)
+
+      yield* Deferred.succeed(release, undefined)
+      assert.deepStrictEqual(yield* Fiber.join(callers), [140_000, 140_000, 140_000])
+      assert.strictEqual(yield* Ref.get(lookups), 1)
+    }))
+})
+```
+
+`TestClock` is provided by `it.effect`; see [TestClock](../tooling/testing-dev-tooling#testclock) for the clock itself.
+
 **When to use:** effectful computation (HTTP call, expensive decode) hit by many callers with the same keys, where you want deduplication of in-flight requests plus time-bounded staleness.
+
+Official guide: [Cache](https://effect.website/docs/v4/caching/cache) (it shows `timeToLive` as a required option; in rc.115 it is optional and defaults to no expiry).
 
 ## ScopedCache
 
@@ -136,6 +341,8 @@ const program = Effect.scoped(
 
 > **Warning:** If your value has no resources to release, use `Cache` instead. `ScopedCache` runs scope machinery on every entry. Reach for it only when your lookup calls `Effect.acquireRelease`, opens a socket, or otherwise needs cleanup on eviction.
 
+`ScopedCache.makeWith` accepts the same `(exit, key) => Duration` policy as `Cache.makeWith`, and the [key](#keys-are-logical-values) and [failure TTL](#failure-and-freshness-policy) guidance applies unchanged. Two lifetime details are specific to it: `ScopedCache.invalidateAll` detaches every entry from the table *before* closing the entry scopes (concurrently), so an entry that a finalizer re-creates is kept and released later instead of being discarded unreleased (fixed in rc.113); and after the cache's own scope has closed, `get`, `set`, `refresh`, and the invalidation operations are interrupted rather than reopening anything.
+
 **When to use:** the cached value holds a resource (live connection, file handle, in-process child) that must be released precisely on expiry or eviction.
 
 ## Request
@@ -176,6 +383,18 @@ type EmployeeError   = Request.Error<GetEmployeeById>   // EmployeeNotFound
 
 Key APIs: Request.Class, Request.TaggedClass, Request.tagged, Request.of, Request.complete, Request.succeed, Request.fail, Request.Success, Request.Error, Request.Services, Request.Result
 
+The completion helpers are Effect-returning counterparts of `entry.completeUnsafe(exit)`, so they drop straight into `Effect.forEach` inside a resolver:
+
+| Helper | Completes the entry with |
+| --- | --- |
+| `Request.succeed(entry, value)` | A success |
+| `Request.fail(entry, error)` | A typed failure |
+| `Request.failCause(entry, cause)` | A full `Cause` (defects, interruption) |
+| `Request.complete(entry, exit)` | An `Exit` you already hold |
+| `Request.completeEffect(entry, effect)` | Whatever `effect` produces — runs it, then completes with its success or typed failure |
+
+An entry can be completed once; later completions are ignored.
+
 **When to use:** building a `RequestResolver`. `Request` is the typed declaration of what each resolver call produces; it is rarely used in isolation.
 
 ## RequestResolver
@@ -185,6 +404,16 @@ Key APIs: Request.Class, Request.TaggedClass, Request.tagged, Request.of, Reques
 Executes batches of `Request` values. Core job: receive an array of pending request entries, fetch data (ideally in one batch call), then call `entry.completeUnsafe(Exit.succeed/fail(...))` on each entry. Pairing with `Effect.request` collapses concurrent N+1 queries into a single round-trip.
 
 **Mental model.** Effect collects all concurrent `Effect.request` calls within a configurable batching window, groups them by resolver, and fires one `resolver.runAll(entries)` call. The resolver fans the single response out to each waiting fiber. Equivalent to DataLoader, but typed and composable.
+
+**What actually forms a batch.** Batching is a property of the resolver, not of the call site — rc.115 has no `batching` option on `Effect.forEach` or `Effect.all`. Every `Effect.request` registered against the same resolver (and the same [grouping key](#resolver-combinators)) before the resolver's `delay` effect finishes lands in one batch. The default delay is a single `Effect.yieldNow`, so only requests issued *concurrently* meet:
+
+| Call site | Batches the resolver sees for ids `1, 2, 3` |
+| --- | --- |
+| `Effect.forEach(ids, get)` (sequential) | `[1]`, `[2]`, `[3]` — each request suspends its fiber until it is answered, so nothing else can join |
+| `Effect.forEach(ids, get, { concurrency: 2 })` | `[1, 2]`, `[3]` — the concurrency limit caps the batch size |
+| `Effect.forEach(ids, get, { concurrency: "unbounded" })` | `[1, 2, 3]` |
+
+`RequestResolver.setDelay("10 millis")` widens the window so requests from *different* fibers and handlers can meet, at the price of that much latency on every batch.
 
 ```ts
 import { Context, Effect, Exit, Layer, Request, RequestResolver, Schema, Tracer } from "effect"
@@ -315,24 +544,137 @@ export const buildOrgChart = Effect.gen(function*() {
 })
 ```
 
+> **Note:** A resolver cannot require services. `RequestResolver<A>` has no requirements parameter and `runAll` is typed with `R = never`, so a `yield* SomeService` inside `RequestResolver.make` is a type error. Build the resolver where the services are in scope — inside `Layer.effect`, as `Hris.layer` does, closing over the client it needs — and expose only query functions. `Effect.request` also accepts an `Effect<RequestResolver>` as its second argument and propagates that effect's errors and requirements to the caller. Per-caller context stays available as `entry.context`.
+
+### Resolver obligations
+
+A resolver is a small protocol, and rc.115 enforces part of it at runtime:
+
+1. **Settle every entry you receive, exactly once** — with `entry.completeUnsafe(exit)` or the [`Request.*` helpers](#request). If `runAll` succeeds and leaves an entry untouched, that caller **dies** with the defect `Effect.request: RequestResolver did not complete request`. The classic trigger is a batch endpoint that silently omits unknown ids.
+2. **Join results to entries by identity, never by position.** Index the rows by id once, then iterate the *entries*. Backend row order is not a contract, and positional pairing hands callers each other's data without any error.
+3. **Decide what a missing row means** — a typed failure or a domain "empty" success — and complete the entry with it. Skipping is not a decision (see rule 1).
+4. **Deduplicate the backend call yourself.** Base batching collects entries; it does not collapse equal requests, so ids `L4, L5, L4` reach the resolver as three entries. Send the distinct ids to the backend and still complete all three entries. Only [`withCache` / `asCache`](#resolver-combinators) collapse equal requests before they reach the resolver.
+5. **Let a failed batch fail.** When `runAll` itself fails with `Request.Error<A>`, every still-pending entry in that batch receives the failure; there is no need to fail entries one by one. Fail individual entries only when the batch call succeeded and *that* row is the problem.
+
+```ts
+import { Effect, Request, RequestResolver, Schema } from "effect"
+
+class CompSummaryUnavailable extends Schema.TaggedError<CompSummaryUnavailable>()(
+  "CompSummaryUnavailable",
+  { employeeId: Schema.String }
+) {}
+
+interface CompSummary {
+  readonly employeeId: string
+  readonly baseSalary: number
+}
+
+class GetCompSummary extends Request.Class<
+  { readonly tenantId: string; readonly employeeId: string },
+  CompSummary,
+  CompSummaryUnavailable
+> {}
+
+// One payroll API call per tenant; rows come back in any order and may omit unknown ids.
+declare const fetchCompSummaries: (
+  tenantId: string,
+  employeeIds: ReadonlyArray<string>
+) => Effect.Effect<ReadonlyArray<CompSummary>, CompSummaryUnavailable>
+
+export const CompSummaryResolver = RequestResolver.makeGrouped<GetCompSummary, string>({
+  // The grouping key decides what may share a round trip: one batch per tenant.
+  key: (entry) => entry.request.tenantId,
+  resolver: Effect.fn("CompSummaryResolver.runAll")(function*(entries, tenantId) {
+    // Rule 4: distinct ids only.
+    const employeeIds = [...new Set(entries.map((entry) => entry.request.employeeId))]
+    // Rule 5: if this fails, every pending entry of the batch fails with the same error.
+    const rows = yield* fetchCompSummaries(tenantId, employeeIds)
+    // Rule 2: join by identity.
+    const byId = new Map(rows.map((row) => [row.employeeId, row]))
+    // Rules 1 and 3: iterate ENTRIES (duplicates included) and settle each one.
+    yield* Effect.forEach(entries, (entry) => {
+      const row = byId.get(entry.request.employeeId)
+      return row === undefined
+        ? Request.fail(entry, new CompSummaryUnavailable({ employeeId: entry.request.employeeId }))
+        : Request.succeed(entry, row)
+    }, { discard: true })
+  })
+})
+```
+
 ### Resolver combinators
 
 | Combinator | Effect |
 | --- | --- |
-| `RequestResolver.setDelay(duration)` | Wait before draining — more entries collected, higher latency on first call. |
-| `RequestResolver.withSpan(name)` | Wrap each batch in an OTel span and add each distinct requesting parent span as a span link. |
-| `RequestResolver.withCache({ capacity })` | Add an LRU in-memory cache so repeated equal requests are served from memory. |
-| `RequestResolver.asCache({ capacity, timeToLive? })` | Convert the resolver into a `Cache` (requests are the keys). |
+| `RequestResolver.make(runAll)` | Batched resolver: `runAll(entries, key)` answers a non-empty batch. Default window: one `Effect.yieldNow`. |
+| `RequestResolver.makeGrouped({ key, resolver })` | Like `make`, with a grouping key computed from each *entry*: `key: (entry) => K`, `resolver: (entries, key) => …`. **The key decides what may share a round trip** — a constant batches everything; a tenant, shard, or data-source id keeps unrelated backends apart while still batching within each. Keys are compared with `Equal`; keep their domain small and bounded, because the resolver remembers each distinct key it has seen. `RequestResolver.grouped(f)` adds the same grouping to an existing resolver. |
+| `RequestResolver.fromEffect(f)` | No batch endpoint: `f(entry)` runs once per entry, concurrently, and its `Exit` completes that entry. You still get one call site for caching, tracing, and delay. |
+| `RequestResolver.fromEffectTagged<Req>()({ Tag: (entries) => … })` | One handler per request `_tag`; each returns an iterable of results in the same order as its entries (arrays, iterators, and generators all work). A handler's typed error, defect, or interruption completes every entry of that tag with it. This is the one positional API — prefer `make` when the backend does not guarantee order. |
+| `RequestResolver.fromFunctionBatched(f)` | Quick path: map entries to successes with a pure function; no explicit completions needed. Also positional. |
+| `RequestResolver.setDelay(duration)` | Wait before draining — more entries collected, higher latency on first call. `setDelayEffect` takes an arbitrary effect. |
+| `RequestResolver.batchN(n)` | Limit maximum batch size to `n`; a full batch runs immediately instead of waiting out the delay. |
+| `RequestResolver.withSpan(name)` | Wrap each batch in an OTel span (attribute `batchSize`) and add each distinct requesting parent span as a span link. |
+| `RequestResolver.withCache({ capacity, strategy? })` | Put a bounded in-memory cache in front, keyed by request equality: equal requests in one batch collapse to one entry, and completed results are replayed. `strategy` is `"lru"` (default) or `"fifo"`. **Entries never expire by time and failures are cached like successes** (interrupted results are not), so a transient failure stays until it is evicted by capacity. |
+| `RequestResolver.asCache({ capacity, timeToLive? })` | Convert the resolver into a `Cache` (requests are the keys). Use this instead of `withCache` when you need a TTL — `timeToLive: (exit, request) => Duration`, so the [failure policy](#failure-and-freshness-policy) applies — or `invalidate` / `refresh`. |
 | `RequestResolver.persisted({ storeId, timeToLive })` | Back the resolver with a `Persistence` store (cross-restart caching). |
-| `RequestResolver.makeGrouped({ key, resolver })` | Group entries by a computed key `K`; `resolver` receives `(entries, key)`. |
-| `RequestResolver.fromFunctionBatched(f)` | Quick path: map entries to successes with a pure function; no explicit completions needed. |
-| `RequestResolver.batchN(n)` | Limit maximum batch size to `n`. |
 | `RequestResolver.race(a, b)` | Run two resolvers concurrently and use whichever responds first. |
 | `RequestResolver.around(before, after)` | Bracket each batch run with setup/teardown effects. |
 
-> **Tip:** Two `Request` instances are deduplicated if structurally equal via `Equal`. `Request.Class` derives equality from fields automatically. Plain objects must implement `Equal` manually; otherwise each instance is unique and deduplication will not fire.
+> **Tip:** Request equality is structural. `Request.Class` and `Request.TaggedClass` instances with equal fields are equal, and in rc.115 so are plain objects built with `Request.of` / `Request.tagged`, because `Equal.equals` compares plain objects structurally. Equality only matters to `withCache` and `asCache`, though (`persisted` keys its store by [`PrimaryKey`](#primarykey)) — a resolver without one of them receives every entry, duplicates included. The same [key normalization](#keys-are-logical-values) rules apply: `{ id: "e-42" }` and `{ id: "E-42" }` are different requests.
+
+> **Note:** rc.113 tightened these combinators, which matters when upgrading from an earlier release candidate: `withCache` no longer retains an entry for a pending request whose caller was cancelled, and keeps completed results when the losing side of `RequestResolver.race` is interrupted (so the next equal lookup does not hit the backend again); `persisted` preserves completed results and propagates resolver failures; and `fromEffectTagged` preserves a handler's typed errors, defects, and interrupts and consumes its results as an iterable.
 
 > **Note:** Inside the resolver, `entry.context` holds the `Context` from the issuing fiber. `RequestResolver.withSpan` collects the distinct `Tracer.ParentSpan` values and records them as links on the batch span, rather than making multiple caller spans its children. Custom resolvers can inspect the same context with `Context.getOption(entry.context, Tracer.ParentSpan)`.
+
+### Testing a resolver
+
+Give the fake backend the three behaviors a real one has — shuffled rows, an omitted id, a duplicated request — and assert the four properties of the [resolver obligations](#resolver-obligations): one backend call, distinct ids, results in caller order, every entry settled.
+
+```ts
+import { assert, describe, it } from "@effect/vitest"
+import { Effect, Exit, Request, RequestResolver } from "effect"
+
+class GetBandMidpoint extends Request.Class<{ readonly level: string }, number, "UnknownLevel"> {}
+
+describe("band midpoint resolver", () => {
+  it.effect("one call, distinct ids, caller order, every entry settled", () =>
+    Effect.gen(function*() {
+      const backendCalls: Array<ReadonlyArray<string>> = []
+      const midpoints = new Map([["L5", 185_000], ["L4", 140_000]]) // reversed on purpose; no "L9"
+
+      const resolver = RequestResolver.make<GetBandMidpoint>((entries) =>
+        Effect.gen(function*() {
+          const levels = [...new Set(entries.map((entry) => entry.request.level))]
+          backendCalls.push(levels)
+          const rows = [...midpoints].filter(([level]) => levels.includes(level))
+          const byLevel = new Map(rows)
+          yield* Effect.forEach(entries, (entry) => {
+            const midpoint = byLevel.get(entry.request.level)
+            return midpoint === undefined
+              ? Request.fail(entry, "UnknownLevel" as const)
+              : Request.succeed(entry, midpoint)
+          }, { discard: true })
+        })
+      )
+
+      const results = yield* Effect.forEach(
+        ["L4", "L5", "L4", "L9"],
+        (level) => Effect.exit(Effect.request(new GetBandMidpoint({ level }), resolver)),
+        { concurrency: "unbounded" }
+      )
+
+      assert.deepStrictEqual(backendCalls, [["L4", "L5", "L9"]]) // one call, duplicates removed
+      assert.deepStrictEqual(results, [
+        Exit.succeed(140_000),
+        Exit.succeed(185_000),
+        Exit.succeed(140_000), // the duplicate entry was settled too
+        Exit.fail("UnknownLevel" as const) // a typed failure, not the "did not complete request" defect
+      ])
+    }))
+})
+```
+
+No clock is involved with the default `Effect.yieldNow` window. A resolver built with `setDelay` sleeps on the `Clock`, so under `it.effect` fork the callers, `TestClock.adjust` past the delay, then join.
 
 **When to use:** service methods that individual fibers call independently but which support batch APIs underneath (lookups, permission checks, external API calls). The N+1 problem on deeply nested data is the canonical trigger.
 

@@ -4,7 +4,7 @@ _Effect provides a composable time stack: typed duration values, a testable cloc
 
 > **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/07_datetime) examples.
 
-> **Official guides:** [Built-In Schedules](https://effect.website/docs/v4/scheduling/built-in-schedules) prints the delay sequence of every constructor (its "once" heading is a v3 name; the code uses `Schedule.duration`); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Built-In Schedules](https://effect.website/docs/v4/scheduling/built-in-schedules) prints the delay sequence of every constructor (its "once" heading is a stale name; the code uses `Schedule.duration`); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
 
 ## Schedule
 
@@ -216,7 +216,7 @@ const heartbeat = Effect.repeatOrElse(
 )
 ```
 
-Official guide: [Repetition](https://effect.website/docs/v4/scheduling/repetition) (its "repeatN" heading is a v3 name; the code uses `Effect.repeat(effect, { times })`).
+Official guide: [Repetition](https://effect.website/docs/v4/scheduling/repetition) (its "repeatN" heading is a stale name; the code uses `Effect.repeat(effect, { times })`).
 
 ### Shorthand options for retry and repeat
 
@@ -786,7 +786,7 @@ Picking the wrong formatter silently changes what a database column or API consu
 
 **Key APIs.** Guards: `isDateTime`, `isUtc`, `isZoned`, `isTimeZone`. Comparison: `min`, `max`, `between`, `isLessThan`, `isGreaterThan`, `distance`. `DateTime.isFuture` and `DateTime.isPast` are Effects that read the `Clock`, so `TestClock` controls them; `isFutureUnsafe` / `isPastUnsafe` read wall time like `nowUnsafe`. Leaving `DateTime`: `toEpochMillis`, `toDateUtc`, `toDate` (zone-adjusted), `zonedOffset` / `zonedOffsetIso`. Parts: `toParts` / `toPartsUtc`, `getPart`, `setParts` / `setPartsUtc`, `removeTime`, and `nearest` alongside `startOf` / `endOf`.
 
-Official guide: [DateTime](https://effect.website/docs/v4/data-types/datetime) (several headings keep v3 names such as `unsafeMake`; its "Zoned Constructors" section predates `disambiguation`; and it describes zone-less strings as local time, which is true only for the `Date` inputs its examples use).
+Official guide: [DateTime](https://effect.website/docs/v4/data-types/datetime) (several headings keep stale names such as `unsafeMake`; its "Zoned Constructors" section predates `disambiguation`; and it describes zone-less strings as local time, which is true only for the `Date` inputs its examples use).
 
 **Reach for it when** you need the current time in an Effect, when parsing ISO timestamps safely, when computing dates that must respect DST and timezones, or when formatting a timestamp for display or a database column.
 

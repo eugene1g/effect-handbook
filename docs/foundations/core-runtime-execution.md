@@ -246,7 +246,7 @@ Official guide: [Expected Errors](https://effect.website/docs/v4/error-managemen
 
 ### 4. Concurrency
 
-Most combinators take a `{ concurrency }` option. `"unbounded"` runs everything at once; a number caps in-flight work; the default is sequential. `Types.Concurrency` is exactly `number | "unbounded"` — v3's `"inherit"` is not accepted.
+Most combinators take a `{ concurrency }` option. `"unbounded"` runs everything at once; a number caps in-flight work; the default is sequential. `Types.Concurrency` is exactly `number | "unbounded"`; there is no `"inherit"` mode.
 
 ```ts
 import { Effect } from "effect"
@@ -273,7 +273,7 @@ const bundle = Effect.all([loadCompBand("emp_1"), loadCompBand("emp_2")], { conc
 | --- | --- |
 | Shape | A tuple returns a tuple, an iterable returns an array, and a record of effects returns a record with the same keys. Positions and keys follow the *input*, even when a later member finishes first. Prefer the record form for unrelated inputs — there is no positional destructuring to get wrong. |
 | Default mode | **Fail-fast, no partial results.** Sequentially, members after the first failure never start; concurrently, the first failure interrupts the siblings still running. The resulting `Cause` holds that first failure only. |
-| `{ mode: "result" }` | Runs every member and returns a `Result` per slot, so the combined effect has `E = never`. The only modes are `"default"` and `"result"` (v3's `"either"` / `"validate"` are gone). |
+| `{ mode: "result" }` | Runs every member and returns a `Result` per slot, so the combined effect has `E = never`. The only modes are `"default"` and `"result"`. |
 | `{ discard: true }` | Side effects only: the result is `void` and no collection is built. |
 | Accumulating over a collection | `Effect.partition(items, f)` never fails and returns `[failures, successes]`; `Effect.validate(items, f)` fails with a non-empty array of *every* error. Both are covered in [Errors, Option & Result](../foundations/errors-option-result#effect-error-handling). |
 
@@ -297,7 +297,7 @@ const announce = Effect.all([Effect.log("cycle open"), Effect.log("budget loaded
 
 For exactly two effects, `Effect.zip(a, b)` returns the pair and `Effect.zipWith(a, b, f)` combines them; both are sequential unless you pass `{ concurrent: true }` (a boolean — not the `concurrency` option used elsewhere). `Effect.zipLeft` / `zipRight` no longer exist; see [section 9](#9-branching-and-looping).
 
-Official guide: [Basic Concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency) (its printed `Cause` output still shows v3 `Parallel` / `Sequential` nodes; rc.115 causes are flat). The guide for `zip`, `forEach`, and `all` shapes is linked from [section 9](#9-branching-and-looping).
+Official guide: [Basic Concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency) (its printed `Cause` output shows nested `Parallel` / `Sequential` nodes; rc.115 causes are flat). The guide for `zip`, `forEach`, and `all` shapes is linked from [section 9](#9-branching-and-looping).
 
 ### 5. Racing & timeouts
 
@@ -331,7 +331,7 @@ const guarded = livePayBand.pipe(
 
 `race` is `raceAll` with two members, and `raceFirst` is `raceAllFirst` with two. Because losers are *interrupted*, a branch that owns a resource must be interruptible and finalizer-backed, and a slow loser finalizer delays the winner's result. Every race function accepts `{ onWinner }`, a purely observational callback receiving `{ fiber, index, parentFiber }` — useful for a "which replica answered" metric. Wrap each side in `Effect.result` when you want the first *settled* outcome as a value.
 
-**Timeout semantics.** All three operators interrupt the source when the deadline passes and wait for that interruption — including the source's finalizers — before continuing. `Effect.timeoutOrElse` evaluates its fallback only after the source has finished interrupting, in the caller's fiber, so the fallback never overlaps the source's cleanup. A source failure that happens before the deadline is preserved as-is by all three, and `Effect.timeoutOption` maps *only* the timeout to `Option.none()` — typed failures stay in `E`, so it is not a failure suppressor. v3's `timeoutFail` / `timeoutFailCause` / `timeoutTo` do not exist: to surface a domain error, fail from `orElse` (reserve `Effect.die` there for invariant violations).
+**Timeout semantics.** All three operators interrupt the source when the deadline passes and wait for that interruption — including the source's finalizers — before continuing. `Effect.timeoutOrElse` evaluates its fallback only after the source has finished interrupting, in the caller's fiber, so the fallback never overlaps the source's cleanup. A source failure that happens before the deadline is preserved as-is by all three, and `Effect.timeoutOption` maps *only* the timeout to `Option.none()` — typed failures stay in `E`, so it is not a failure suppressor. There is no `timeoutFail` / `timeoutFailCause` / `timeoutTo`: to surface a domain error, fail from `orElse` (reserve `Effect.die` there for invariant violations).
 
 ```ts
 import { Effect, Schema } from "effect"
@@ -538,9 +538,9 @@ The host side of the same chain — turning a request's `AbortSignal` into fiber
 
 ### 9. Branching and looping
 
-v4 has a much smaller control-flow surface than v3: **branch with ordinary `if` / ternaries and loop with ordinary `for` / `while` inside `Effect.gen` or `Effect.fn`**, and reach for an operator only when the *condition* is itself an effect. Coding agents trained on v3 routinely emit the removed operators.
+Effect 4 keeps the control-flow surface small: **branch with ordinary `if` / ternaries and loop with ordinary `for` / `while` inside `Effect.gen` or `Effect.fn`**, and reach for an operator only when the *condition* is itself an effect. Coding agents routinely emit the operators below, which do not exist in `rc.115`.
 
-| v3 operator (gone in rc.115) | Write instead |
+| Not in `rc.115` | Write instead |
 | --- | --- |
 | `Effect.if`, `Effect.unless` | a JavaScript conditional inside `Effect.gen`, or `Effect.suspend(() => cond ? a : b)` |
 | `Effect.whenEffect`, `Effect.unlessEffect` | `Effect.when(self, conditionEffect)`; negate the condition for "unless" |
@@ -548,7 +548,7 @@ v4 has a much smaller control-flow surface than v3: **branch with ordinary `if` 
 | `Effect.zipRight` | `Effect.andThen(next)` |
 | `Effect.zipLeft` | `Effect.tap(next)`, or `Effect.zip` followed by `Effect.map` |
 
-`Effect.when` takes an `Effect<boolean>` — not a boolean and not a thunk, so v3-style `Effect.when(() => cond)` does not type-check — and reports the skipped case as `Option.none()`, so its result type is `Option<A>`. `Effect.whileLoop({ while, body, step })` still exists, but it is a low-level primitive that returns `void`; prefer a generator loop.
+`Effect.when` takes an `Effect<boolean>` — not a boolean and not a thunk, so `Effect.when(() => cond)` does not type-check — and reports the skipped case as `Option.none()`, so its result type is `Option<A>`. `Effect.whileLoop({ while, body, step })` still exists, but it is a low-level primitive that returns `void`; prefer a generator loop.
 
 ```ts
 import { Effect } from "effect"
@@ -573,7 +573,7 @@ const maybeNotified: Effect.Effect<Option.Option<void>> = notifyManager.pipe(
 )
 ```
 
-Official guide: [Control Flow Operators](https://effect.website/docs/v4/code-style/control-flow) (its `whileLoop` signature block shows v3's `Effect.loop` shape; rc.115's `whileLoop` has no state, no result array, and no `discard`).
+Official guide: [Control Flow Operators](https://effect.website/docs/v4/code-style/control-flow) (its `whileLoop` signature block shows an `Effect.loop`-style shape; rc.115's `whileLoop` has no state, no result array, and no `discard`).
 
 ### 10. When cleanup can fail
 

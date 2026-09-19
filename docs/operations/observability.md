@@ -252,7 +252,7 @@ This example redacts the top-level `employeeId` annotation and matching strings.
 
 **Reach for it when** swapping log format, adding a file sink, shipping logs to a remote aggregator, or adding a redaction backstop on top of Effect's structured log events.
 
-Official guide: [Logging](https://effect.website/docs/v4/observability/logging) (its "Built-in Loggers" subsection headings — `stringLogger`, `jsonLogger`, and so on — are v3 names that rc.115 does not export; its code samples use the correct `Logger.format*` / `Logger.console*` names).
+Official guide: [Logging](https://effect.website/docs/v4/observability/logging) (its "Built-in Loggers" subsection headings — `stringLogger`, `jsonLogger`, and so on — are names that rc.115 does not export; its code samples use the correct `Logger.format*` / `Logger.console*` names).
 
 ## LogLevel
 

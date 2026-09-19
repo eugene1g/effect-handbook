@@ -335,7 +335,7 @@ class PayrollGateway extends Context.Service<PayrollGateway, {
 ```
 
 - **`Layer.succeed` packages a finished value, so it cannot express teardown.** Anything that must be closed needs `Layer.effect` with a scoped constructor.
-- **`Layer.scoped` from Effect 3 does not exist in `rc.115`.** Translate old snippets to `Layer.effect`; the `Scope` handling is the same.
+- **There is no `Layer.scoped` in `rc.115`.** `Layer.effect` already handles a `Scope` requirement.
 - **Match the resource's lifetime to the Layer's owner.** Building the client or repository stack inside a request handler closes correctly on every request and still turns a traffic spike into a connection spike. App-lifetime resources belong in the application graph; per-key resources belong in a [`LayerMap`](#layermap).
 
 ### What is shared, and what is rebuilt

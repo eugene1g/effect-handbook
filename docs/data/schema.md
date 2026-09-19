@@ -309,7 +309,7 @@ const RaiseRecommendation = Schema.Struct({
 )
 ```
 
-**Built-in checks by carrier.** Every one takes a trailing annotations argument (`{ message }`, `{ expected }`, ...); the v3 names (`minLength`, `between`, `pattern`) are gone.
+**Built-in checks by carrier.** Every one takes a trailing annotations argument (`{ message }`, `{ expected }`, ...); there are no bare `minLength`, `between`, or `pattern` names.
 
 | Carrier | Checks |
 | --- | --- |
@@ -357,7 +357,7 @@ Official guide: [Filters](https://effect.website/docs/v4/schema/filters).
 
 ### 6. Transformations — `decodeTo` + getters
 
-In v4, v3's `Schema.transform`/`Schema.transformOrFail` are replaced by `decodeTo(target, transformation)` where the transformation is a `SchemaTransformation` (two-way) or a pair of one-way `SchemaGetter`s.
+Transformations are written with `decodeTo(target, transformation)`, where the transformation is a `SchemaTransformation` (two-way) or a pair of one-way `SchemaGetter`s.
 
 ```ts
 import { Schema, SchemaGetter, SchemaTransformation } from "effect"
@@ -408,7 +408,7 @@ const SharesFromStringStrict = Schema.String.pipe(
 
 **Data flow of `decodeTo`.** `source.pipe(Schema.decodeTo(target, bridge))` decodes with the *source* schema first, maps source `Type` to target `Encoded` through the bridge, then decodes with the *target* schema; encoding runs the same three steps in reverse. Three consequences:
 
-- **When source `Type` already equals target `Encoded`, call `decodeTo(target)` with no bridge.** That is v4's schema composition (v3 `compose`).
+- **When source `Type` already equals target `Encoded`, call `decodeTo(target)` with no bridge.** That is schema composition.
 - **When the target is a container of the same item schema, wrap the item in `Schema.toType(item)`** so elements are not decoded twice.
 - A transformation has **three independent failure sites** — the source schema, the getter, the target schema — and each takes its own message ([Custom error messages](#17-custom-error-messages)).
 

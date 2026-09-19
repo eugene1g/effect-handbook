@@ -4,7 +4,7 @@ Effect 4 ships three stacked layers: a fully typed **HTTP client** (request as v
 
 Four cooperating modules: `HttpClient` is the service you acquire and decorate with policy; `HttpClientRequest` is an immutable request built with pipes; `HttpClientResponse` decodes a raw response through a Schema; `HttpClientError` is the tagged error family for transport/status/body failures. Composing a schema decoder also adds `SchemaError`. Idiomatic use: wrap the union in a domain service so callers never touch headers.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpClient example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/50_http-client) builds a typed client service.
+> **Official example:** Effect's release-matched [`ai-docs` HttpClient example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/50_http-client) builds a typed client service.
 
 ## HttpClient
 
@@ -228,7 +228,9 @@ Per-request `method`, `headers`, `body`, and the abort `signal` always come from
 
 `effect/unstable/http/HttpClientRequest` — unstable
 
-An immutable request description built with combinators. Start from a verb (`get`, `post`, `put`, `patch`, `delete`, `head`, `options`) and pipe on URL pieces, query params, headers, auth, and a body. Nothing executes until a client runs it.
+An immutable request description built with combinators. Start from a verb (`get`, `post`, `put`, `patch`, `delete`, `head`, `options`, and since `rc.116` `query`) and pipe on URL pieces, query params, headers, auth, and a body. Nothing executes until a client runs it.
+
+`HttpClientRequest.query(url)` builds an HTTP `QUERY` request: a safe, idempotent read that carries its query in the body, so the search above could be `HttpClientRequest.query("/employees/search")` with the same body builder. Clients have a matching `client.query(url, options)` method and `HttpClient.query` accessor. Many servers, proxies, and caches do not route `QUERY` yet, so confirm support on the whole path before switching from `POST`.
 
 **Mental model.** A value, not an action — stash, clone, and pass around. Factor out reusable request fragments and apply them per-call or, via `HttpClient.mapRequest`, to a whole client.
 

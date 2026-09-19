@@ -2,7 +2,7 @@
 
 Effect's coordination primitives let fibers share permits, queues, broadcasts, pooled resources, and replaceable scoped values without abandoning typed errors or structured concurrency. Start with `Semaphore`, `Queue`, or `PubSub`; use the partitioned, reference-counted, and scoped variants when ownership or lifecycle becomes the harder part.
 
-> **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 Fork variants and fiber ownership live in [Core Runtime & Execution](../foundations/core-runtime-execution#fiber); stream-level buffering and backpressure live in [Streaming & Channels](./streaming-channels#stream). This page owns what happens *between* fibers: who waits, who is told "no", and what is lost.
 
@@ -158,7 +158,7 @@ const program = Effect.gen(function*() {
 | `Queue.peek(q)` | Until one value is available | The head, without removing it |
 | `Queue.collect(q)` | Until the queue ends | Every value until `Cause.Done`; a queue failure fails the effect |
 
-> **Warning:** In `rc.115` a `min` above `1` is honored only when that many values are already buffered. If `takeBetween` / `takeN` has to wait, it resumes on the next arrival and returns what is buffered then, which can be fewer than `min`; and on a queue that has already ended with fewer than `min` values left, it never completes. **Batch consumers of a queue that can end should use `takeBetween(q, 1, max)` or `takeAll` and check the length**, never rely on `takeN` for an exact batch.
+> **Warning:** In `rc.116` a `min` above `1` is honored only when that many values are already buffered. If `takeBetween` / `takeN` has to wait, it resumes on the next arrival and returns what is buffered then, which can be fewer than `min`; and on a queue that has already ended with fewer than `min` values left, it never completes. **Batch consumers of a queue that can end should use `takeBetween(q, 1, max)` or `takeAll` and check the length**, never rely on `takeN` for an exact batch.
 
 `Queue.size(q)` and `Queue.isFull(q)` are snapshots for metrics and tests, not coordination: another fiber can change the answer before you act on it. After `Queue.end`, `size` keeps reporting the buffered values until consumers drain them.
 
@@ -313,7 +313,7 @@ Smells worth a second look in review: `Queue.unbounded` chosen because a test hu
 
 Use for producer-consumer decoupling with back-pressure inside a single process: batch pipelines, worker pools, actor-style mailboxes, rate-limited ingestion.
 
-Official guides: [Queue](https://effect.website/docs/v4/concurrency/queue) (its `takeAll` description and `takeUpTo` heading do not match `rc.115` — use the table above — and it predates the `Queue<A, E>` completion protocol); the callback constructor in [Creating Streams](https://effect.website/docs/v4/stream/creating) drives the same `offerUnsafe` / `endUnsafe` / `failCauseUnsafe` API.
+Official guides: [Queue](https://effect.website/docs/v4/concurrency/queue) (its `takeAll` description and `takeUpTo` heading do not match `rc.116` — use the table above — and it predates the `Queue<A, E>` completion protocol); the callback constructor in [Creating Streams](https://effect.website/docs/v4/stream/creating) drives the same `offerUnsafe` / `endUnsafe` / `failCauseUnsafe` API.
 
 ## PubSub
 
@@ -447,7 +447,7 @@ it.effect("a closed subscription retains nothing", () =>
 
 Use for one-to-many event fan-out within a process where multiple independent consumers should each see every message.
 
-Official guide: [PubSub](https://effect.website/docs/v4/concurrency/pubsub) (its prose calls the subscription a `Dequeue`; in `rc.115` it is a `PubSub.Subscription` read with `PubSub.take`, and the guide omits the `{ capacity, replay }` constructor form).
+Official guide: [PubSub](https://effect.website/docs/v4/concurrency/pubsub) (its prose calls the subscription a `Dequeue`; in `rc.116` it is a `PubSub.Subscription` read with `PubSub.take`, and the guide omits the `{ capacity, replay }` constructor form).
 
 ## Pool
 
@@ -612,6 +612,8 @@ const program = Effect.scoped(
   })
 )
 ```
+
+**Omitting `idleTimeToLive` is not the same as `0`.** With the option omitted, the scope that releases the last borrow runs the finalizer and waits for it, so "disconnected" is logged before that scope finishes closing. Any finite duration, including `0` or `Duration.zero`, instead schedules the release on a forked fiber that the closing scope does not wait for; an infinite duration keeps the idle resource until invalidation or until the `RcRef`'s own scope closes. Before rc.116 a literal `0` behaved like an omitted option; it now behaves like `Duration.zero`.
 
 `RcRef.invalidate(ref)` forces the next `get` to acquire a fresh resource. Existing borrows are unaffected and keep their already-acquired value until their scope closes.
 

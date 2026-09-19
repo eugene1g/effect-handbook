@@ -1,12 +1,12 @@
 # Building a Production AI Capability
 
-Audited against `effect@4.0.0-rc.115`, the matching `ai-docs` examples, and the implementation of `effect/unstable/ai` on 2026-09-18.
+Audited against `effect@4.0.0-rc.116`, the matching `ai-docs` examples, and the implementation of `effect/unstable/ai` on 2026-09-19.
 
 A production AI feature is not a prompt wrapped in an HTTP handler. It is a normal application capability with a typed input boundary, an injectable model, narrowly authorized tools, validated output, explicit limits, observable cost, and a deterministic test seam.
 
 This guide builds a policy assistant that answers an HR partner's question from an authorized policy catalog. It keeps the model behind a service so the rest of the application never depends on a provider SDK.
 
-The AI APIs are unstable in `rc.115`. Pin Effect and the matching provider packages together, and re-audit before upgrading.
+The AI APIs are unstable in `rc.116`. Pin Effect and the matching provider packages together, and re-audit before upgrading.
 
 ## Define the product contract before the prompt
 
@@ -335,7 +335,7 @@ The mutation is a protocol with a ledger, not a function call:
 3. **Derive the idempotency key from a server-issued operation id**, the tenant, the operation kind, and the normalized intent — not from the tool-call id, which changes when the model retries.
 4. **Claim the ledger entry atomically and persist `dispatched` before invoking.** A duplicate claim converges on the first outcome instead of dispatching again.
 5. **Record `succeeded`, `failed-known`, or `unknown`.** A timeout or interruption after dispatch is *unknown*: never replay it blindly; reconcile through the destination's idempotency or status API.
-6. **Return only bounded, safe data to the model.** Ledger state, policy reasons, and stack traces stay server-side.
+6. **Hand the model small, sanitized tool results.** Ledger state, policy reasons, and stack traces stay server-side.
 
 ## Put MCP at an explicit trust boundary
 
@@ -343,7 +343,7 @@ The mutation is a protocol with a ledger, not a function call:
 
 Every server layer must declare the protocol versions it accepts, for example `protocols: [McpProtocol.v2025_06_18]`; do not silently accept an unspecified or future wire contract. A stdio layer owns the process stream lifecycle. An HTTP layer owns an HTTP server route and must be deployed with its origin and media checks intact: requests carrying `Origin` are rejected unless the exact origin is allowlisted, POST requires `Content-Type: application/json`, and `Accept` must allow both JSON and event-stream responses. Put authentication, tenant binding, tool authorization, rate limits, audit logging, and request-size limits outside or inside the handlers as appropriate—protocol negotiation does not supply product authorization.
 
-Treat MCP handlers like any other externally reachable Effect service. Decode arguments through Schema, expose the smallest safe capability, provide their Layers once for the server lifetime, and make consequential operations idempotent. An MCP client only ever sees a declared failure's `message` or a fixed internal-error text; undeclared failures, `AiError`s, and defects are recovered into an `isError` result **and** handed to the configured `ErrorReporter`s, so wire a reporter if tool faults should page someone. Keep MCP-exposed tools on `failureMode: "error"`: a `"return"` tool's failure is delivered as ordinary content that the client cannot distinguish from success. See the concise [MCP server reference](../systems/ai-language-models.md#mcpserver) for layer configuration and transport details.
+Treat MCP handlers like any other externally reachable Effect service. Decode arguments through Schema, expose the smallest safe capability, provide their Layers once for the server lifetime, and make consequential operations idempotent. Every failed call reaches the client as an `isError: true` result. A declared failure is part of the tool's contract and is sent as written: its `message` for an `Error` under `failureMode: "error"`, otherwise its schema-encoded payload (always the payload under `"return"`), so keep internal detail out of declared failures. Undeclared failures, `AiError`s, defects, and results that fail their own schema reach the client only as a fixed internal-error text, and are logged **and** handed to the configured `ErrorReporter`s, so wire a reporter if tool faults should page someone. Arguments that fail the parameter schema become a JSON-RPC `InvalidParams` error on protocols up to `2025-06-18` and an `isError` result on `2025-11-25` and later. Mark a tool `Tool.Strict` when unexpected arguments should be rejected rather than dropped. See the concise [MCP server reference](../systems/ai-language-models#mcpserver) for the full outcome table, layer configuration, and transport details.
 
 ## Bound every agentic loop
 
@@ -478,7 +478,7 @@ Rules the example encodes, and the ones it leaves to the surrounding service:
 - **Retries draw from the same budgets**, and a retry is only legal before any streamed output reached the caller and before any mutating tool was dispatched.
 - **An abort signal is not a timeout.** Race a timeout that interrupts, and bound stream *consumption* as well as stream creation — a stream that is never drained holds its connection.
 - **Share limiters at the service boundary.** A `Semaphore` created per invocation limits nothing across requests; build it once in the service's Layer.
-- **Require one valid terminal `finish` per completed turn**, and treat unknown part types that would cause an action as denied by default.
+- **Accept a turn as complete only when it ends in exactly one well-formed `finish` part**, and deny by default any unrecognized part type that would trigger an action.
 
 ## Stream without hiding completion state
 
@@ -521,7 +521,7 @@ Do not collect the stream into an array or one string before sending it to the c
 
 Make prompt assembly, authorization, retrieval, citation verification, and output policy ordinary pure or Effect code. Those tests should not depend on a network model. At the AI boundary, provide a deterministic `LanguageModel` made from encoded response parts.
 
-**Runnable.** This fake is the `rc.115` test seam used by Effect's own AI tests. `LanguageModel.make` also stamps the service's `[TypeId]` brand, which a hand-written object literal would have to add itself.
+**Runnable.** This fake is the `rc.116` test seam used by Effect's own AI tests. `LanguageModel.make` also stamps the service's `[TypeId]` brand, which a hand-written object literal would have to add itself.
 
 ```ts
 import { Effect, Layer, Stream } from "effect"
@@ -641,9 +641,10 @@ State what each layer of the suite proves. Deterministic fakes prove *policy*. R
 ## Adjacent capabilities, same discipline
 
 - **Embeddings.** Persist provider, model, `dimensions`, normalization, and a schema version beside each vector. When any of them changes, build a new versioned index and re-embed; never compare vectors from different spaces.
+- **Classification and scoring.** When the answer is a label, a rating, or a probability — routing a raise request, flagging a policy exception — a [`DecisionModel`](../systems/ai-language-models#decisionmodel) returns validated distributions instead of free text. Treat its thresholds as versioned policy, record the input schema version and the provider model beside each stored decision, and test routing with a scripted `DecisionModel.make` layer.
 - **Fallback models.** A fallback is a separately configured capability. Re-validate its tool, structured-output, and media support in contract tests, and never route to it in order to get past a content-policy refusal.
 - **Dynamic and MCP-sourced tools.** Authenticate the server, allow-list tool names, snapshot each tool's JSON Schema and validate arguments locally, map every tool to an application capability with its own policy, and reject a changed schema until a human has reviewed it.
-- **Media input.** Check magic bytes, MIME type, dimensions, duration, size, count, and URI scheme before a file part is sent; do not let a prompt cause an implicit URL fetch.
+- **Media input.** Before a file part leaves the process, validate its content signature and declared type, its size and pixel or time extent, how many parts the request carries, and which URI schemes it may reference; a prompt must never make the provider fetch a URL on its own.
 - **Stored tool results.** A result is encoded with the success or the failure schema according to its `isFailure` flag, and failed results may be a `Tool.ExecutionFailure`. Treat exported `Chat` history as a versioned persisted format and review it when a tool's schemas change.
 
 ## Operational checklist

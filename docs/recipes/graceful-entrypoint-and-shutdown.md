@@ -2,12 +2,12 @@
 
 Represent the long-lived application as a Layer, put every background fiber and acquired handle under its Scope, then hand the launched Layer to `NodeRuntime.runMain`.
 
-> **Official guides:** [Guidelines](https://effect.website/docs/v4/code-style/guidelines) (why `runMain` rather than `runPromise`). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Guidelines](https://effect.website/docs/v4/code-style/guidelines) (why `runMain` rather than `runPromise`). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Contract
 
 - **Classification:** Runnable example; complete `main.ts`.
-- **Install:** `pnpm add effect@4.0.0-rc.115 @effect/platform-node@4.0.0-rc.115`
+- **Install:** `pnpm add effect@4.0.0-rc.116 @effect/platform-node@4.0.0-rc.116`
 - **Run:** Node 26+: `node main.ts`
 - **Expected output:** `worker started`; then `heartbeat` every second. Press Ctrl+C or send SIGTERM and it prints `worker stopped` before exit.
 - **Program type:** `Layer.launch(WorkerLive)` is `Effect<never, never, never>` after the Layer has no unsatisfied dependencies.
@@ -61,7 +61,7 @@ What `runMain` adds on top of `runFork`, all of it replaceable through its optio
 | Exit code | `Runtime.defaultTeardown`: `0` / `130` / `[Runtime.errorExitCode]` or `1` | `teardown: (exit, onExit) => …` |
 | Keep-alive | A long interval keeps the process alive while the main fiber runs | none needed |
 
-Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime) (it describes the exit code as only `0` or `1` and names only SIGINT; `rc.115` also uses `130` for interruption and listens for SIGTERM). The runner itself is described in [Core Runtime & Execution](../foundations/core-runtime-execution#runtime).
+Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime) (it describes the exit code as only `0` or `1` and names only SIGINT; `rc.116` also uses `130` for interruption and listens for SIGTERM). The runner itself is described in [Core Runtime & Execution](../foundations/core-runtime-execution#runtime).
 
 ## Adding readiness and a bounded drain
 

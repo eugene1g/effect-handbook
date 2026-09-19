@@ -42,11 +42,11 @@ const program = Effect.gen(function*() {
 
 | You are… | Go to |
 | --- | --- |
-| Installing `rc.115`, configuring TypeScript, or writing a first program | [Getting Started](../foundations/getting-started) |
+| Installing `rc.116`, configuring TypeScript, or writing a first program | [Getting Started](../foundations/getting-started) |
 | Choosing between primitives that all look plausible | [Choosing Effect Primitives](choosing-effect-primitives) |
 | Looking at a symptom, or checking generated code against known mistakes | [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns) |
 | Reviewing a design or a diff | [Review Checklists](review-checklists) |
-| Upgrading from an earlier release candidate | [What changed from rc.108 to rc.115](../#what-changed-from-rc-108-to-rc-115) |
+| Upgrading from an earlier release candidate | [What changed from rc.108 to rc.116](../#what-changed-from-rc-108-to-rc-116) |
 | Moving an existing Promise codebase over, one leaf at a time | [Adopting Effect in an Existing TypeScript Codebase](../deep-dives/adopting-effect-in-an-existing-codebase) |
 | Wanting a connected walkthrough rather than a lookup | [Deep Dives](../deep-dives/) |
 

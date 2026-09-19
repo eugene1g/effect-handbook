@@ -2,7 +2,7 @@
 
 Use this page three ways: in a **design review**, read a section before code exists and treat every "not decided yet" as an open design question; in a **code review**, answer each question from the diff alone; as a **coding-agent self-check**, run the relevant sections over generated code before proposing it. Every question is phrased so that **yes** is the safe answer — a "no" or "cannot tell from the diff" is a finding, and the link leads to the section that owns the rule and its evidence.
 
-The items describe Effect `4.0.0-rc.115`. They are deliberately short; the owning pages carry the reasoning, the probed behavior, and the examples. For symptoms rather than rules, start from [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns); for choosing between primitives, from [Choosing Effect Primitives](choosing-effect-primitives).
+The items describe Effect `4.0.0-rc.116`. They are deliberately short; the owning pages carry the reasoning, the probed behavior, and the examples. For symptoms rather than rules, start from [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns); for choosing between primitives, from [Choosing Effect Primitives](choosing-effect-primitives).
 
 ## Effect construction and running
 
@@ -199,7 +199,7 @@ The items describe Effect `4.0.0-rc.115`. They are deliberately short; the ownin
 ## Upgrading Effect versions
 
 - Are `effect` and every `@effect/*` package pinned to one exact version, with a single installed copy of `effect`? [Incompatible unstable package versions](../troubleshooting/troubleshooting-and-anti-patterns#incompatible-unstable-package-versions)
-- Was the delta table read for changes that alter bytes on the wire or on disk, and is there a coordinated rollout plan for them? [What changed from rc.108 to rc.115](../#what-changed-from-rc-108-to-rc-115)
+- Was the delta table read for changes that alter bytes on the wire or on disk, and is there a coordinated rollout plan for them? [What changed from rc.108 to rc.116](../#what-changed-from-rc-108-to-rc-116)
 - Do both peers of every binary RPC, cluster, or EventLog link move to `SchemaBinary` together, with old journals accounted for? [SchemaBinary](../concurrency/streaming-channels#schemabinary)
 - Do all boolean CLI flags have `Flag.withDefault(false)`, `Flag.optional`, or a fallback? [Flag](../tooling/cli-framework#flag)
 - Were `Config`, `Flag`, and `Prompt` constructors renamed to PascalCase, and `Config.mapOrFail` to `Config.mapEffect`? [Built-in constructors](../foundations/configuration-secrets#built-in-constructors)

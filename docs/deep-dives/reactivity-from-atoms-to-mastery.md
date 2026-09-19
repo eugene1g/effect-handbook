@@ -2,7 +2,7 @@
 
 A source-grounded tour of Effect 4's reactive state layer — the same primitives that power TanStack-Query-style data fetching, SSR hydration, and fine-grained UI state, but built natively on Effects, Streams, Layers, scopes, and typed errors.
 
-This guide shares the handbook's **2026-09-18** audit target, `effect@4.0.0-rc.115`. The reactivity APIs are under `unstable/`, so pin compatible package versions and re-audit before upgrading.
+This guide shares the handbook's **2026-09-19** audit target, `effect@4.0.0-rc.116`. The reactivity APIs are under `unstable/`, so pin compatible package versions and re-audit before upgrading.
 
 For a compact module-by-module API reference, use the [Reactivity & Atom handbook topic](../systems/reactivity-atom). This deep dive repeats only the details needed to connect those modules into an application-level mental model.
 
@@ -794,7 +794,7 @@ Hydration.hydrate(clientRegistry, window.__ATOMS__)
 
 For an async atom, the serialization schema must cover the whole `AsyncResult`, not only its success value. Construct it with `AsyncResult.Schema({ success: UserSchema, error: UserErrorSchema })`.
 
-For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.115/packages/effect/SCHEMA.md) for the long-form treatment.
+For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/packages/effect/SCHEMA.md) for the long-form treatment.
 
 `withReactivity` preserves the underlying initial-value target, so a preloaded serializable atom still refreshes the correct source atom.
 

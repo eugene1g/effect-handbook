@@ -1,6 +1,6 @@
 # Failure, Retry, Fallback, and Interruption
 
-Reliable Effect code does not ask only “did it throw?” It distinguishes an expected domain failure from a defect, an interruption, a timeout, an exhausted retry policy, and a failed alternative implementation. This guide follows one operation through those choices against `effect@4.0.0-rc.115`.
+Reliable Effect code does not ask only “did it throw?” It distinguishes an expected domain failure from a defect, an interruption, a timeout, an exhausted retry policy, and a failed alternative implementation. This guide follows one operation through those choices against `effect@4.0.0-rc.116`.
 
 Use [Core Runtime & Execution](../foundations/core-runtime-execution) for `Effect`, `Exit`, `Cause`, and `ExecutionPlan`; [Errors, Option & Result](../foundations/errors-option-result) for the full recovery surface; [Scheduling & Time](../concurrency/scheduling-time) for Schedule semantics; [Observability](../operations/observability) for telemetry; and [Testing & Dev Tooling](../tooling/testing-dev-tooling) for virtual time.
 
@@ -70,7 +70,7 @@ console.log(await Effect.runPromise(recovered))
 
 The error union is a protocol. Composing effects infers the union of their `E` types, and `Effect.gen` stops at the first failure, so the signature of a use case lists exactly the failures that can still escape it. Keep variants stable at service and transport boundaries, and map low-level errors into domain/integration errors at the layer that owns the dependency — [`Effect.mapError`](../foundations/errors-option-result#transforming-the-error-channel) is the operator for that translation. Do not leak every driver or SDK error through every use case. The `cause` field makes `HrisUnavailable` an *internal* error: a `Schema.TaggedError` encodes every field, so declaring this class on an HTTP or RPC endpoint would publish the wrapped error's name and message. Translate to a public variant with safe identifiers at that edge.
 
-### Assign each variant to the boundary that owns it
+### Route each variant to the layer that decides its policy
 
 Before choosing a catch operator, write down which boundary owns the policy for each variant. For the three errors above:
 
@@ -142,7 +142,7 @@ Every handler should be one of four things: *recover* (a truthful value for the 
 
 1. Validated construction makes the failure impossible, *or* a process owner deliberately makes a startup failure fatal.
 2. No caller could recover, retry, compensate, or translate it.
-3. The source cannot produce a mixed `Cause` whose other reasons matter — `orDie` replaces the whole `Cause` with a single `Die`, so a defect recorded next to the typed failure is lost.
+3. Nothing else of value can travel in the same `Cause`: `orDie` swaps the entire `Cause` for one `Die`, so a defect recorded alongside the typed failure disappears.
 
 `orDie` is never a way to shrink a union that is inconvenient to handle.
 
@@ -258,7 +258,7 @@ Do not put a logging side effect inside the retried operation merely to count re
 
 **Build the attempt inside the retried Effect.** `Effect.retry` re-runs an *Effect*, not a Promise. If a Promise is started once and the retried Effect merely awaits it, every "retry" replays the same settled rejection and the foreign call runs exactly once; call the Promise-returning function inside `Effect.tryPromise({ try: (signal) => ... })` so each attempt starts new work. Retry the transient operation, not the whole use case around it.
 
-For simple policies `Effect.retry` also accepts an options object, `{ times, while, until, schedule }`, as used in [the classifier example](#assign-each-variant-to-the-boundary-that-owns-it); [Scheduling & Time](../concurrency/scheduling-time#schedule) owns the Schedule API inventory.
+For simple policies `Effect.retry` also accepts an options object, `{ times, while, until, schedule }`, as used in [the classifier example](#route-each-variant-to-the-layer-that-decides-its-policy); [Scheduling & Time](../concurrency/scheduling-time#schedule) owns the Schedule API inventory.
 
 ### Idempotency is outside the retry combinator
 
@@ -391,7 +391,7 @@ Official guide: [Timing Out](https://effect.website/docs/v4/error-management/tim
 
 ## Inspect the full Cause without flattening it
 
-Concurrent Effects can fail together, and finalizers can fail while another operation is already failing. `Cause` keeps every one of those reasons — typed failures, defects, and interruptions — instead of forcing them into one exception. In `rc.115` a `Cause<E>` is a **flat** `reasons` array of `Fail`, `Die`, and `Interrupt` values; there are no sequential or parallel nodes to walk. `Cause.combine(left, right)` concatenates two causes and drops reasons that are equal by value.
+Concurrent Effects can fail together, and finalizers can fail while another operation is already failing. `Cause` keeps every one of those reasons — typed failures, defects, and interruptions — instead of forcing them into one exception. In `rc.116` a `Cause<E>` is a **flat** `reasons` array of `Fail`, `Die`, and `Interrupt` values; there are no sequential or parallel nodes to walk. `Cause.combine(left, right)` concatenates two causes and drops reasons that are equal by value.
 
 Use `Effect.exit` when code needs to inspect how an Effect ended without failing. Use `Cause.pretty` for diagnostics; `hasFails` / `hasDies` / `hasInterrupts` for whole-cause questions; `findError` (a `Result`) or `findErrorOption` (an `Option`) for the first typed failure, and `findDefect` for the first defect; and the `is*Reason` guards when looping over `cause.reasons`. `Cause.squash` is a last-mile bridge to an exception-shaped API; it collapses the list to a single value, so do not use it as the application's internal error model.
 
@@ -497,7 +497,7 @@ Practical rules:
 - **Where a mixed `Cause` is possible and the other reasons matter, recover through `catchCause` with an explicit guard** (or `sandbox`), and re-fail with the unchanged cause otherwise. Around plain domain logic with no fallible finalizers, ordinary `catchTag` is still the right tool.
 - **`tapError`, `tapCause`, and `tapDefect` lose nothing**: they re-raise the original `Cause` after a successful observer.
 - **Never use `orDie` as union cleanup**; it discards the defect you would most want to see.
-- **`Effect.sandbox` has no `unsandbox` counterpart in `rc.115`** (a stale doc comment still names one); restore the ordinary error model with `Effect.catch((cause) => Effect.failCause(cause))`.
+- **`Effect.sandbox` has no `unsandbox` counterpart in `rc.116`** (a stale doc comment still names one); restore the ordinary error model with `Effect.catch((cause) => Effect.failCause(cause))`.
 - **Multiple domain errors are better modeled as data** — `Effect.validate` or `Effect.partition` — than as several `Fail` reasons, because typed handlers see only the first.
 
 [Core Runtime & Execution](../foundations/core-runtime-execution#cause) documents the `Cause` API itself.
@@ -609,7 +609,7 @@ console.log(events)
 
 `attempts` is per step. `onEvent` receives ordered start/success/failure events and cannot change the operation's result if the observer itself fails. A Stream execution plan may restart the stream after it already emitted elements; set `preventFallbackOnPartialStream: true` when mixing elements from two providers would violate the protocol.
 
-Use ordinary `catchTag` when the fallback is a different value or business path. Use `ExecutionPlan` when the computation stays the same and the provided implementation changes. Between the two sit the value-level fallbacks: `Effect.firstSuccessOf([a, b, c])` tries *different effects* in order and fails with the last error, `Effect.retryOrElse` degrades after a policy is exhausted, and `Effect.orElseSucceed` replaces every typed failure with a constant — narrow with `catchTag` first if only one variant should default. All of them act on typed failures only; see [Fallback values and ignoring failures](../foundations/errors-option-result#fallback-values-and-ignoring-failures).
+Use ordinary `catchTag` when the fallback is a different value or business path. Use `ExecutionPlan` when the computation stays the same and the provided implementation changes. Between the two sit the value-level fallbacks: `Effect.firstSuccessOf([a, b, c])` tries *different effects* in order and fails with the last error, `Effect.retryOrElse` degrades after a policy is exhausted, and `Effect.orElseSucceed` replaces every typed failure with a value computed from the error (the function receives it since rc.116) — narrow with `catchTag` first if only one variant should default. All of them act on typed failures only; see [Fallback values and ignoring failures](../foundations/errors-option-result#fallback-values-and-ignoring-failures).
 
 Official guide: [Fallback](https://effect.website/docs/v4/error-management/fallback).
 
@@ -755,7 +755,7 @@ Also test a permanent error stops immediately, an exhausted policy returns the l
 
 - Keep expected failures in `E`; reserve defects for bugs and impossible invariants; return a correct negative answer as a success value.
 - Give error variants decision-relevant fields rather than parseable message strings.
-- Assign every variant to the boundary that owns its policy, and classify a whole union with `Match.exhaustive` / `Match.tagsExhaustive` so a new variant fails compilation there.
+- Decide each variant at the layer responsible for its policy, and classify a whole union with `Match.exhaustive` / `Match.tagsExhaustive` so a new variant fails compilation there.
 - Handle an error at the narrowest layer that owns a meaningful recovery; fold with `Effect.match` only at the terminal boundary.
 - Use `tapError`/`tapCause` for observation and `catchTag(s)` for recovery; keep observers infallible.
 - Accept `orDie` only through the three-condition gate, never to shrink a union.

@@ -2,9 +2,9 @@
 
 The `R` in `Effect<A, E, R>` is a typed set of required services. **Context** holds those services, **Layer** is the recipe for constructing them (with dependencies and lifecycles), and the runtime blocks execution until every requirement is satisfied.
 
-> **Official examples:** Effect's release-matched [`ai-docs` service examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/01_effect/03_services) cover `Context.Service`, `Context.Reference`, Layer composition, and dynamically constructed Layers.
+> **Official examples:** Effect's release-matched [`ai-docs` service examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/01_effect/03_services) cover `Context.Service`, `Context.Reference`, Layer composition, and dynamically constructed Layers.
 
-> **Official guides:** [Managing Services](https://effect.website/docs/v4/requirements-management/services). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Managing Services](https://effect.website/docs/v4/requirements-management/services). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Context
 
@@ -290,7 +290,7 @@ const main = Layer.launch(CompPlanningServer.pipe(Layer.provide(AppLayer)))
 
 Use when assembling a dependency graph or tying acquisition/release to a service's lifetime.
 
-Official guides: [Managing Layers](https://effect.website/docs/v4/requirements-management/layers) (it names the dependency-free Layer `layerWithoutDependencies`; this handbook and the `rc.115` examples use `layerNoDeps`), [Layer Memoization](https://effect.website/docs/v4/requirements-management/layer-memoization) (its "providing locally" section describes only the sibling case; nested reuse and `{ local: true }` are covered below).
+Official guides: [Managing Layers](https://effect.website/docs/v4/requirements-management/layers) (it names the dependency-free Layer `layerWithoutDependencies`; this handbook and the `rc.116` examples use `layerNoDeps`), [Layer Memoization](https://effect.website/docs/v4/requirements-management/layer-memoization) (its "providing locally" section describes only the sibling case; nested reuse and `{ local: true }` are covered below).
 
 ### Resourceful services
 
@@ -335,14 +335,14 @@ class PayrollGateway extends Context.Service<PayrollGateway, {
 ```
 
 - **`Layer.succeed` packages a finished value, so it cannot express teardown.** Anything that must be closed needs `Layer.effect` with a scoped constructor.
-- **There is no `Layer.scoped` in `rc.115`.** `Layer.effect` already handles a `Scope` requirement.
+- **There is no `Layer.scoped` in `rc.116`.** `Layer.effect` already handles a `Scope` requirement.
 - **Match the resource's lifetime to the Layer's owner.** Building the client or repository stack inside a request handler closes correctly on every request and still turns a traffic spike into a connection spike. App-lifetime resources belong in the application graph; per-key resources belong in a [`LayerMap`](#layermap).
 
 ### What is shared, and what is rebuilt
 
 A **memo map** records each layer value it has built and hands the same result to every later request for that value. Entries are reference-counted: when the last scope using one closes, the entry is removed and the layer's finalizers run. "Is this pool shared?" therefore means "do both requests reach the same memo map, with the same layer value, while the first build is still alive?"
 
-Every `Effect.provide(layer)` builds with a memo map **forked from the fiber's current one** — the map installed by an enclosing layer build — or with a new map when there is none. A fork reads its parent's entries and writes only to itself. The following counts were measured on `rc.115` with an acquisition counter:
+Every `Effect.provide(layer)` builds with a memo map **forked from the fiber's current one** — the map installed by an enclosing layer build — or with a new map when there is none. A fork reads its parent's entries and writes only to itself. The following counts were measured on `rc.116` with an acquisition counter:
 
 | Situation | Builds of `PoolLive` | Why |
 | --- | --- | --- |

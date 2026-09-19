@@ -5,7 +5,7 @@ Define the capability once, keep implementations in Layers, and let the programâ
 ## Contract
 
 - **Classification:** Runnable example; complete `service-and-layers.ts`.
-- **Install:** `pnpm add effect@4.0.0-rc.115`
+- **Install:** `pnpm add effect@4.0.0-rc.116`
 - **Run:** Node 26+: `node service-and-layers.ts`
 - **Expected output:** two lines: `Hello, Ada!` and `[test] Ada`.
 - **Before provision:** `greet("Ada")` is `Effect<string, never, GreetingService>`.

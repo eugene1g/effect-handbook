@@ -186,7 +186,8 @@ Apply source-grounded corrections to `docs/**`, `handbook.ts`, and validation/bu
 
    Preserve intentionally historical migration references. Current-version text in navigation, footers, install snippets, and source links must not drift from `docs/index.md`.
 9. Update `handbookRelease`, capability `since.availableBy` metadata, recipe install commands, `validation/target.json`, the tracked validation package/lockfile, deep-dive summaries, and capability import groups together. Add retrieval cases for important new selection decisions and keep multi-primitive cases marked `match: "all"`.
-10. Regenerate and verify the catalog, example inventory and validation plan, per-page Markdown, focused bundles, `llms.txt`, concise aggregate, and standalone HTML through the normal build; never hand-edit any of them. The public inventory declares required checks but does not embed transient pass/fail evidence; ignored `.validation/generated/**` is the evidence-bearing output.
+10. When the refresh drew on reference material beyond the upstream source, keep that material out of the repository, don't name it in the handbook, and express its ideas in the handbook's own words rather than reusing its phrasing.
+11. Regenerate and verify the catalog, example inventory and validation plan, per-page Markdown, focused bundles, `llms.txt`, concise aggregate, and standalone HTML through the normal build; never hand-edit any of them. The public inventory declares required checks but does not embed transient pass/fail evidence; ignored `.validation/generated/**` is the evidence-bearing output.
 
 ## 9. Run deterministic completion gates
 

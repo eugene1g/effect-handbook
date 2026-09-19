@@ -2,7 +2,7 @@
 
 `Config` is an `Effect`, validated by `Schema`, read from a swappable provider. Three-part model: **Config** describes what you need and its shape. **ConfigProvider** decides where values come from. **Redacted**/**Redactable** prevent sensitive values from appearing in logs.
 
-> **Official guides:** [Configuration](https://effect.website/docs/v4/configuration). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Configuration](https://effect.website/docs/v4/configuration). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Config
 
@@ -35,7 +35,7 @@ Use for anything sourced from the environment — API endpoints, feature flags, 
 
 ### Built-in constructors
 
-Every constructor takes an optional key name and is a shortcut for `Config.schema(someSchema, name)`. **Prefer these over hand-written parsers**: each setting then carries its unit and its bounds in the config definition. The accept/reject column was probed on `rc.115`.
+Every constructor takes an optional key name and is a shortcut for `Config.schema(someSchema, name)`. **Prefer these over hand-written parsers**: each setting then carries its unit and its bounds in the config definition. The accept/reject column was probed on `rc.116`.
 
 | Constructor | Yields | Accepts / rejects |
 | --- | --- | --- |
@@ -187,7 +187,7 @@ Note: `ConfigProvider.fromDotEnv()` returns an `Effect<ConfigProvider, PlatformE
 
 Use when config must come from somewhere other than env vars, or to inject a fixed in-memory provider in tests.
 
-Also available: `ConfigProvider.fromDotEnvContents(text, { expandVariables? })` parses `.env` text that is already in memory (no `FileSystem`; `${VAR}` expansion is off unless requested, and `rc.115` preserves replacement-pattern tokens such as `$&` inside expanded values). Without an `{ env }` option, `fromEnv()` merges `process.env` with `import.meta.env` when the bundler defines it.
+Also available: `ConfigProvider.fromDotEnvContents(text, { expandVariables? })` parses `.env` text that is already in memory (no `FileSystem`; `${VAR}` expansion is off unless requested, and `rc.116` preserves replacement-pattern tokens such as `$&` inside expanded values). Without an `{ env }` option, `fromEnv()` merges `process.env` with `import.meta.env` when the bundler defines it.
 
 ### Resolving one Config against an explicit provider
 
@@ -348,7 +348,7 @@ Give each test its own in-memory provider through `config.parse(provider)` or `C
 | Every pair of sources that operations can make collide | The documented precedence wins |
 | Nested and `constantCase` key mapping, empty strings, URLs, literals | The documented external names resolve |
 
-At acceptance level, launch the built artifact with valid, missing, malformed, and colliding settings and assert readiness, exit code, and that no secret canary appears in the output (see [Redacted](#redacted)). Test-layer mechanics live in [Testing & Dev Tooling](../tooling/testing-dev-tooling) and [Testing an Effect Application](../deep-dives/testing-an-effect-application).
+At acceptance level, start the packaged build once per configuration case (complete, absent, unparseable, and conflicting values) and assert readiness, exit code, and that no secret canary appears in the output (see [Redacted](#redacted)). Test-layer mechanics live in [Testing & Dev Tooling](../tooling/testing-dev-tooling) and [Testing an Effect Application](../deep-dives/testing-an-effect-application).
 
 ## Redacted
 
@@ -403,9 +403,9 @@ A secret in a decoded payload — a login body, a webhook signing key, a stored 
 | Schema | Input | Encodes back to |
 | --- | --- | --- |
 | `Schema.RedactedFromValue(inner, options?)` | The raw value; decodes it with `inner`, then wraps it. | **The plaintext**, unless `{ disallowEncode: true }`. |
-| `Schema.Redacted(inner, options?)` | A value that is already `Redacted`. | The `Redacted` itself — but its JSON codec (`Schema.toCodecJson`) writes **the plaintext**, unless `{ disallowJsonEncode: true }`. |
+| `Schema.Redacted(inner, options?)` | A value that is already `Redacted`; decodes its contents with `inner` and rewraps the result. | A `Redacted` of the `inner`-encoded contents — but its JSON codec (`Schema.toCodecJson`) writes **the plaintext**, unless `{ disallowJsonEncode: true }`. |
 
-The two option names really are different. Both schemas also accept `label`.
+The two option names really are different. Both schemas also accept `label`. Since `rc.116`, `Schema.Redacted` keeps what `inner` transforms: `Schema.Redacted(Schema.NumberFromString)` decodes `Redacted.make("42")` to a `Redacted<number>` holding `42` and encodes it back to a `Redacted<string>`, preserving the label (earlier releases validated the contents but returned the original `Redacted` unchanged).
 
 ```ts
 import { Config, Redacted, Schema } from "effect"
@@ -428,7 +428,7 @@ const BadgePin = Config.schema(Schema.RedactedFromValue(Schema.FiniteFromString)
 
 > **Warning:** Without `disallowEncode` / `disallowJsonEncode`, any response, persistence, or RPC codec derived from the same schema writes the secret back out in clear text. Set the option on every schema whose encoded side leaves the process, or keep secrets out of encodable models entirely.
 
-Official guides: [Redacted](https://effect.website/docs/v4/data-types/redacted) (its headings say `unsafeWipe` and `getEquivalence`; the `rc.115` names are `Redacted.wipeUnsafe` and `Redacted.makeEquivalence`), [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types) (Schema; see its Redacted section, which does not mention that `RedactedFromValue` spells the option `disallowEncode`).
+Official guides: [Redacted](https://effect.website/docs/v4/data-types/redacted) (its headings say `unsafeWipe` and `getEquivalence`; the `rc.116` names are `Redacted.wipeUnsafe` and `Redacted.makeEquivalence`), [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types) (Schema; see its Redacted section, which does not mention that `RedactedFromValue` spells the option `disallowEncode`).
 
 ## Redactable
 

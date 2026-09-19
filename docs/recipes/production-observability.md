@@ -5,14 +5,14 @@ Instrument business work once with structured logs, metrics, and spans; select a
 ## Contract
 
 - **Classification:** Runnable example; complete `observability.ts`.
-- **Install:** `pnpm add effect@4.0.0-rc.115`
+- **Install:** `pnpm add effect@4.0.0-rc.116`
 - **Run locally:** Node 26+: `OTEL_EXPORTER_OTLP_ENDPOINT= node observability.ts`
 - **Run with an OTLP collector:** `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 node observability.ts`
 - **Expected local output:** one JSON log event containing `order accepted`, `service=orders`, and `orderId=ord-42`, followed by `{"orderId":"ord-42","status":"accepted"}`. Timestamp and fiber/span identifiers vary.
 - **Program type:** after the observability Layer is supplied, `Effect<OrderResult, Config.ConfigError, never>`; configuration-provider or string-decoding failures remain typed startup failures. This example does not validate URL syntax.
 - **Required Layers:** local mode installs `Logger.consoleJson` plus `Logger.tracerLogger` and runtime metrics. OTLP mode additionally provides `FetchHttpClient.layer` internally.
 - **Lifetime and interruption:** OTLP log/metric/span exporters are scoped. Layer shutdown flushes registered exporters, and each flush is bounded by `shutdownTimeout` (3 seconds here, which is also the default): with an unreachable collector the process still exits about three seconds after the work finishes instead of hanging, and whatever was still buffered is dropped. Process interruption reaches Layer finalizers. The local JSON logger has no acquired resource.
-- **Local collector:** the official [Tracing guide](https://effect.website/docs/v4/observability/tracing) shows a single-container Grafana stack that accepts OTLP on port 4318 and how to find the trace in it. The guide tracks Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this recipe and the tagged source win.
+- **Local collector:** the official [Tracing guide](https://effect.website/docs/v4/observability/tracing) shows a single-container Grafana stack that accepts OTLP on port 4318 and how to find the trace in it. The guide tracks Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this recipe and the tagged source win.
 
 ## Complete file
 

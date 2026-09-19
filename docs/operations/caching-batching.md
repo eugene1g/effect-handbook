@@ -2,9 +2,9 @@
 
 Caching avoids repeating the same lookup result; batching combines many logically independent requests into fewer physical calls. `Cache` stores both successful and failed lookup `Exit` values, while `ScopedCache` owns resource lifetimes. `Request` and `RequestResolver` describe data fetching so Effect can deduplicate and batch it safely.
 
-> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/05_batching) builds a batched `RequestResolver`.
+> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/05_batching) builds a batched `RequestResolver`.
 
-> **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option rc.115 does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option rc.116 does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Which problem do you have?
 
@@ -63,20 +63,20 @@ export const makeCompBandsHandle = Effect.cachedWithTTL(
 | --- | --- | --- |
 | `Effect.cached(e)` | For as long as the handle lives | None |
 | `Effect.cachedWithTTL(e, ttl)` | For `ttl`, a `Duration.Input` **or** `(exit) => Duration.Input` (Exit-based since rc.114) | Expiry, read from the `Clock` — `TestClock.adjust` controls it in tests |
-| `Effect.cachedInvalidateWithTTL(e, ttl)` | For a fixed `Duration.Input` (the public rc.115 signature does not accept the Exit function) | Expiry, or the returned `invalidate` effect |
+| `Effect.cachedInvalidateWithTTL(e, ttl)` | For a fixed `Duration.Input` (the public rc.116 signature does not accept the Exit function) | Expiry, or the returned `invalidate` effect |
 
 - **Yield the outer effect once and share the handle.** `yield* Effect.cached(load)` at every call site builds a fresh, empty cell each time and caches nothing.
 - **The whole `Exit` is stored — failures included.** With `Effect.cached` or a fixed TTL, a transient `HrisUnavailable` is replayed to every caller until expiry, which for `cached` is never. Branch on the `Exit` and return `0` for non-success so the next caller retries.
 - **The work runs on the first caller's fiber, so that caller's interruption is an outcome too.** If the first caller is interrupted mid-load, `Effect.cached` and a fixed-TTL `cachedWithTTL` hand that interruption to every later caller; the Exit-based TTL above avoids it. `Cache` differs here: it runs each lookup in its own fiber and never retains an interrupted lookup.
 - **Reach for [`Cache`](#cache) as soon as there is a key**, and for [`Resource`](../foundations/services-context-layers#resource) when the value needs scheduled refresh or owns a resource.
 
-Official guide: [Caching Effects](https://effect.website/docs/v4/caching/caching-effects) (its "once" heading is not an rc.115 API; the code under it uses `Effect.cached`).
+Official guide: [Caching Effects](https://effect.website/docs/v4/caching/caching-effects) (its "once" heading is not an rc.116 API; the code under it uses `Effect.cached`).
 
 ## Cache
 
 `effect/Cache` — stable
 
-Effectful memoization table with bounded capacity and optional TTL. A lookup effect is provided at construction; the cache handles concurrent requests, LRU eviction, and TTL expiry. Two fibers racing for the same missing key share one in-flight lookup.
+Effectful memoization table with bounded capacity and optional TTL. A lookup effect is provided at construction; the cache handles concurrent requests, LRU eviction, and TTL expiry. When several fibers ask for an absent key at once, the lookup runs once and all of them await its result.
 
 **Mental model.** Bounded `Map<Key, Deferred<A, E>>` that deduplicates concurrent misses. The first fiber to request a missing key starts the lookup and parks a deferred; subsequent fibers await that same deferred. On completion its full `Exit` is stored, so failures are cached too. Reading an existing entry—including a pending or failed one—moves it to the end of the map, and capacity pressure evicts the least recently accessed entry.
 
@@ -141,7 +141,7 @@ const program = Effect.gen(function*() {
 
 ### Keys are logical values
 
-`Cache` stores entries in a `MutableHashMap`, so keys are compared with Effect's `Equal` and `Hash`. In rc.115 that comparison is structural for primitives, plain objects, arrays, dates, and `Data`/`Schema` classes alike: two separately built `{ region: "us", level: "L4" }` values address the same entry. Identity problems therefore come from the *input*, not from object references — `"L4"`, `"l4"`, and `" L4 "` are three keys, and so are `hris.example` and `HRIS.example`.
+`Cache` stores entries in a `MutableHashMap`, so keys are compared with Effect's `Equal` and `Hash`. In rc.116 that comparison is structural for primitives, plain objects, arrays, dates, and `Data`/`Schema` classes alike: two separately built `{ region: "us", level: "L4" }` values address the same entry. Identity problems therefore come from the *input*, not from object references — `"L4"`, `"l4"`, and `" L4 "` are three keys, and so are `hris.example` and `HRIS.example`.
 
 1. **Normalize where raw input enters** (trim, case-fold, canonical URL, sorted id list), so equal real-world things become equal values before anything looks them up.
 2. **Carry the key as a small value class** — `Data.Class` or `Schema.Class` — so the type says "this is a stable identity", there is one constructor to normalize in, and nobody passes a whole employee record as a key.
@@ -284,7 +284,7 @@ describe("band midpoint cache", () => {
 
 **When to use:** effectful computation (HTTP call, expensive decode) hit by many callers with the same keys, where you want deduplication of in-flight requests plus time-bounded staleness.
 
-Official guide: [Cache](https://effect.website/docs/v4/caching/cache) (it shows `timeToLive` as a required option; in rc.115 it is optional and defaults to no expiry).
+Official guide: [Cache](https://effect.website/docs/v4/caching/cache) (it shows `timeToLive` as a required option; in rc.116 it is optional and defaults to no expiry).
 
 ## ScopedCache
 
@@ -405,7 +405,7 @@ Executes batches of `Request` values. Core job: receive an array of pending requ
 
 **Mental model.** Effect collects all concurrent `Effect.request` calls within a configurable batching window, groups them by resolver, and fires one `resolver.runAll(entries)` call. The resolver fans the single response out to each waiting fiber. Equivalent to DataLoader, but typed and composable.
 
-**What actually forms a batch.** Batching is a property of the resolver, not of the call site — rc.115 has no `batching` option on `Effect.forEach` or `Effect.all`. Every `Effect.request` registered against the same resolver (and the same [grouping key](#resolver-combinators)) before the resolver's `delay` effect finishes lands in one batch. The default delay is a single `Effect.yieldNow`, so only requests issued *concurrently* meet:
+**What actually forms a batch.** Batching is a property of the resolver, not of the call site — rc.116 has no `batching` option on `Effect.forEach` or `Effect.all`. Every `Effect.request` registered against the same resolver (and the same [grouping key](#resolver-combinators)) before the resolver's `delay` effect finishes lands in one batch. The default delay is a single `Effect.yieldNow`, so only requests issued *concurrently* meet:
 
 | Call site | Batches the resolver sees for ids `1, 2, 3` |
 | --- | --- |
@@ -548,7 +548,7 @@ export const buildOrgChart = Effect.gen(function*() {
 
 ### Resolver obligations
 
-A resolver is a small protocol, and rc.115 enforces part of it at runtime:
+A resolver is a small protocol, and rc.116 enforces part of it at runtime:
 
 1. **Settle every entry you receive, exactly once** — with `entry.completeUnsafe(exit)` or the [`Request.*` helpers](#request). If `runAll` succeeds and leaves an entry untouched, that caller **dies** with the defect `Effect.request: RequestResolver did not complete request`. The classic trigger is a batch endpoint that silently omits unknown ids.
 2. **Join results to entries by identity, never by position.** Index the rows by id once, then iterate the *entries*. Backend row order is not a contract, and positional pairing hands callers each other's data without any error.
@@ -607,7 +607,7 @@ export const CompSummaryResolver = RequestResolver.makeGrouped<GetCompSummary, s
 | Combinator | Effect |
 | --- | --- |
 | `RequestResolver.make(runAll)` | Batched resolver: `runAll(entries, key)` answers a non-empty batch. Default window: one `Effect.yieldNow`. |
-| `RequestResolver.makeGrouped({ key, resolver })` | Like `make`, with a grouping key computed from each *entry*: `key: (entry) => K`, `resolver: (entries, key) => …`. **The key decides what may share a round trip** — a constant batches everything; a tenant, shard, or data-source id keeps unrelated backends apart while still batching within each. Keys are compared with `Equal`; keep their domain small and bounded, because the resolver remembers each distinct key it has seen. `RequestResolver.grouped(f)` adds the same grouping to an existing resolver. |
+| `RequestResolver.makeGrouped({ key, resolver })` | Like `make`, with a grouping key computed from each *entry*: `key: (entry) => K`, `resolver: (entries, key) => …`. **The key decides what may share a round trip** — a constant key puts every request in one batch, while keying by tenant, shard, or data source batches within each group and never mixes requests bound for different backends. Keys are compared with `Equal`; keep their domain small and bounded, because the resolver remembers each distinct key it has seen. `RequestResolver.grouped(f)` adds the same grouping to an existing resolver. |
 | `RequestResolver.fromEffect(f)` | No batch endpoint: `f(entry)` runs once per entry, concurrently, and its `Exit` completes that entry. You still get one call site for caching, tracing, and delay. |
 | `RequestResolver.fromEffectTagged<Req>()({ Tag: (entries) => … })` | One handler per request `_tag`; each returns an iterable of results in the same order as its entries (arrays, iterators, and generators all work). A handler's typed error, defect, or interruption completes every entry of that tag with it. This is the one positional API — prefer `make` when the backend does not guarantee order. |
 | `RequestResolver.fromFunctionBatched(f)` | Quick path: map entries to successes with a pure function; no explicit completions needed. Also positional. |
@@ -620,7 +620,7 @@ export const CompSummaryResolver = RequestResolver.makeGrouped<GetCompSummary, s
 | `RequestResolver.race(a, b)` | Run two resolvers concurrently and use whichever responds first. |
 | `RequestResolver.around(before, after)` | Bracket each batch run with setup/teardown effects. |
 
-> **Tip:** Request equality is structural. `Request.Class` and `Request.TaggedClass` instances with equal fields are equal, and in rc.115 so are plain objects built with `Request.of` / `Request.tagged`, because `Equal.equals` compares plain objects structurally. Equality only matters to `withCache` and `asCache`, though (`persisted` keys its store by [`PrimaryKey`](#primarykey)) — a resolver without one of them receives every entry, duplicates included. The same [key normalization](#keys-are-logical-values) rules apply: `{ id: "e-42" }` and `{ id: "E-42" }` are different requests.
+> **Tip:** Request equality is structural. `Request.Class` and `Request.TaggedClass` instances with equal fields are equal, and in rc.116 so are plain objects built with `Request.of` / `Request.tagged`, because `Equal.equals` compares plain objects structurally. Equality only matters to `withCache` and `asCache`, though (`persisted` keys its store by [`PrimaryKey`](#primarykey)) — a resolver without one of them receives every entry, duplicates included. The same [key normalization](#keys-are-logical-values) rules apply: `{ id: "e-42" }` and `{ id: "E-42" }` are different requests.
 
 > **Note:** rc.113 tightened these combinators, which matters when upgrading from an earlier release candidate: `withCache` no longer retains an entry for a pending request whose caller was cancelled, and keeps completed results when the losing side of `RequestResolver.race` is interrupted (so the next equal lookup does not hit the backend again); `persisted` preserves completed results and propagates resolver failures; and `fromEffectTagged` preserves a handler's typed errors, defects, and interrupts and consumes its results as an iterable.
 

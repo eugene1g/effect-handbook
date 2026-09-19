@@ -4,7 +4,7 @@ Describe the API once as data: groups of endpoints, each with Schema-typed path 
 
 > **Tip:** Keep the API *definition* (`HttpApi`, groups, endpoints, error schemas, middleware interfaces) in a module with **no server code**. The server implements handlers against it; clients derive from it. This lets a frontend import the exact same contract the backend serves, with zero server code crossing the boundary.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
+> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
 
 ## HttpApiEndpoint
 
@@ -12,7 +12,7 @@ Describe the API once as data: groups of endpoints, each with Schema-typed path 
 
 One endpoint described as data. `HttpApiEndpoint.get(identifier, path, spec)` (and `post`, `put`, `patch`, `delete`, …) declares a route whose `params`, `query`, `payload`, `success`, and `error` are all Schemas. The `identifier` becomes the handler key and client method name and is exposed as `.identifier`; do not use `.name`, which is the native function name because endpoints are callable function objects. The path string carries `:params`.
 
-**Mental model.** A typed contract: "given these validated inputs, return this success or one of these errors." The verb decides where `payload` lives — GET uses query string, POST/PUT uses request body (JSON by default). Path params are strings on the wire; their Schemas must decode *from* string (use `Schema.FiniteFromString`, or bridge with `Schema.decodeTo` to a branded type). Array-valued query fields accept either one value or repeated values, so `?tag=equity` decodes like the singleton array form of `?tag=equity&tag=salary`.
+**Mental model.** A typed contract: "given these validated inputs, return this success or one of these errors." The verb decides where `payload` lives — GET uses query string, POST/PUT/PATCH and QUERY use the request body (JSON by default). Path params are strings on the wire; their Schemas must decode *from* string (use `Schema.FiniteFromString`, or bridge with `Schema.decodeTo` to a branded type). Array-valued query fields accept either one value or repeated values, so `?tag=equity` decodes like the singleton array form of `?tag=equity&tag=salary`.
 
 ```ts
 import { Schema } from "effect"
@@ -41,6 +41,24 @@ const postRaise = HttpApiEndpoint.post("postRaise", "/employees/:id/raise", {
   success: CompRecord
 })
 ```
+
+`HttpApiEndpoint.query` (`rc.116`) declares an HTTP `QUERY` endpoint: a safe, idempotent read whose `payload` travels in the request body like a `POST`, for searches too large or too structured for a query string. The server, the derived client, and `HttpApiTest` handle it like any other verb (probed); OpenAPI output and CORS need attention, see [OpenApi](#openapi) and [HttpMiddleware](http-server#httpmiddleware).
+
+```ts
+import { Schema } from "effect"
+import { HttpApiEndpoint } from "effect/unstable/httpapi"
+
+// Search comp bands with a structured filter in the body: QUERY /comp-bands/search
+const searchBands = HttpApiEndpoint.query("searchBands", "/comp-bands/search", {
+  payload: Schema.Struct({
+    levels: Schema.Array(Schema.String),
+    location: Schema.String
+  }),
+  success: Schema.Array(Schema.Struct({ level: Schema.String, midpoint: Schema.Finite }))
+})
+```
+
+A literal suffix after a path parameter stays literal: `/merit-cycles/:id:close` binds `id` and keeps `:close` as literal path text. Since `rc.116` the server router, the derived client and `urlBuilder`, and the OpenAPI path (`/merit-cycles/{id}:close`) all agree on that shape (probed).
 
 > **Warning:** **Put the rule on the contract, not in the handler.** A permissive endpoint schema (`id: Schema.String`) with the real pattern, range, or brand check repeated inside the handler hides the rule from the derived client, the OpenAPI document, and contract tests, and it lets invalid input reach downstream work before anything rejects it. Put checks and brands on `params`, `query`, `headers`, and `payload`; the handler then only ever sees decoded values. HttpApi answers a request that fails decoding with an empty `400` and an unmatched request `Content-Type` with `415`, both before the handler runs — [HttpApiTest](#httpapitest) shows how to prove it. Schema mechanics (checks, brands, transformations) live in [Schema](../data/schema#schema).
 
@@ -99,6 +117,25 @@ export class Api extends HttpApi.make("comp-api")
   .annotateMerge(OpenApi.annotations({ title: "Acme Compensation API" })) {}
 ```
 
+`HttpApi.ParseOptions` (`rc.116`) sets the Schema parse options that the server **and** the derived client use for every codec of an endpoint: path, query, headers, payload, success, errors, and SSE events. Annotate the API, a group, or an endpoint with `.annotate(HttpApi.ParseOptions, options)`. The most specific level wins and replaces the whole object (options are not merged), and without an annotation Schema's defaults apply. Annotate the API before passing it to `HttpApiBuilder.group` or `HttpApiBuilder.endpoint`.
+
+```ts
+import { Schema } from "effect"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
+
+const RaiseInput = Schema.Struct({ amount: Schema.Finite, effectiveDate: Schema.String })
+
+// Reject unknown request fields (a mistyped `efectiveDate` is a 400, not a silent drop)
+// and report every issue instead of the first one.
+export class RaisesApi extends HttpApi.make("raises").add(
+  HttpApiGroup.make("raises").add(
+    HttpApiEndpoint.post("propose", "/raises", { payload: RaiseInput })
+  )
+).annotate(HttpApi.ParseOptions, { onExcessProperty: "error", errors: "all" }) {}
+```
+
+Probed on `rc.116`: with that annotation a `POST` carrying an extra property gets `400`; without it the property is dropped and the handler runs. Header codecs receive **all** request headers, so on an endpoint that declares `headers`, `onExcessProperty: "error"` also rejects undeclared ones such as `content-type`; set a looser object on that endpoint.
+
 **Reach for it when** assembling groups into the one definition that drives server, client, and docs.
 
 ## HttpApiSchema
@@ -149,6 +186,8 @@ const page = HttpApiSchema.withHeaders({
 `HttpApiSchema.status` takes a numeric code or, since `rc.109`, a status literal name from [HttpStatus](http-server#httpstatus): `RaiseInput.pipe(HttpApiSchema.status("Created"))` and `HttpApiSchema.status(201)` annotate the same thing, and the name survives code review better than a bare number.
 
 `WithHeaders(bodySchema, headersSchema)` makes the success/client value a branded `{ body, headers }` pair and works for streaming success bodies too. For a domain error that should remain the handler's error type while encoding selected fields into HTTP headers, pipe it through `encodeToWithHeaders({ body, headers }, { decode, encode })`. Nesting `WithHeaders` is rejected. Explicit `content-type` or `content-length` values in the returned headers override values inferred from the body; endpoint construction also rejects ambiguous response variants sharing the same status/content type.
+
+In `StreamSse({ data })` mode each event is `{ id?, event, data }`: since `rc.116` the `id` is optional in the TypeScript type and in the OpenAPI schema, and a decoded event without an `id` omits the key rather than carrying `id: undefined`. A custom `events` schema should declare the id as `Schema.optional(Schema.String)`, not `Schema.UndefinedOr(Schema.String)`.
 
 **Reach for it when** an endpoint needs a specific status, non-JSON content type, empty body, file upload, or streaming response.
 
@@ -390,7 +429,7 @@ export const authorize = Effect.fn("authorize")(function*(action: string, tenant
 })
 ```
 
-A handler for `POST /tenants/:tenantId/raises/:id/approve` starts with `yield* authorize("raise:approve", params.tenantId)` and declares `Forbidden` in the endpoint's `error`. Probed on `rc.115`: a request with no `Authorization` header and an invalid `:id` gets `401`, not `400`, because **middleware wraps request decoding** — an unauthenticated caller learns nothing about your validation rules; a valid token with the wrong tenant or a missing permission gets `403`, and the handler body never runs.
+A handler for `POST /tenants/:tenantId/raises/:id/approve` starts with `yield* authorize("raise:approve", params.tenantId)` and declares `Forbidden` in the endpoint's `error`. Probed on `rc.116`: a request with no `Authorization` header and an invalid `:id` gets `401`, not `400`, because **middleware wraps request decoding** — an unauthenticated caller learns nothing about your validation rules; a valid token with the wrong tenant or a missing permission gets `403`, and the handler body never runs.
 
 - **Declare a middleware's error once, on the middleware.** It reaches the derived client's error channel and the OpenAPI responses of every endpoint it covers (duplicated entries were fixed in `rc.113`); repeating it on each endpoint is noise.
 - **Never infer authorization** from route possession, a documented security scheme, an unverified claim, a phantom type, or a cast. Audit system actors and "internal" bypass paths the same way as user calls.
@@ -561,6 +600,7 @@ Options and per-call controls worth knowing:
 | Point the client at a host or base path | `HttpApiClient.make(Api, { baseUrl: "https://hr.acme.internal/api/v2" })` — shorter than a `prependUrl` transform |
 | The status or headers as well as the decoded value | pass `responseMode: "decoded-and-response"` (a `[value, response]` tuple) or `"response-only"` in the call's request object; the default is `"decoded-only"` |
 | A link or redirect target without executing a request | `HttpApiClient.urlBuilder(Api, { baseUrl })` mirrors the client's shape and returns strings: `urls.comp.getComp({ params, query })`. Params and query are encoded through the endpoint schemas, and a base URL's pathname is kept (it was dropped before `rc.113`) |
+| Stricter or exhaustive decoding of responses | the same [`HttpApi.ParseOptions`](#httpapi) annotation the server reads also configures the client's request encoders and response decoders (`rc.116`) |
 | A larger SSE event budget for one `StreamSse` endpoint | `sseOptions: { maxEventSize }` in that call's request object (`rc.113`); the default cap is 10 MiB per pending event |
 
 The client decodes JSON, text, bytes, and — since `rc.113` — form-urlencoded responses according to the endpoint's declared encoding. Request values are encoded through the endpoint schemas *before* anything is sent, so a value that violates a check fails locally with `SchemaError`: **a typed client cannot produce malformed wire input**, which is why boundary tests need a raw request ([HttpApiTest](#httpapitest)).
@@ -588,13 +628,14 @@ Typically you don't call `fromApi` yourself — passing `openapiPath` to `HttpAp
 Facts that decide how you use the document:
 
 - **Each model owns its own artifact.** A value Schema knows a shape, so [`Schema.toJsonSchemaDocument`](../data/schema#jsonschema) yields a *JSON Schema* for config validation, structured-output prompts, or cross-language payload codegen. Methods, paths, parameter locations, statuses, per-endpoint errors, security, and media types live only on the assembled `HttpApi`, so the *OpenAPI* document must come from `OpenApi.fromApi`. Feeding either generator the other model produces a document missing exactly the facts the other owns — and a JSON Schema is not "the OpenAPI".
-- **Objects are closed here, open there.** `fromApi` generates object schemas with `onExcessProperty: "error"`, so struct bodies carry `additionalProperties: false`. A bare `Schema.toJsonSchemaDocument` call leaves objects open (`additionalProperties: true`) unless you pass the same option. Decoding is a separate matter: the server decodes with default parse options, so an unknown request property is dropped before the handler sees the payload, not rejected.
+- **Objects are closed here, open there.** `fromApi` generates object schemas with `onExcessProperty: "error"`, so struct bodies carry `additionalProperties: false`. A bare `Schema.toJsonSchemaDocument` call leaves objects open (`additionalProperties: true`) unless you pass the same option. Decoding is a separate matter: by default the server decodes with Schema's default parse options, so an unknown request property is dropped before the handler sees the payload, not rejected. To make the server enforce what the document advertises, annotate the API with [`HttpApi.ParseOptions`](#httpapi) `{ onExcessProperty: "error" }`.
+- **`QUERY` operations sit under an extension.** OpenAPI 3.1 has no `query` field, so `fromApi` emits an [`HttpApiEndpoint.query`](#httpapiendpoint) operation under `paths[path]["x-oai-additionalOperations"].QUERY` (probed). Swagger UI, Scalar, and generators that do not read that extension will not show it; `@effect/openapi-generator` reads both the extension and OpenAPI 3.2's native `query` field.
 - **Only identified schemas become components.** A schema with an `identifier` annotation is emitted once under `components.schemas` and referenced by `$ref`; anonymous structs are inlined at each use. A `Schema.Class` named `CompRecord` appears as `CompRecordEncoded`, because the document describes the encoded side. Name the DTOs you want codegen tools to reuse.
 - **Generation is deferred.** Since `rc.112` the `openapiPath`, Swagger, and Scalar routes build the document on the first request and memoize it, so startup stays cheap — and a generation defect (duplicate `operationId`, conflicting security scheme, invalid component key) surfaces on that first request, not at boot. Call `OpenApi.fromApi(Api)` in a test to move the failure into CI.
 - **Overrides apply last.** Endpoint-level `OpenApi.Override` and `OpenApi.Transform` annotations run after schema generation (`rc.113`), so a transform sees — and may rewrite — the finished operation, including its generated request and response schemas.
 - **Assert semantics, not snapshots.** Check the facts a consumer depends on — path, method, parameter locations, security requirement, media types, each declared status — instead of snapshotting the whole document, whose key order and component layout are not a contract.
 
-Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) — how `identifier` annotations become shared definitions (its "Generation Options" section describes an `additionalProperties` option; `rc.115` has `onExcessProperty` instead).
+Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) — how `identifier` annotations become shared definitions (its "Generation Options" section describes an `additionalProperties` option; `rc.116` has `onExcessProperty` instead).
 
 **Reach for it when** you need an OpenAPI document for external consumers, codegen, or API gateways — guaranteed to match what you actually serve.
 

@@ -4,7 +4,7 @@ Debug Effect code in this order: read `Effect<A, E, R>`, inspect the complete `C
 
 ## Fast symptom map
 
-Find the symptom, apply the first correction, and follow **Details** to the section that owns the explanation. Rows are grouped by where the symptom shows up, not by module. Each owning page carries the evidence; many of these causes were confirmed by probing `rc.115` rather than read off the types.
+Find the symptom, apply the first correction, and follow **Details** to the section that owns the explanation. Rows are grouped by where the symptom shows up, not by module. Each owning page carries the evidence; many of these causes were confirmed by running probes against the installed release rather than read off the types.
 
 ### Symptoms: construction, running, and cancellation
 
@@ -16,7 +16,7 @@ Find the symptom, apply the first correction, and follow **Details** to the sect
 | Work continues after the client disconnected | The host's `AbortSignal` never reached the runner, or the adapter ignores Effect's signal. Cancellation crosses two hops and either one can be dropped. | `runPromise(effect, { signal })` **and** the adapter's own `signal`; check `signal.aborted` before calling the runtime. | [The two broken versions](../recipes/request-cancellation-through-a-host#the-two-broken-versions) |
 | Interrupting the outer fiber does not stop inner work; `TestClock`, the logger, or the current span is missing inside it | An interior `Effect.runPromise(inner)` created a separate root fiber with an empty context, and flattened its typed failure into a rejection. | Return the Effect. If a nested runner is unavoidable, forward `signal` and carry the `Exit` across. | [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge) |
 | `Effect.runSync` throws `AsyncFiberError` | The effect reached an asynchronous boundary; the types cannot rule that out. | `runPromise` / `runPromiseExit`, or make the edge asynchronous. | [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge) |
-| `yield* fiber`, `yield* ref`, or `yield* someOption` does not compile, or dies with `Not a valid effect` | Handles, `Option`, and `Result` are not Effects in `rc.115`, whatever older guides say. | `Fiber.join`, `Ref.get`, `Deferred.await`, `Effect.fromOption`, `Effect.fromResult`. | [Moving between Option, Result, and Effect](../foundations/errors-option-result#moving-between-option-result-and-effect) |
+| `yield* fiber`, `yield* ref`, or `yield* someOption` does not compile, or dies with `Not a valid effect` | Handles, `Option`, and `Result` are not Effects in `rc.116`, whatever older guides say. | `Fiber.join`, `Ref.get`, `Deferred.await`, `Effect.fromOption`, `Effect.fromResult`. | [Moving between Option, Result, and Effect](../foundations/errors-option-result#moving-between-option-result-and-effect) |
 | `Effect.if`, `Effect.unless`, `Effect.loop`, `Effect.iterate`, `Effect.zipLeft`, or `Effect.zipRight` is not exported | They do not exist in Effect 4, though generated code still emits them. | Ordinary `if` / `for` inside `Effect.gen`; `Effect.when(conditionEffect)`; `Effect.andThen` / `Effect.tap`. | [Branching and looping](../foundations/core-runtime-execution#9-branching-and-looping) |
 | A forked listener misses the first event | Forking only *schedules* the child; the parent published before the child subscribed. | `{ startImmediately: true }`, or a handshake the child completes after registering. | [When a forked fiber starts](../foundations/core-runtime-execution#when-a-forked-fiber-starts) |
 | A cancel call blocks the request for seconds | `Fiber.interrupt` completes only after the target's finalizers have run. | Decide between *request cancellation* and *await cleanup*; bound the finalizer. | [Requesting cancellation versus awaiting cleanup](../foundations/core-runtime-execution#requesting-cancellation-versus-awaiting-cleanup) |
@@ -161,7 +161,7 @@ Find the symptom, apply the first correction, and follow **Details** to the sect
 | `MailboxFull` during a cold start | Per-runner resident-entity or mailbox limits engaged. | Size the limits from memory and alert on the gauges. | [Capacity limits and their defaults](../systems/cluster-sharding#capacity-limits-and-their-defaults) |
 | One model turn floods a rate-limited dependency | Tool-call resolution runs with `concurrency: "unbounded"` by default. | Set a number. | [Tool-call resolution](../systems/ai-language-models#tool-call-resolution-concurrency-and-manual-dispatch) |
 | A mutating tool ran before approval | The framework resolves tool calls during the generation call. | `disableToolCallResolution: true`, then dispatch through your own gates. | [Keep the framework from executing a mutation before your gates run](../deep-dives/building-a-production-ai-capability#keep-the-framework-from-executing-a-mutation-before-your-gates-run) |
-| MCP clients treat failed tool calls as successes | A `failureMode: "return"` tool delivers its failure as ordinary content (`isError: false`). | Prefer `failureMode: "error"` for tools exposed over MCP. | [McpServer](../systems/ai-language-models#mcpserver) |
+| An MCP client sees only a generic error instead of the tool's failure | The failure was undeclared, a defect, or failed to encode; since `rc.116` those are logged and reported server-side, and the client gets a generic message. Declared failures reach the client as `isError: true` in either `failureMode`. | Declare the failure schema on the tool; look for the logged cause. | [McpServer](../systems/ai-language-models#mcpserver) |
 | Model retries loop or re-bill the prompt | Non-retryable reasons are retried, or retries continue after output exists. | Branch on `error.isRetryable`; bound the schedule. | [Classifying a failure before retrying](../systems/ai-language-models#classifying-a-failure-before-retrying) |
 
 ### Symptoms: tests
@@ -182,11 +182,20 @@ Find the symptom, apply the first correction, and follow **Details** to the sect
 | A CLI fails with `MissingOption` for a boolean flag nobody passed | An omitted boolean flag is no longer an implicit `false`. | `Flag.withDefault(false)`, `Flag.optional`, or a fallback. | [Flag](../tooling/cli-framework#flag) |
 | `Config.string is not a function`; `Flag.integer` is missing | Constructors are PascalCase since `rc.113`. | `Config.String`, `Config.Redacted`, `Flag.Int`, `Prompt.String`, and so on. | [Built-in constructors](../foundations/configuration-secrets#built-in-constructors), [Flag constructors at a glance](../tooling/cli-framework#flag-constructors-at-a-glance) |
 | `Schema.toArbitrary` or `effect/testing/FastCheck` is missing; saved seeds no longer reproduce; tests report `Exhausted` | The fast-check bridge was replaced by the native `Arbitrary` engine. | `Arbitrary.schema(S)`, `{ arbitrary: { runs } }`; re-record saved failures. | [Arbitrary](../tooling/testing-dev-tooling#arbitrary) |
+| `Stream.partition` branches are swapped, or `bufferSize` is rejected | Since `rc.116` it returns `[passes, fails]` and the option is `capacity`. Swapped names still type-check. | Reorder the destructuring; rename the option. | [Combining and splitting streams](../concurrency/streaming-channels#4-combining-and-splitting-streams) |
+| `Stream.mapBoth` rejects `onSuccess`/`onFailure`; `Stream.scan` rejects a plain seed | `rc.116` aligned Stream signatures with Effect's. | `{ onElement, onError }`; `Stream.scan(() => seed, f)`. | [Transforming streams](../concurrency/streaming-channels#2-transforming-streams) |
+| `"1.5 KiB"` is not assignable to `ByteSize.Input` | Since `rc.116` `ByteSize.Input` literals must be a whole number and a unit. | Parse text with `ByteSize.fromString`. | [ByteSize](../data/functional-toolkit#bytesize) |
+| YAML that used to load now throws `SyntaxError` | `rc.116` rejects unquoted plain scalars containing `: ` or ending in `:`, compact nested sequences, and multi-document input. | Quote the value. | [Yaml](../concurrency/streaming-channels#yaml) |
+| `getter.compose`, `new SchemaGetter.Getter`, `SchemaGetter.onSome`, or `SchemaTransformation.make` is missing | `rc.116` made getters and transformations plain data with standalone combinators. | `SchemaGetter.compose` / `map` / `run`, `transformOptionalEffect`, `SchemaTransformation.composeTransformation`, `makeTransformation`. | [SchemaGetter](../data/schema#schemagetter), [SchemaTransformation](../data/schema#schematransformation) |
+| Saved `Arbitrary` replay tokens no longer reproduce | `rc.116` changed shrinking and replay paths. | Re-run the property, re-record the token, and keep important failing inputs as regression tests. | [Arbitrary](../tooling/testing-dev-tooling#arbitrary) |
+| A custom `OpenRouterClient.Service` mock no longer type-checks | `rc.116` added `createDecisions` to the service. | Implement it in the mock. | [Provider packages](../systems/ai-language-models#provider-packages) |
+| `HttpServerResponse.file` rejects `contentLength` | `rc.116` removed the unused option; lengths come from the file and the requested range. | Delete the option. | [HttpPlatform](../interfaces/http-server#httpplatform) |
 | Generated JSON Schema now says `"additionalProperties": true` | JSON Schema generation is open by default. | `{ onExcessProperty: "error" }`; refresh snapshots. | [JsonSchema](../data/schema#jsonschema) |
+| PostgreSQL rows stop decoding after `rc.116`: a `Date` where a number was, a text label where bytes were, or `SqlError` in a `listen` queue type | `rc.116` decodes `timestamp` / `timestamptz` as `Date`, decodes unregistered types as UTF-8 text, and types `listen` queues with `SqlError`. | Use `Date`-based row fields (or register a numeric codec); register codecs for enum arrays; annotate the queue with `SqlError` and wrap the listener in `Stream.retry`. | [Dates, enums, and LISTEN queues on the native client](../interfaces/sql#dates-enums-and-listen-queues-on-the-native-client) |
 | PostgreSQL rows stop decoding: `bigint` where a string was, a number where a `Date` was | `@effect/sql-pg` runs on a native wire-protocol client with different result types. | Re-check row Schemas; wrap JSON parameters in `sql.json`; one statement per query string. | [Upgrading @effect/sql-pg to the native client](../interfaces/sql#upgrading-effect-sql-pg-to-the-native-client) |
 | `onExcessProperty: "preserve"` or `propertyOrder` is rejected | Both parse options were removed. | Model unknown keys with `Schema.Record` / `Schema.StructWithRest`. | [Parse options are boundary policy](../data/schema#14-parse-options-are-boundary-policy) |
 | Logs vanished from traces after installing a custom logger | `Logger.layer` replaces the whole logger set, `tracerLogger` included. | `Logger.layer([Logger.consoleJson, Logger.tracerLogger])`. | [Installing and swapping loggers](../operations/observability#installing-and-swapping-loggers) |
-| Anything else that used to compile | A rename or removal between releases. | Check the delta table. | [What changed from rc.108 to rc.115](../#what-changed-from-rc-108-to-rc-115) |
+| Anything else that used to compile | A rename or removal between releases. | Check the delta table. | [What changed from rc.108 to rc.116](../#what-changed-from-rc-108-to-rc-116) |
 
 ## “My Effect never ran”
 
@@ -212,9 +221,9 @@ Run with `Effect.runPromise`, `runSync`, or a platform `runMain` only at an edge
 
 The opposite mistake looks the same from the outside: **work that ran too early.** `Effect.succeed(Date.now())` and `Effect.fail(buildError())` evaluate their argument while the program is being built, so every run and every retry replays one captured value. Use `Effect.sync` or `Effect.suspend`, and pin the behavior with a laziness test — build the effect, assert the spy count is `0`, run it, assert `1` ([Prove laziness and the static contract](../tooling/testing-dev-tooling#prove-laziness-and-the-static-contract)).
 
-If a branch appears skipped, inspect the returned structure. `Effect.when(self, condition)` takes an `Effect<boolean>` — not a plain boolean and not a thunk — and returns `Effect<Option<A>>`, with `Option.none()` for the skipped case; `rc.115` has no `Effect.unless`, `Effect.if`, `Effect.whenEffect`, or `Effect.unlessEffect`, so negate the condition or use an ordinary `if` inside `Effect.gen` ([Branching and looping](../foundations/core-runtime-execution#9-branching-and-looping)). `Option`/`Result` combinators can select another branch, and `Effect.as` changes only the success value—it does not execute a discarded Effect hidden in a callback. Passing a function by name can also skip or corrupt a call: `Effect.forEach(ids, loadBand)` invokes `loadBand(id, index)`.
+If a branch appears skipped, inspect the returned structure. `Effect.when(self, condition)` takes an `Effect<boolean>` — not a plain boolean and not a thunk — and returns `Effect<Option<A>>`, with `Option.none()` for the skipped case; `rc.116` has no `Effect.unless`, `Effect.if`, `Effect.whenEffect`, or `Effect.unlessEffect`, so negate the condition or use an ordinary `if` inside `Effect.gen` ([Branching and looping](../foundations/core-runtime-execution#9-branching-and-looping)). `Option`/`Result` combinators can select another branch, and `Effect.as` changes only the success value—it does not execute a discarded Effect hidden in a callback. Passing a function by name can also skip or corrupt a call: `Effect.forEach(ids, loadBand)` invokes `loadBand(id, index)`.
 
-Official guide: [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; in `rc.115` it is `Fiber<A, E>`).
+Official guide: [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; in `rc.116` it is `Fiber<A, E>`).
 
 ## A service is still present in R
 
@@ -366,11 +375,11 @@ The deadlocking order is “join, then adjust”: execution can never reach the 
 
 Prefer `forkChild`, `forkScoped`, `FiberSet`, `FiberMap`, or another owner-aware supervisor. `forkDetach` deliberately escapes the parent and should be rare; detached work can keep resources or business work alive beyond the request that created it. Name the owner first and the fork function follows ([Choosing a fork by its owner](../foundations/core-runtime-execution#choosing-a-fork-by-its-owner)); work that must outlive its request is *transferred* to a named, Layer-owned, bounded supervisor, never detached.
 
-Official guide: [Fibers](https://effect.website/docs/v4/concurrency/fibers) (its prose calls `Effect.yieldNow()`; in `rc.115` `Effect.yieldNow` is a value, and the guide does not mention the `startImmediately` fork option).
+Official guide: [Fibers](https://effect.website/docs/v4/concurrency/fibers) (its prose calls `Effect.yieldNow()`; in `rc.116` `Effect.yieldNow` is a value, and the guide does not mention the `startImmediately` fork option).
 
 ## Unbounded by default
 
-A buffer without a capacity is a memory leak waiting for load, a capacity without an overflow policy is an undecided design, and a loss nobody counts is invisible. Several `rc.115` defaults are unbounded, so "we never configured it" usually means "it has no limit". Audit these first when memory grows or a dependency is flooded:
+A buffer without a capacity is a memory leak waiting for load, a capacity without an overflow policy is an undecided design, and a loss nobody counts is invisible. Several `rc.116` defaults are unbounded, so "we never configured it" usually means "it has no limit". Audit these first when memory grows or a dependency is flooded:
 
 | Default | What is unbounded | Bound it with | Details |
 | --- | --- | --- | --- |
@@ -466,7 +475,7 @@ Keep platform imports at composition roots. Domain services should depend on the
 
 ## Incompatible unstable package versions
 
-All `effect` and `@effect/*` packages in this handbook target `4.0.0-rc.115`. Unstable packages share internal symbols, Schema types, Context tags, and peer dependencies; mixing release lines can produce huge structural errors or values that look identical but are not compatible.
+All `effect` and `@effect/*` packages in this handbook target `4.0.0-rc.116`. Unstable packages share internal symbols, Schema types, Context tags, and peer dependencies; mixing release lines can produce huge structural errors or values that look identical but are not compatible.
 
 Inspect the installed graph rather than only `package.json`:
 
@@ -480,11 +489,11 @@ Pin exact versions—no caret or tilde—for `effect` and every `@effect/*` runt
 
 Mixed versions fail at run time as well as in the type checker. Between `rc.108` and `rc.115` the internal type-id and service-key strings were aligned with module paths (for example `"~effect/data/Option"` became `"~effect/Option"`), so a guard or a `Context` lookup from one copy of `effect` does not recognize values made by another.
 
-**Version skew between processes is a wire problem, not a type problem.** `rc.113` removed MessagePack: `SchemaBinary` is now the binary format for RPC, the default cluster runner transport, and EventLog journals and remote messages. An `rc.108` peer and an `rc.115` peer cannot share the default binary transport, and a pre-`rc.113` EventLog journal is not readable by the new codec. Upgrade both peers of a binary link together and rehearse mixed-version rollouts in staging; the full list of changes that alter bytes on the wire or on disk is in [What changed from rc.108 to rc.115](../#what-changed-from-rc-108-to-rc-115).
+**Version skew between processes is a wire problem, not a type problem.** `rc.113` removed MessagePack: `SchemaBinary` is now the binary format for RPC, the default cluster runner transport, and EventLog journals and remote messages. An `rc.108` peer and an `rc.116` peer cannot share the default binary transport, and a pre-`rc.113` EventLog journal is not readable by the new codec. Upgrade both peers of a binary link together and rehearse mixed-version rollouts in staging; the full list of changes that alter bytes on the wire or on disk is in [What changed from rc.108 to rc.116](../#what-changed-from-rc-108-to-rc-116).
 
 ## Generated-code anti-pattern index
 
-This is the list to check generated or pasted code against. Each row names the shape to search for, why it is wrong on `rc.115`, the preferred shape, and the section that owns the explanation. For a reviewer's yes/no version of the same material, use the [Review Checklists](../reference/review-checklists).
+This is the list to check generated or pasted code against. Each row names the shape to search for, why it is wrong on `rc.116`, the preferred shape, and the section that owns the explanation. For a reviewer's yes/no version of the same material, use the [Review Checklists](../reference/review-checklists).
 
 ### Anti-patterns: construction and running
 
@@ -500,7 +509,7 @@ This is the list to check generated or pasted code against. Each row names the s
 | `Effect.runSync(parse(x))` while building a description | Construction is no longer inert, and `runSync` throws at the first asynchronous boundary. | Compose the effect; run once at the edge. | [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge) |
 | `Effect.map(() => someEffect)`; an Effect built in a callback and discarded | Produces a nested or dropped Effect that never runs. | `Effect.flatMap`, `Effect.andThen`, or `yield*`. | [“My Effect never ran”](#my-effect-never-ran) |
 | Point-free callbacks: `Effect.forEach(ids, loadBand)`, `Effect.map(f)` with an overloaded `f`, `flow(...)` | `forEach` calls `f(element, index)`, so an optional second parameter silently receives the index; overloads and generics can be erased. | Write the lambda: `(id) => loadBand(id)`. | Official guide: [Guidelines](https://effect.website/docs/v4/code-style/guidelines) |
-| `Effect.if`, `Effect.unless`, `Effect.whenEffect`, `Effect.loop`, `Effect.iterate`, `Effect.zipLeft`, `Effect.zipRight` | Not exported in `rc.115`. | Plain `if` / `for` in `Effect.gen`; `Effect.when(conditionEffect)`; `Effect.andThen` / `Effect.tap`. | [Branching and looping](../foundations/core-runtime-execution#9-branching-and-looping) |
+| `Effect.if`, `Effect.unless`, `Effect.whenEffect`, `Effect.loop`, `Effect.iterate`, `Effect.zipLeft`, `Effect.zipRight` | Not exported in `rc.116`. | Plain `if` / `for` in `Effect.gen`; `Effect.when(conditionEffect)`; `Effect.andThen` / `Effect.tap`. | [Branching and looping](../foundations/core-runtime-execution#9-branching-and-looping) |
 | `Date.now()`, `new Date()`, `Math.random()` in domain work | Bypasses Clock/Random services and deterministic tests; direct workflow use also breaks replay determinism. | Effect Clock/DateTime/Random APIs; TestClock and seeded services. Put nondeterminism in a Workflow Activity. | [Clock](../foundations/core-runtime-execution#clock), [Random](../concurrency/scheduling-time#random) |
 | `process.exit()` in application code | Skips finalizers and the drain. | Let the platform `runMain` translate the `Exit` into an exit code. | [Signals, exit codes, and the time budget](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#signals-exit-codes-and-the-time-budget) |
 
@@ -621,7 +630,7 @@ This is the list to check generated or pasted code against. Each row names the s
 | An Effect returned from plain `it(...)` | Vitest never runs it: a green test that proves nothing. | `it.effect`. | [When green means nothing](../deep-dives/testing-an-effect-application#when-green-means-nothing) |
 | Tests that assert elapsed milliseconds or pretty-printed failure strings | Flaky, and brittle across releases. | `TestClock` timelines; structural assertions on `Exit`, `_tag`, and fields. | [Assert typed failures as data](../deep-dives/testing-an-effect-application#assert-typed-failures-as-data) |
 | `Effect.yieldNow` sprinkled to order fibers | Turn counting passes until something adds a turn. | A handshake per phase. | [Synchronize on phases, not on turns](../deep-dives/testing-an-effect-application#synchronize-on-phases-not-on-turns) |
-| Always-succeeding fakes; fake-only tests used to claim socket, signal, or filesystem behavior | The failure path and the adapter are never exercised. | Fakes honor the contract; adapters get a real fixture. | [In-memory test runtimes shipped with Effect](../tooling/testing-dev-tooling#in-memory-test-runtimes-shipped-with-effect) |
+| Fakes that never fail; socket, signal, or filesystem behavior asserted only against a fake | The failure path and the adapter are never exercised. | Fakes honor the contract; adapters get a real fixture. | [In-memory test runtimes shipped with Effect](../tooling/testing-dev-tooling#in-memory-test-runtimes-shipped-with-effect) |
 | An identity `withTransaction` fake | Commits nothing and rolls back nothing, so atomicity is untested. | A repository contract suite against a real database. | [Verification levels](../interfaces/sql#verification-levels) |
 | Using `declare const` in a supposedly runnable example | It type-checks only because the actual dependency is missing. | Label it contextual, or supply a complete fixture/runnable program. | — |
 
@@ -635,7 +644,6 @@ This is the list to check generated or pasted code against. Each row names the s
 | Treating a lock or lease as a fence | A stalled owner keeps running after losing the claim. | The sink rejects stale owners. | [A lease is not a fence](../deep-dives/durability-and-distribution-ladder#a-lease-is-not-a-fence) |
 | Taking actor, tenant, or approval from model output | Model output is untrusted input. | Trusted request context only. | [Production rules for model calls](../systems/ai-language-models#production-rules-for-model-calls) |
 | An agent loop with no turn limit, or tool handlers with default concurrency | Unbounded cost and load. | A bounded loop with a typed exhaustion error; a numeric `concurrency`. | [Bound every agentic loop](../deep-dives/building-a-production-ai-capability#bound-every-agentic-loop) |
-| `failureMode: "return"` on a tool exposed over MCP | Failures are delivered as ordinary content with `isError: false`. | `failureMode: "error"`. | [McpServer](../systems/ai-language-models#mcpserver) |
 
 ## What to capture in a bug report
 

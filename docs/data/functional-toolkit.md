@@ -2,7 +2,7 @@
 
 Effect ships a full standard library — structural equality, comparators, branded types, pattern matching, optics, arbitrary-precision decimals, and more — all composable with each other and the rest of the ecosystem.
 
-> **Official guides:** [Pattern Matching](https://effect.website/docs/v4/code-style/pattern-matching), [Branded Types](https://effect.website/docs/v4/code-style/branded-types), [Equal](https://effect.website/docs/v4/trait/equal), [Hash](https://effect.website/docs/v4/trait/hash), [Equivalence](https://effect.website/docs/v4/behaviour/equivalence), [Order](https://effect.website/docs/v4/behaviour/order), [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal), [Dual APIs](https://effect.website/docs/v4/code-style/dual); each is linked again, with any `rc.115` caveat, in the section it belongs to. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Pattern Matching](https://effect.website/docs/v4/code-style/pattern-matching), [Branded Types](https://effect.website/docs/v4/code-style/branded-types), [Equal](https://effect.website/docs/v4/trait/equal), [Hash](https://effect.website/docs/v4/trait/hash), [Equivalence](https://effect.website/docs/v4/behaviour/equivalence), [Order](https://effect.website/docs/v4/behaviour/order), [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal), [Dual APIs](https://effect.website/docs/v4/code-style/dual); each is linked again, with any `rc.116` caveat, in the section it belongs to. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Match
 
@@ -502,7 +502,7 @@ Failures surface as `Brand.BrandError`: a tagged, error-like value that wraps a 
 
 Use to prevent primitive confusion — mixing `EmployeeId` with `DepartmentId`, salary cents with share counts, validated with raw strings — without wrapper classes at runtime.
 
-Official guides: [Branded Types](https://effect.website/docs/v4/code-style/branded-types) (its illustrative `Brand` declaration uses a symbol key; `rc.115` brand keys are strings), [Schema branded types](https://effect.website/docs/v4/schema/advanced-usage).
+Official guides: [Branded Types](https://effect.website/docs/v4/code-style/branded-types) (its illustrative `Brand` declaration uses a symbol key; `rc.116` brand keys are strings), [Schema branded types](https://effect.website/docs/v4/schema/advanced-usage).
 
 ## Optic
 
@@ -755,7 +755,7 @@ Key APIs: make / fromString / fromStringUnsafe / fromBigInt / fromNumber / fromN
 
 Use for any financial or compensation calculation where floating-point rounding is unacceptable.
 
-Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are stale names; `rc.115` uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
+Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are stale names; `rc.116` uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
 
 ## ByteSize
 
@@ -763,7 +763,7 @@ Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecima
 
 An exact, non-negative, integral byte count: a branded `bigint`, so a 9 EiB object store and a 12-byte header use the same type without precision loss. It replaced the ad-hoc `FileSystem.Size` / `FileSystem.MiB` helpers and is now the size vocabulary across the ecosystem — `FileSystem` `File.Info.size`, HTTP body limits, and `Config.ByteSize`.
 
-**Mental model.** Decimal units are powers of 1,000 (`kB`, `MB`, `GB`, …); binary units are powers of 1,024 (`KiB`, `MiB`, `GiB`, …). The two families have separate constructors so "10 MB" never silently means 10 MiB. A value is always a whole number of bytes: `"1.5 KiB"` parses (1,536 bytes) but `"1.5 B"` is rejected.
+**Mental model.** Decimal units are powers of 1,000 (`kB`, `MB`, `GB`, …); binary units are powers of 1,024 (`KiB`, `MiB`, `GiB`, …). The two families have separate constructors so "10 MB" never silently means 10 MiB. A value is always a whole number of bytes. Two doors lead in, and since rc.116 they differ: `ByteSize.Input` (what `fromInput`, `Stream.limitBytes`, and other size options accept) takes a `ByteSize`, a `bigint`, a `number` checked at runtime, or a string literal that is a whole number followed by a unit (`"64 KiB"`, `"64KiB"`, `"10 megabytes"`), and a malformed or fractional literal such as `"1.5 KiB"` is a compile error. Text from outside the program goes through `ByteSize.fromString` (an `Option`) or `fromStringUnsafe` (throws), which also accept decimal fractions and surrounding whitespace: `"1.5 KiB"` parses to 1,536 bytes, but `"1.5 B"` is rejected because it is not a whole byte.
 
 ```ts
 import { ByteSize, Config, Option } from "effect"
@@ -772,10 +772,16 @@ import { ByteSize, Config, Option } from "effect"
 const uploadLimit = ByteSize.mebibytes(25) // 25 × 1024²
 const diskQuota = ByteSize.gigabytes(500)  // 500 × 1000³
 
-// ── Parsing untrusted text: Option, or the throwing `fromInputUnsafe` ────────
+// ── Typed input: string literals are checked at compile time ─────────────────
 ByteSize.fromInput("64 KiB")  // Option.some(65536n)
-ByteSize.fromInput("1.5 B")   // Option.none() — not an integral byte count
-ByteSize.fromInput(-1)        // Option.none() — sizes are never negative
+ByteSize.fromInput(-1)        // Option.none() — numbers are checked at runtime
+// ByteSize.fromInput("1.5 KiB") does not compile: literals need a whole quantity
+
+// ── External text: fromString (Option) or the throwing fromStringUnsafe ──────
+declare const quotaFromAdminForm: string
+ByteSize.fromString(quotaFromAdminForm) // Option<ByteSize>
+ByteSize.fromString("1.5 KiB")          // Option.some(1536n) — fractions allowed
+ByteSize.fromString("1.5 B")            // Option.none() — not an integral byte count
 
 // ── Exact arithmetic; scalar operations are partial, so they return Option ───
 const perReviewer = ByteSize.divide(diskQuota, 40)          // Option<ByteSize>, remainder discarded
@@ -792,7 +798,7 @@ ByteSize.format(uploadLimit, { system: "decimal" })          // "26.21 MB"  (pre
 ByteSize.format(uploadLimit, { unit: "KiB", precision: 0 })  // "25600 KiB"
 ByteSize.toUnit(uploadLimit, "MiB")                          // 25 — an approximate `number`
 
-// ── Configuration: accept "25 MiB" from the environment ──────────────────────
+// ── Configuration: accept "25 MiB" (or "1.5 GiB") from the environment ────────
 const maxUpload = Config.ByteSize("MAX_UPLOAD").pipe(Config.withDefault(uploadLimit))
 
 const _ = [perReviewer, doubled, Option.isSome(perReviewer), maxUpload]
@@ -941,7 +947,7 @@ pipe(120_000, applyMerit(0.04))       // 124_800
 
 Use for `pipe` or `flow` (everyday use), or when building dual-mode utility functions for your own library.
 
-Official guides: [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it states that `Option` and `Result` can be yielded inside `Effect.gen`; on `rc.115` they cannot — convert with `Effect.fromOption` / `Effect.fromResult`), [Dual APIs](https://effect.website/docs/v4/code-style/dual).
+Official guides: [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it states that `Option` and `Result` can be yielded inside `Effect.gen`; on `rc.116` they cannot — convert with `Effect.fromOption` / `Effect.fromResult`), [Dual APIs](https://effect.website/docs/v4/code-style/dual).
 
 ## Number
 

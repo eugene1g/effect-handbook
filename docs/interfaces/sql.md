@@ -2,7 +2,7 @@
 
 > **Note:** The query API, schema adapters, resolvers, models, and migrator live in the stable-but-`unstable/`-namespaced core at `effect/unstable/sql/*`. They are database-agnostic. A driver package like `@effect/sql-pg` contributes one thing: a `Layer` producing the `SqlClient` service wired to a real connection pool and the correct dialect compiler. Write your service against `SqlClient`; swap the driver layer to change databases.
 
-> **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
+> **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
 
 ## Where SQL belongs in an application
 
@@ -336,7 +336,7 @@ const makeEmployeeQueries = Effect.gen(function*() {
 | A row that does not decode | `SchemaError` | Corrupt or incompatible stored data. Not "not found". |
 | Statement or connection fault | `SqlError` | Infrastructure. Not "not found" either. |
 
-Seed a deliberately malformed (or migration-old) row in a repository test to prove that decoding is active.
+To show that row decoding really runs, have one repository test insert a row the current schema must reject, such as one in a pre-migration shape.
 
 **Reach for it when** you want queries to return real domain types with validation at the boundary instead of hand-casting `unknown` rows.
 
@@ -395,7 +395,7 @@ const program = Effect.gen(function*() {
 
 **Reach for it when** you'd otherwise fire a query per item in a loop or per field in a GraphQL/RPC resolver.
 
-Official guide: [Batching](https://effect.website/docs/v4/batching) (it enables batching with an `Effect.forEach` `batching` option that `rc.115` does not have — here requests batch when they are issued concurrently against the same resolver). The request/resolver model itself is covered in [Caching & Batching](../operations/caching-batching#requestresolver).
+Official guide: [Batching](https://effect.website/docs/v4/batching) (it enables batching with an `Effect.forEach` `batching` option that `rc.116` does not have — here requests batch when they are issued concurrently against the same resolver). The request/resolver model itself is covered in [Caching & Batching](../operations/caching-batching#requestresolver).
 
 ## SqlStream
 
@@ -460,7 +460,7 @@ const grantEquity = Effect.fn("grantEquity")(
 
 Reasons marked retryable: `ConnectionError`, `DeadlockError`, `SerializationError`, `LockTimeoutError`, `StatementTimeoutError`. Not retryable: `AuthenticationError`, `AuthorizationError`, `SqlSyntaxError`, `UniqueViolation` (carries the violated `constraint`), `ConstraintError`, `UnknownError`. Guards `isSqlError` / `isSqlErrorReason` and the SQLite classifier `classifySqliteError` are included. `ResultLengthMismatch` lives here too (raised by `SqlResolver.ordered`).
 
-**Match the constraint, not just the tag.** A primary-key collision is a `UniqueViolation` too (`equity_grants_pkey` on the table above), so translating every `UniqueViolation` into one domain conflict misreports unrelated bugs. Never map connectivity, authentication, timeout, syntax, or decode failures to not-found or conflict. Retrying the insert above is safe only because the unique index makes it idempotent: after a `ConnectionError` the first attempt may have committed, and the retry then reports the conflict instead of writing twice.
+**Match the constraint, not just the tag.** A primary-key collision is a `UniqueViolation` too (`equity_grants_pkey` on the table above), so translating every `UniqueViolation` into one domain conflict misreports unrelated bugs. A lost connection, a rejected login, a timeout, a SQL syntax error, or an undecodable row is an infrastructure failure, never a "not found" or a "conflict". Retrying the insert above is safe only because the unique index makes it idempotent: after a `ConnectionError` the first attempt may have committed, and the retry then reports the conflict instead of writing twice.
 
 ### Normalizing errors at a repository boundary
 
@@ -696,7 +696,7 @@ Mandatory contract cases: valid and malformed rows; zero / one / many cardinalit
 
 Each driver is a thin satellite package contributing a `Layer` producing `SqlClient` wired to a real connection and the correct dialect compiler. All expose `layer(config)` and `layerConfig(Config.Wrap<...>)`, and most ship a matching `*Migrator`.
 
-- **pkg @effect/sql-pg** — PostgreSQL through Effect's **native wire-protocol client** (since `rc.113` there is no `pg`, `pg-pool`, or `pg-types` dependency). Dialect `pg` with `$1` placeholders and `RETURNING`. The native stack handles connection setup, binary codecs, named prepared statements, optional pipelining (`multiplex`), streaming, cancellation, and notifications. `PgClient.layer` / `layerConfig` are unchanged; `make(PgPoolConfig)` builds a pool and `makeClient(PgClientConfig)` a single connection — the old `fromPool`, `fromClient`, and `makeWith` constructors were removed. `PgMigrator` still shells out to `pg_dump` for schema dumps. **Upgrading is a behavior change, not just a dependency swap** — see [Upgrading `@effect/sql-pg` to the native client](#upgrading-effect-sql-pg-to-the-native-client).
+- **pkg @effect/sql-pg** — PostgreSQL through Effect's **native wire-protocol client** (since `rc.113` there is no `pg`, `pg-pool`, or `pg-types` dependency). Dialect `pg` with `$1` placeholders and `RETURNING`. The native stack handles connection setup, binary codecs, named prepared statements, optional pipelining (`multiplex`), streaming, cancellation, and notifications. `PgClient.layer` / `layerConfig` are unchanged; `make(PgPoolConfig)` builds a pool and `makeClient(PgClientConfig)` a single connection — the old `fromPool`, `fromClient`, and `makeWith` constructors were removed. `PgMigrator` still shells out to `pg_dump` for schema dumps. **Upgrading is a behavior change, not just a dependency swap** — see [Upgrading `@effect/sql-pg` to the native client](#upgrading-effect-sql-pg-to-the-native-client), and for `rc.116`'s `Date` timestamps, text-decoded enums, and failing listener queues, [Dates, enums, and LISTEN queues](#dates-enums-and-listen-queues-on-the-native-client). Session defaults, TLS mode, and rotating passwords are configured per physical connection ([Session settings at connect time](#session-settings-at-connect-time)).
 
 - **pkg @effect/sql-mysql2** — MySQL / MariaDB via the `mysql2` driver. `?` placeholders; inserts/updates use the `LAST_INSERT_ID` + reselect path. Set `disablePreparedStatements: true` to use mysql2's text protocol globally, notably for proxies such as Cloudflare Hyperdrive that do not support `COM_STMT_PREPARE`.
 
@@ -712,13 +712,48 @@ Each driver is a thin satellite package contributing a `Layer` producing `SqlCli
 
 - **pkg @effect/sql-sqlite-react-native** — SQLite on React Native (op-sqlite / expo). On-device persistence with the full Effect SQL surface.
 
-- **pkg @effect/sql-sqlite-do** — SQLite backed by a Cloudflare Durable Object's storage — per-object strongly-consistent SQL at the edge.
+- **pkg @effect/sql-sqlite-do** — SQLite backed by a Cloudflare Durable Object's storage — per-object strongly-consistent SQL at the edge. Since `rc.116`, nested `withTransaction` calls roll back independently of their parent, a failure to complete the native storage transaction surfaces as `SqlError`, and storage-backed transactions no longer yield to the scheduler automatically (a queued fiber could deadlock the Durable Object's input gate). Explicit asynchronous work inside a transaction is still unsupported.
 
-- **pkg @effect/sql-clickhouse** — ClickHouse for analytics/OLAP. `clickhouse` dialect tuned for columnar, append-heavy workloads.
+- **pkg @effect/sql-clickhouse** — ClickHouse for analytics/OLAP. `clickhouse` dialect tuned for columnar, append-heavy workloads. Since `rc.116` its compiler reports the `clickhouse` dialect, so `sql.onDialect` / `onDialectOrElse` fragments pick the ClickHouse branch, and connection validation uses ClickHouse's `ping()` endpoint, with failed health checks as `SqlError`.
 
 - **pkg @effect/sql-libsql** — libSQL / Turso — SQLite-compatible with remote HTTP/edge protocol and embedded replicas.
 
 - **pkg @effect/sql-pglite** — PGlite: Postgres compiled to WASM. Genuine pg dialect that runs in-process or in the browser — great for tests and local dev. Its extended client adds `notify` and a scoped `listen(channel)` — an `Effect` yielding a `Queue.Dequeue<string>` of payloads, not a `Stream` — plus `dumpDataDir(compression?)` for portable snapshots, and `refreshArrayTypes` after extensions or schema changes introduce array types.
+
+### Session settings at connect time
+
+**Put per-session defaults in the connection config, not in a `SET` statement.** A `SET` issued through `sql` changes one pooled connection and disappears when the pool replaces it. From `rc.116`, `PgClient.layer` (and `PgConnection.make` / `PgPool.make`) send session defaults in the startup packet of **every physical connection**: the first one, each connection the pool adds, and each replacement after `idleTimeout`, `connectionTTL`, or a failure. `RESET ALL` returns a session to these defaults.
+
+| Field | Shape | Behavior |
+| --- | --- | --- |
+| `startupParameters` | `Record<string, string>` of PostgreSQL settings | Names are lowercased. `user`, `database`, `replication`, and `options` are reserved (use `username`, `database`, and `startupOptions`). `client_encoding` accepts only `UTF8` / `UTF-8`. PostgreSQL validates every other name and value when the connection opens. |
+| `startupOptions` | one opaque string, sent as the packet's `options` field, e.g. `"-c lock_timeout=2000"` | Overrides the URL's `?options=` query parameter (supported again in `rc.116`), even when the explicit value is empty. It is forwarded without parsing, so do not set the same setting here and in `startupParameters`. |
+| `applicationName` | `string` | The startup `application_name` is the first of: `applicationName`, `startupParameters.application_name`, the URL's `application_name`, `"@effect/sql-pg"`. It is never read out of `startupOptions`. |
+| `password` | `Redacted` or `Effect<Redacted>` with no error and no requirements | An Effect runs for **each connection attempt** and for each `PgMigrator` schema dump, which suits short-lived cloud IAM tokens. Handle its failures inside the Effect; `Effect.orDie` turns them into defects, not retryable `SqlError`s. |
+
+```ts
+import { PgClient } from "@effect/sql-pg"
+import { Effect, Redacted } from "effect"
+
+// Mints a short-lived database token (for example from a cloud IAM signer).
+declare const signDatabaseToken: Effect.Effect<string>
+
+export const CompDatabase = PgClient.layer({
+  url: Redacted.make("postgres://comp_api@db.internal:5432/comp?sslmode=require"),
+  password: Effect.map(signDatabaseToken, (token) => Redacted.make(token)), // fresh per connection
+  applicationName: "comp-api", // shows up in pg_stat_activity next to each payroll query
+  startupParameters: {
+    TimeZone: "UTC", // `Date` parameters written to `timestamp` columns keep their UTC fields
+    statement_timeout: "30s", // a runaway comp-band report cannot hold a connection forever
+    search_path: "comp, public"
+  },
+  startupOptions: "-c lock_timeout=2000" // opaque; wins over a URL `options` parameter
+})
+```
+
+The driver checks the fields it owns (empty names, NUL bytes, reserved names, a non-UTF-8 `client_encoding`) before it opens a socket. The pool is lazy, though, so the layer still builds, and the first query fails with a `SqlError` whose reason is `ConnectionError` (probed on `rc.116`). That reason reports `isRetryable: true`, so a retry loop around the query spins on a configuration typo; run one query in a readiness check, and let a bounded schedule end any retry.
+
+TLS follows the URL's `sslmode` unless `ssl` is set explicitly. Since `rc.116`, `sslmode=prefer` and `sslmode=allow` both try TLS first and fall back to plaintext only when the server declines the `SSLRequest`; handshake and certificate failures stay fatal. An attacker on the path can make the server appear to decline, so production connections should use `sslmode=require` or `ssl: true`.
 
 ### Upgrading @effect/sql-pg to the native client
 
@@ -726,16 +761,77 @@ From `rc.113`, `@effect/sql-pg` speaks the PostgreSQL wire protocol itself inste
 
 | What changed | Before (`pg`) | Native client | What to do |
 | --- | --- | --- | --- |
-| Result decoding (binary codecs) | `int8` → string, `date` → `Date`, `timestamp`/`timestamptz` → `Date`, `bytea` → `Buffer` | `int8` → `bigint`, `date` → string, `timestamp`/`timestamptz` → Unix epoch **milliseconds** (`number`), `bytea` and unknown OIDs → `Uint8Array`, `inet` → `IpInterface`, `cidr` → `IpNetwork` | Re-check every row Schema over these column types: a `Schema.Number` over a `bigint` column, or a `Schema.Date` over a timestamp column, no longer matches the encoded value. |
+| Result decoding (binary codecs) | `int8` → string, `date` → `Date`, `timestamp`/`timestamptz` → `Date`, `bytea` → `Buffer` | `int8` → `bigint`, `date` → string, `timestamp`/`timestamptz` → `Date` (epoch-millisecond `number`s from `rc.113` through `rc.115`), `bytea` → `Uint8Array`, unregistered OIDs → UTF-8 text (raw `Uint8Array` before `rc.116`), `inet` → `IpInterface`, `cidr` → `IpNetwork` | Re-check every row Schema over these column types: a `Schema.Number` over an `int8` column, or a `Schema.Date` over a `date` column, no longer matches the encoded value. See [the `rc.116` changes](#dates-enums-and-listen-queues-on-the-native-client). |
 | JSON parameters | a plain object parameter was inferred as JSON | not inferred | Wrap the value: `sql.json(value)`. |
 | Statements per query string | multi-statement strings worked with simple queries | exactly **one** statement per string — the extended protocol rejects more, even through `stmt.unprepared` | Split migrations and seed scripts into separate statements. |
 | Prepared statements | unnamed | **named prepared statements on by default**, cached per connection (`preparedStatementCacheSize`, default 100) | Behind a pooler that cannot keep named statements between queries (PgBouncer in transaction mode), set `prepare: false`. `Statement.unprepared` / `valuesUnprepared` use unnamed extended queries without touching the cache. |
-| `listen(channel)` | a `Stream` of payload strings | a **scoped** `Effect` yielding `Queue.Dequeue<PgConnection.Notification>` (`{ processId, channel, payload }`), returned only after PostgreSQL confirms `LISTEN` | Take from the queue inside a scope. Because acquisition completes after confirmation, a notification sent right after it returns cannot be missed. The listener holds a connection until the scope closes. |
-| Custom types | `pg.CustomTypesConfig` | `PgClientConfig.types: PgTypes.Registry` | Port custom parsers to the registry. |
+| `listen(channel)` | a `Stream` of payload strings | a **scoped** `Effect` yielding `Queue.Dequeue<PgConnection.Notification, SqlError>` (`{ processId, channel, payload }`), returned only after PostgreSQL confirms `LISTEN` | Take from the queue inside a scope. Because acquisition completes after confirmation, a notification sent right after it returns cannot be missed. The listener holds a connection until the scope closes, and a lost connection fails the queue with its `SqlError`. |
+| Custom types | `pg.CustomTypesConfig` | `PgClientConfig.types: PgTypes.Registry` (from `PgTypes.makeRegistry()`), or the process-wide `PgTypes.register` | Port custom parsers to the registry. Array codecs come from `register(elementOid, codec, { arrayOid })` on a registry. |
 | Raw results | `executeRaw` → `pg.Result` | `executeRaw` → `PgConnection.Result` | Adjust any code that inspects raw result metadata. |
 | Constructors | `fromPool`, `fromClient`, `makeWith` | removed | `PgClient.make(poolConfig)` for a pool, `PgClient.makeClient(config)` for one connection. |
 
 Inferred parameters stay permissive: strings bind untyped so the server derives the type from the statement, and safe integers beyond the `int4` range bind as `int8`. New tuning knobs include `multiplex` / `multiplexConcurrency` (pipelining several statements over one connection), `maxMessageSize`, and the pool options `minConnections`, `maxConnections`, `idleTimeout`, and `connectionTTL`. Pass `Statement.SpanPropagationEnabled` (default `false`) with `Effect.provideService` to parent driver spans under `sql.execute`.
+
+### Dates, enums, and LISTEN queues on the native client
+
+**`rc.116` changes three shapes that application code reads, so code written against `rc.113`–`rc.115` needs review.** Probed on `rc.116` through the exported `PgTypes.encode` / `decode` functions; the connection-level behavior below is from the driver source and its integration tests.
+
+| Change | `rc.113` – `rc.115` | `rc.116` | What to do |
+| --- | --- | --- | --- |
+| `timestamp` / `timestamptz` results, array elements included | epoch milliseconds (`number`); `infinity` → `Infinity` | `Date`, still millisecond precision; `infinity`, `-infinity`, and values outside the JavaScript `Date` range decode to an **invalid** `Date` | Decode rows with `Schema.Date`, `Schema.DateTimeUtcFromDate`, or `Model.DateTimeInsertFromDate` / `DateTimeUpdateFromDate` instead of `Schema.Number`, `Schema.DateTimeUtcFromMillis`, or the `*FromNumber` model fields. `Schema.Date` rejects an invalid `Date`, so a stored `infinity` now fails with `SchemaError`; map sentinels in SQL if you keep them. |
+| Unregistered OIDs: enums, extension types, other user-defined types | raw `Uint8Array` | UTF-8 text, so a scalar enum returns its label | Decode enum columns with `Schema.Literals([...])`. Enum **arrays** and binary user-defined types come back as garbled text or fail UTF-8 decoding, and a decode failure closes the connection (its pending queries fail; its transaction or `LISTEN` is lost; the pool replaces it). Register a codec for them. |
+| `listen(channel)` queue on `PgClient` and `PgConnection` | `Queue.Dequeue<Notification>`; a dropped connection interrupted consumers | `Queue.Dequeue<Notification, SqlError>`; a connection failure after `LISTEN` fails the queue with the original `SqlError`, while closing the scope still interrupts | Add `SqlError` to explicit queue and stream annotations, and wrap the listener in `Stream.retry` to register again. |
+
+Parameters change less. The `timestamp` and `timestamptz` encoders, `PgTypes.timestamp(value)` and `PgTypes.timestamptz(value)` included, accept a `Date` or epoch milliseconds; encoding an invalid `Date` fails. A `Date` interpolated with `${}` binds as `timestamptz`, so inserting it into a `timestamp` (without time zone) column converts it through the session `TimeZone`. Either run sessions in UTC ([`TimeZone: "UTC"` at connect time](#session-settings-at-connect-time)) or bind `PgTypes.timestamp(date)`, which stores the `Date`'s UTC fields whatever the session zone is. `timestamptz` round trips preserve the instant in any zone.
+
+A per-client `PgTypes.Registry` starts from the built-in codecs and overrides them without touching other clients. Use it for enum arrays, and to opt one client back into numeric timestamps while you migrate its row schemas:
+
+```ts
+import { PgClient, PgTypes } from "@effect/sql-pg"
+import { Result } from "effect"
+
+// The `raise_status` enum and its array type. Read them once with
+//   select oid, typarray from pg_type where typname = 'raise_status'
+declare const raiseStatusOid: number
+declare const raiseStatusArrayOid: number
+
+// An enum's binary form is its label, so the text codec fits.
+const label: PgTypes.Codec<string> = {
+  encode: (value) => PgTypes.encode(value, PgTypes.OID.text),
+  decode: (bytes) => Result.map(PgTypes.decode(bytes, PgTypes.OID.text, 1), String)
+}
+
+const types = PgTypes.makeRegistry()
+// raise_status[] now decodes to Array<string> instead of garbled text.
+types.register(raiseStatusOid, label, { arrayOid: raiseStatusArrayOid })
+// Temporary: timestamptz back to epoch milliseconds (arrays follow the element codec).
+types.register(PgTypes.OID.timestamptz, {
+  encode: (value: number) => PgTypes.encode(value, PgTypes.OID.timestamptz),
+  decode: (bytes) =>
+    Result.map(PgTypes.decode(bytes, PgTypes.OID.timestamptz, 1), (date) => (date as Date).getTime())
+})
+
+export const CompDatabase = PgClient.layer({ database: "comp", username: "comp_api", types })
+```
+
+`PgTypes.register(oid, codec)` does the same for every client in the process and has no `arrayOid` option.
+
+A listener that survives connection loss is a `Stream` that re-runs `listen` on failure. PostgreSQL does not replay notifications sent while nobody was listening, so treat a notification as a wake-up signal and re-read the source of truth after each (re)registration:
+
+```ts
+import { PgClient } from "@effect/sql-pg"
+import { Effect, Schedule, Stream } from "effect"
+
+// Wake the payroll outbox relay early; polling stays the safety net.
+export const outboxWakeups = Stream.unwrap(Effect.gen(function*() {
+  const pg = yield* PgClient.PgClient
+  const notifications = yield* pg.listen("payroll_outbox")
+  return Stream.fromQueue(notifications)
+})).pipe(
+  // A dropped listener connection fails the stream with its SqlError; LISTEN again.
+  Stream.retry(Schedule.exponential("500 millis"))
+)
+```
 
 > **Security note (`rc.115`):** the SQL-backed `Persistence` stores now parameterize lookup keys in `getMany`; earlier releases interpolated them into the query text. Upgrade if untrusted input can reach a persistence key.
 

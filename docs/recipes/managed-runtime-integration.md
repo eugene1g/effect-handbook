@@ -2,12 +2,12 @@
 
 Build the service graph once, call it from Promise-based callbacks many times, and dispose it when the host application stops.
 
-> **Official guides:** [Runtime](https://effect.website/docs/v4/runtime). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Runtime](https://effect.website/docs/v4/runtime). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Contract
 
 - **Classification:** Runnable example; complete `managed-runtime.ts`.
-- **Install:** `pnpm add effect@4.0.0-rc.115`
+- **Install:** `pnpm add effect@4.0.0-rc.116`
 - **Run:** Node 26+: `node managed-runtime.ts`
 - **Expected output:** `Hello, Ada`, `Hello, Grace`, then `runtime disposed`.
 - **Before the bridge:** `greet(name)` is `Effect<string, never, GreetingService>`.
@@ -15,7 +15,7 @@ Build the service graph once, call it from Promise-based callbacks many times, a
 - **Required Layers:** `GreetingLive` is captured by the ManagedRuntime.
 - **Lifetime and interruption:** the Layer is built lazily on first use and cached across calls. `await using` invokes `Symbol.asyncDispose` at block exit, closing the runtime scope and all Layer resources. A fiber returned by `runFork` still needs an ownership/cancellation policy.
 - **Cancellation:** every runner takes `{ signal }` as its second argument; aborting it interrupts that run's fiber. The minimal file below omits it because nothing here can be cancelled — a real request handler must not. [Recipe: Request Cancellation Through a Host](./request-cancellation-through-a-host) is the runnable proof.
-- **Disposal is not a drain:** `dispose()` interrupts every fiber the runtime started *while* it releases the Layer, a second `dispose()` is a no-op, and any later run dies with `ManagedRuntime disposed` (all probed on `rc.115`). Stop admitting work and wait for it first.
+- **Disposal is not a drain:** `dispose()` interrupts every fiber the runtime started *while* it releases the Layer, a second `dispose()` is a no-op, and any later run dies with `ManagedRuntime disposed` (all probed on `rc.116`). Stop admitting work and wait for it first.
 
 ## Complete file
 

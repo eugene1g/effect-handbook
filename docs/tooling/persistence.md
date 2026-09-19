@@ -171,7 +171,7 @@ const layers = Persistence.layerMemory
 - **The TTL function decides whether anything is stored.** Omitting `timeToLive` keeps entries forever; returning a zero or negative duration for an `Exit` skips the write entirely, which is how you keep failures out of the store.
 - **Stored bytes are a compatibility contract.** The `storeId`, the primary key, and the success / error schemas together define what a later release must still be able to read. After an incompatible schema change, `store.get` fails with `SchemaError` for the old entry instead of reporting a miss. Version the `storeId` (or the key) when the shape changes, and never build keys by concatenating ambiguous user strings.
 
-> **Security note (`rc.115`):** the SQL-backed stores now bind `getMany` keys as query parameters; earlier releases spliced them into the statement text. Keys come from `PrimaryKey.value(request)`, so upgrade if untrusted input can reach a `Persistable` primary key (including through `PersistedCache` or `RequestResolver.persisted`).
+> **Security note (`rc.116`):** the SQL-backed stores now bind `getMany` keys as query parameters; earlier releases spliced them into the statement text. Keys come from `PrimaryKey.value(request)`, so upgrade if untrusted input can reach a `Persistable` primary key (including through `PersistedCache` or `RequestResolver.persisted`).
 
 **Reach for it when** you want cross-restart memoization for expensive effectful computations and need the full typed `Exit` (success or failure) to survive a process restart.
 

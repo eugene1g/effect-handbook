@@ -9,6 +9,7 @@ import {
   Duration,
   Effect,
   ExecutionPlan,
+  Filter,
   Formatter,
   JsonPatch,
   Layer,
@@ -107,11 +108,26 @@ assert.equal(ByteSize.toBigInt(probeUpload), 26_214_400n)
 assert.equal(ByteSize.format(probeUpload), "25 MiB")
 assert.equal(ByteSize.format(probeUpload, { system: "decimal" }), "26.21 MB")
 assert.equal(ByteSize.format(probeUpload, { unit: "KiB", precision: 0 }), "25600 KiB")
-assert.deepEqual(ByteSize.fromInput("1.5 KiB"), ByteSize.fromInput(1536))
-assert.equal(ByteSize.fromInput("1.5 B")._tag, "None")
+assert.deepEqual(ByteSize.fromInput("64 KiB"), ByteSize.fromInput(65_536))
+assert.deepEqual(ByteSize.fromString("1.5 KiB"), ByteSize.fromInput(1536))
+assert.equal(ByteSize.fromString("1.5 B")._tag, "None")
 assert.equal(ByteSize.fromInput(-1)._tag, "None")
 assert.equal(ByteSize.divide(probeUpload, 0)._tag, "None")
 checked("ByteSize exact units, binary-default formatting, and partial parsing/arithmetic")
+
+// rc.116: Stream.partition yields [passes, fails]; Effect.orElseSucceed receives the error; Stream.scan seeds lazily.
+const [evens, odds] = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+  const [passes, fails] = yield* Stream.partition(
+    Stream.make(1, 2, 3, 4),
+    Filter.fromPredicate((n: number) => n % 2 === 0),
+    { capacity: 4 }
+  )
+  return yield* Effect.all([Stream.runCollect(passes), Stream.runCollect(fails)], { concurrency: 2 })
+})))
+assert.deepEqual([evens, odds], [[2, 4], [1, 3]])
+assert.equal(await Effect.runPromise(Effect.fail("stale").pipe(Effect.orElseSucceed((error) => `fallback:${error}`))), "fallback:stale")
+assert.deepEqual(await Effect.runPromise(Stream.runCollect(Stream.make(1, 2, 3).pipe(Stream.scan(() => 0, (sum, n) => sum + n)))), [0, 1, 3, 6])
+checked("Stream.partition order, Effect.orElseSucceed error argument, and lazy Stream.scan seed")
 
 const BinaryFrame = Schema.Struct({ runId: Schema.String.pipe(SchemaBinary.fieldId(1)), netPay: Schema.Finite })
 const binaryCodec = SchemaBinary.toCodec(BinaryFrame)
@@ -340,7 +356,7 @@ assert.deepEqual(layerRefResult, [1, 2])
 checked("LayerRef preload and refresh")
 
 console.log(JSON.stringify({
-  effect: "4.0.0-rc.115",
+  effect: "4.0.0-rc.116",
   nodeNativeTypeScript: true,
   checks
 }, null, 2))

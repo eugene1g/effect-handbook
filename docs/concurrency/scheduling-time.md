@@ -2,9 +2,9 @@
 
 _Effect provides a composable time stack: typed duration values, a testable clock-aware date/time system, a cron parser, an effect-native PRNG, and `Schedule`, the algebraic policy engine powering retry and repeat._
 
-> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/07_datetime) examples.
+> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/07_datetime) examples.
 
-> **Official guides:** [Built-In Schedules](https://effect.website/docs/v4/scheduling/built-in-schedules) prints the delay sequence of every constructor (its "once" heading is a stale name; the code uses `Schedule.duration`); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Built-In Schedules](https://effect.website/docs/v4/scheduling/built-in-schedules) prints the delay sequence of every constructor (its "once" heading is a stale name; the code uses `Schedule.duration`); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
 
 ## Schedule
 
@@ -97,7 +97,7 @@ const warmThenSteady = Schedule.exponential("100 millis").pipe(
 
 `upTo({ times: n })` counts **schedule recurrences**, not the initial evaluation: a retry/repeat effect can therefore run up to `n + 1` times. Schedules may also fail—for example an effectful predicate or an invalid `Schedule.cron`—and `Effect.schedule` / `scheduleFrom` expose that schedule error alongside the wrapped effect's own error.
 
-Official guide: [Schedule Combinators](https://effect.website/docs/v4/scheduling/schedule-combinators) (its `jittered(0.0, 1.0)` sentence and `whileOutput` comment are stale: in `rc.115` `Schedule.jittered` takes no range and always scales by 0.8–1.2, and the only filter is `Schedule.while`).
+Official guide: [Schedule Combinators](https://effect.website/docs/v4/scheduling/schedule-combinators) (its `jittered(0.0, 1.0)` sentence and `whileOutput` comment are stale: in `rc.116` `Schedule.jittered` takes no range and always scales by 0.8–1.2, and the only filter is `Schedule.while`).
 
 ### Filtering on the input
 
@@ -873,7 +873,7 @@ const payrollJobOnTick = runPayrollBatch.pipe(Effect.schedule(payrollCron))
 
 **Choose the runner by what a restart should do.** A nightly job driven by `Effect.repeat` runs on every deploy and crash-restart, then again at 01:00; `Effect.schedule` runs only at cron ticks. Neither catches up on ticks missed while the process was down — a job that must not be skipped needs durable scheduling such as [ClusterCron](../systems/cluster-sharding#clustercron) or a [Workflow](../systems/workflows-durable-execution). The schedule's output is a `Duration` (the computed wait), and an invalid expression fails the schedule with `Cron.CronParseError`.
 
-Official guide: [Cron](https://effect.website/docs/v4/scheduling/cron) (its prose says `Schedule.cron` outputs a `[start, end]` tuple and mentions `TestContext`; in `rc.115` the output is a `Duration` and `TestClock.layer()` is all a test needs).
+Official guide: [Cron](https://effect.website/docs/v4/scheduling/cron) (its prose says `Schedule.cron` outputs a `[start, end]` tuple and mentions `TestContext`; in `rc.116` the output is a `Duration` and `TestClock.layer()` is all a test needs).
 
 **Reach for it when** you need to parse cron expressions from configuration, check whether a scheduled job should have fired, enumerate upcoming run times for a scheduling preview UI, or drive a background job with `Schedule.cron`.
 

@@ -1,6 +1,6 @@
 # The Durability and Distribution Ladder
 
-Audited against `effect@4.0.0-rc.115` and the matching Effect repository source on 2026-09-18.
+Audited against `effect@4.0.0-rc.116` and the matching Effect repository source on 2026-09-19.
 
 An Effect application does not become durable by moving a fiber to another machine. It also does not become distributed merely because a value is in a database. Durability and distribution are separate axes:
 
@@ -9,7 +9,7 @@ An Effect application does not become durable by moving a fiber to another machi
 
 This guide follows one business operation—applying an approved compensation change—up the ladder. Each rung adds a specific guarantee and a specific operational cost. Stop at the lowest rung that meets the failure model.
 
-All workflow, persistence, event-log, and cluster APIs in this guide are unstable in `rc.115`. Pin the version and re-audit before upgrading — two of the rungs below changed their **stored or wire format** between `rc.108` and `rc.113` (event-log payloads and cluster runner traffic), which makes those upgrades deployment events rather than dependency bumps.
+All workflow, persistence, event-log, and cluster APIs in this guide are unstable in `rc.116`. Pin the version and re-audit before upgrading — two of the rungs below changed their **stored or wire format** between `rc.108` and `rc.113` (event-log payloads and cluster runner traffic), which makes those upgrades deployment events rather than dependency bumps.
 
 ## Begin with the failure boundary
 
@@ -314,7 +314,7 @@ export const Employee = Entity.make("Employee", [
 
 Entity handlers run sequentially per live instance unless a handler opts into concurrent execution. In-memory state held by an entity disappears when it is passivated or moved. Persist authoritative state elsewhere, reconstruct it on activation, or derive it from an event log. Persisted messages make delivery durable; they do not automatically make a handler's arbitrary external effects exactly once. For a volatile RPC sent with `discard: true`, success acknowledges delivery to the owning runner rather than an entity reply; delivery failures still propagate and may be retried. A persisted discard is recoverable from storage and is not coupled to the immediate notification transport result.
 
-Persisted delivery also changes what a caller sees during a rebalance. If the entity moves or is shut down before replying, the caller simply keeps waiting and receives the reply from message storage once the next owner has processed the request; if the caller's **own** runner is shutting down, the call is *interrupted* rather than failed with `EntityNotAssignedToRunner`, because the request is already durable. Do not translate that interrupt into a domain error or a retry. A volatile send has no storage behind it and still fails fast — including with `MailboxFull` when the target runner is at its `maxResidentEntities` cap (10,000 by default), a limit that delays persisted work instead of rejecting it.
+Persisted delivery also changes what a caller sees during a rebalance. If the entity moves or is shut down before replying, the caller simply keeps waiting and receives the reply from message storage once the next owner has processed the request; if the caller's **own** runner is shutting down, the call is *interrupted* rather than failed with `EntityNotAssignedToRunner`, because the request is already durable. Do not translate that interrupt into a domain error or a retry. A volatile send has no storage behind it and still fails fast — including with `MailboxFull` when the target runner is at its `maxResidentEntities` cap (10,000 by default), a limit that delays persisted work instead of rejecting it. From `rc.116` an interruptible volatile request is also tied to its caller's connection: if the calling runner disconnects, the remote handler is interrupted and its mailbox slot freed, so a lost volatile call may have stopped partway. Work that must finish regardless of the caller belongs in a persisted request.
 
 > **Upgrade warning — runner wire format:** Runner-to-runner traffic is serialized with `SchemaBinary` by default from `rc.113` (`serialization: "binary"` on `NodeClusterSocket.layer` / `NodeClusterHttp.layer` and the Bun and Deno equivalents); the previous default, MessagePack, is gone. A cluster cannot mix `rc.108`-era and `rc.113`+ runners on default settings. Either stop the cluster and start it on the new release, or pin every node to `serialization: "ndjson"` — the one format both generations offer — before and during the rollout, and rehearse that mixed pair in staging first. See [Cluster & Sharding](../systems/cluster-sharding#transport-options).
 

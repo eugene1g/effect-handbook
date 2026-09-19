@@ -6,6 +6,7 @@ import {
   Chunk,
   Context,
   DateTime,
+  Deferred,
   Duration,
   Effect,
   ExecutionPlan,
@@ -21,6 +22,7 @@ import {
   Schema,
   SchemaIssue,
   SchemaRepresentation,
+  SchemaTransformation,
   ScopedRef,
   Stream
 } from "effect"
@@ -28,6 +30,9 @@ import { McpProtocol } from "effect/unstable/ai"
 import { Arbitrary } from "effect/unstable/arbitrary"
 import { CliConfig, GlobalFlag } from "effect/unstable/cli"
 import { Ini, SchemaBinary, Toml, Yaml } from "effect/unstable/encoding"
+import { HttpClient, HttpClientResponse } from "effect/unstable/http"
+import { KeyValueStore } from "effect/unstable/persistence"
+import { Rpc, RpcClient, RpcGroup, RpcSerialization } from "effect/unstable/rpc"
 
 const checks: Array<string> = []
 const checked = (name: string) => checks.push(name)
@@ -38,6 +43,29 @@ const checked = (name: string) => checks.push(name)
 assert.equal(Schema.decodeUnknownSync(Schema.Number)(Number.POSITIVE_INFINITY), Infinity)
 assert.throws(() => Schema.decodeUnknownSync(Schema.Finite)(Number.POSITIVE_INFINITY))
 checked("Schema.Number and Schema.Finite runtime domains")
+
+const JsonDeclaration = Schema.declare(
+  (value): value is { readonly id: string } =>
+    typeof value === "object" && value !== null && "id" in value && typeof value.id === "string"
+)
+assert.deepEqual(Schema.encodeUnknownSync(Schema.toCodecJson(JsonDeclaration))({ id: "e-7" }), { id: "e-7" })
+const UrlDeclaration = Schema.declare((value): value is URL => value instanceof URL)
+assert.throws(
+  () => Schema.encodeUnknownSync(Schema.toCodecJson(UrlDeclaration))(new URL("https://example.com")),
+  /Expected JSON value/
+)
+checked("bare declarations encode JSON-native values but reject non-JSON values without a representation")
+
+const DollarsFromCents = Schema.Int.pipe(Schema.decodeTo(Schema.Finite, SchemaTransformation.transform({
+  decode: (cents) => cents / 100,
+  encode: (dollars) => Math.round(dollars * 100)
+})))
+const decodeCents = Schema.decodeUnknownSync(DollarsFromCents)
+const encodeDollars = Schema.encodeUnknownSync(DollarsFromCents)
+assert.equal(encodeDollars(decodeCents(12_345)), 12_345)
+assert.equal(encodeDollars(decodeCents(9_007_199_254_740_990)), 9_007_199_254_740_991)
+assert.equal(decodeCents(encodeDollars(1.234)), 1.23)
+checked("floating-point cents conversion loses precision within the accepted safe-integer and finite domains")
 
 const hiddenInput = Schema.decodeUnknownResult(Schema.String)(123)
 assert(Result.isFailure(hiddenInput))
@@ -354,6 +382,60 @@ const layerRefResult = await Effect.runPromise(Effect.scoped(Effect.gen(function
 })))
 assert.deepEqual(layerRefResult, [1, 2])
 checked("LayerRef preload and refresh")
+
+await Effect.runPromise(Effect.gen(function*() {
+  const store = yield* KeyValueStore.KeyValueStore
+  let callbackCalled = false
+  assert.equal(yield* store.modify("missing", () => {
+    callbackCalled = true
+    return "created"
+  }), undefined)
+  assert.equal(callbackCalled, false)
+  assert.equal(yield* store.get("missing"), undefined)
+  yield* store.set("version", "0")
+  assert.equal(yield* store.modify("version", (value) => String(Number(value) + 1)), "1")
+
+  // Model an asynchronous backend: both callers read the same snapshot before
+  // either can write. Preserve primitives, not the memory store's derived modify.
+  const { modify: _modify, modifyUint8Array: _modifyBytes, ...primitives } = store
+  const bothRead = yield* Deferred.make<void>()
+  let reads = 0
+  const asynchronousStore = KeyValueStore.make({
+    ...primitives,
+    get: (key) => Effect.gen(function*() {
+      const snapshot = yield* store.get(key)
+      if (++reads === 2) yield* Deferred.succeed(bothRead, undefined)
+      yield* Deferred.await(bothRead)
+      return snapshot
+    })
+  })
+  yield* Effect.all([
+    asynchronousStore.modify("version", (value) => String(Number(value) + 1)),
+    asynchronousStore.modify("version", (value) => String(Number(value) + 1))
+  ], { concurrency: 2 })
+  assert.equal(yield* store.get("version"), "2", "two increments from 1 lose one update")
+}).pipe(Effect.provide(KeyValueStore.layerMemory), Effect.timeout("5 seconds")))
+checked("KeyValueStore.modify skips missing keys and its derived read-modify-write is not atomic")
+
+let rpcRequestsSent = 0
+const emptyResponseClient = HttpClient.make((request) => Effect.sync(() => {
+  rpcRequestsSent++
+  return HttpClientResponse.fromWeb(request, new Response("[]", { status: 200 }))
+}))
+const rpcProtocol = RpcClient.layerProtocolHttp({ url: "http://example.test/rpc" }).pipe(
+  Layer.provide(RpcSerialization.layerJson),
+  Layer.provide(Layer.succeed(HttpClient.HttpClient, emptyResponseClient))
+)
+const rpcResult = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+  const client = yield* RpcClient.make(RpcGroup.make(Rpc.make("Ping", { success: Schema.String })))
+  return yield* Effect.result(client.Ping())
+})).pipe(Effect.provide(rpcProtocol), Effect.timeout("5 seconds")))
+assert.equal(rpcRequestsSent, 1)
+assert(Result.isFailure(rpcResult))
+assert.equal(rpcResult.failure._tag, "RpcClientError")
+assert.equal(rpcResult.failure.reason._tag, "RpcClientDefect")
+assert.equal(rpcResult.failure.reason.message, "Received empty HTTP response from RPC server")
+checked("RpcClientError can occur after sending a request and receiving an HTTP response")
 
 console.log(JSON.stringify({
   effect: "4.0.0-rc.116",

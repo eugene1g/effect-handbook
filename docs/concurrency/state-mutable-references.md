@@ -8,7 +8,7 @@ Effect provides fiber-safe shared-state types (`Ref`, `SynchronizedRef`, `Subscr
 
 `effect/Ref` — stable
 
-An atomic mutable cell exposed as Effects. A `Ref<A>` holds one value; reads, writes, and transformations are Effect values — composable with fibers, timeouts, and retries. Internally wraps a `MutableRef` (a plain JS object with a `.current` field); reads/writes are synchronous internally but presented as Effects so the fiber scheduler can interleave them correctly. Every update is atomic at the JS level: no intermediate state leaks to another fiber.
+An atomic mutable cell exposed as Effects. A `Ref<A>` holds one value; reads, writes, and transformations are Effect values — composable with fibers, timeouts, and retries. Internally wraps a `MutableRef` (a plain JS object with a `.current` field). Each pure `update` / `modify` runs synchronously without suspension, so another fiber cannot interleave its own operation inside that transition. The Effect wrapper makes the operation lazy and composable; it is not a lock around a sequence of separate calls.
 
 Key APIs: make, get, set, update, updateAndGet, modify, getAndSet, getAndUpdate, updateSome, modifySome, makeUnsafe, getUnsafe
 
@@ -291,7 +291,7 @@ Use when shared state must be subscribed to reactively: live data feeds for dash
 
 Official guide: [SubscriptionRef](https://effect.website/docs/v4/state-management/subscriptionref).
 
-> **Warning:** `Ref`, `SynchronizedRef`, and `SubscriptionRef` are *fiber-safe*. The `Mutable*` types below are plain JavaScript objects with no synchronisation primitives. Sharing a `MutableRef` across fibers is a data race. Keep the Mutable* family strictly inside a single-owner scope — an initialisation block, a single fiber, or an encapsulated algorithm — and never hand a reference to another fiber.
+> **Concurrency boundary:** JavaScript fibers do not interleave inside a synchronous, non-suspending operation. A pure `MutableRef.update` is therefore atomic with respect to other fibers, just like the synchronous transition inside `Ref.update`. A read–suspend–write sequence can lose updates with **either** type. `Mutable*` APIs are eager and do not serialize effectful protocols or protect aliased mutable values. Prefer `Ref` for lazy, composable shared-state operations, `SynchronizedRef` for effectful transitions, and encapsulated `Mutable*` values for synchronous algorithms.
 
 ## MutableRef
 
@@ -486,7 +486,7 @@ Official guide: [HashSet](https://effect.website/docs/v4/data-types/hash-set) (d
 
 ## Choosing the right state tool
 
-| Module | Updates | Fiber-safe | Reactive stream | Best for |
+| Module | Updates | Effect API | Reactive stream | Best for |
 | --- | --- | --- | --- | --- |
 | `Ref` | Pure, synchronous | Yes | No | Shared merit budget pool, counters, flags |
 | `SynchronizedRef` | Pure or effectful, serialised | Yes | No | Load-once comp band cache, HRIS refresh, state machines with async transitions |
@@ -496,4 +496,4 @@ Official guide: [HashSet](https://effect.website/docs/v4/data-types/hash-set) (d
 | `MutableHashMap` | Synchronous, in-place | No | No | Per-department raise tallies, comp band grouping, adjacency lists |
 | `MutableHashSet` | Synchronous, in-place | No | No | Visited sets for org traversal, employee ID deduplication |
 
-> **Rule of thumb:** Start with fiber-safe `Ref`; move to `SynchronizedRef` only when the update itself is effectful, to `SubscriptionRef` when consumers need a stream, and to a `Mutable*` type only inside a deliberately synchronous, single-fiber algorithm.
+> **Rule of thumb:** Start with `Ref` for shared state in an Effect program; move to `SynchronizedRef` when the update itself is effectful, to `SubscriptionRef` when consumers need a stream, and to a `Mutable*` type for an encapsulated synchronous algorithm. None of these makes an arbitrary sequence of separate reads and writes atomic.

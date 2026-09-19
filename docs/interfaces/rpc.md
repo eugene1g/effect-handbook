@@ -320,9 +320,9 @@ The transaction boundary and the post-commit side of this pattern are covered by
 
 `effect/unstable/rpc` — unstable
 
-The error a derived client raises when a call fails before the remote handler returns a declared error. Its `reason` is a union of transport failures — HTTP client errors, socket errors, worker errors — plus `RpcClientDefect` for protocol violations and decode failures (e.g. empty or malformed response).
+The error a derived client raises for a transport or protocol failure rather than a declared remote error. Its `reason` is a union of transport failures — HTTP client errors, socket errors, worker errors — plus `RpcClientDefect` for protocol violations and decode failures (e.g. empty or malformed response).
 
-**Mental model.** Two error channels: contract typed errors (e.g. `EmployeeNotFound`) are application failures, catchable by tag. `RpcClientError` is infrastructure failure — the call never made it through the pipe. Match on `error.reason._tag` to distinguish a dropped socket from a garbled frame.
+**Mental model.** Two error channels: contract typed errors (e.g. `EmployeeNotFound`) are application failures, catchable by tag. `RpcClientError` is infrastructure failure — it does **not** prove that the request was never sent or executed. A handler may commit before the connection drops or its response fails to decode, leaving the caller with an **unknown outcome**. Match on `error.reason._tag` to distinguish a dropped socket from a garbled frame, and use the [mutation retry ledger](#retried-mutations-need-a-ledger) before replaying a write.
 
 ```ts
 import { Effect } from "effect"

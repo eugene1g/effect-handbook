@@ -10,7 +10,7 @@ Pick the primitive from the guarantee you need, and read the right-hand column b
 
 | Primitive | Gives you | Does **not** give you |
 | --- | --- | --- |
-| `KeyValueStore` | Durable strings / bytes behind a swappable backend | Transactions across keys, typed values (add `toSchemaStore`) |
+| `KeyValueStore` | Durable strings / bytes behind a swappable backend | Atomic read-modify-write, transactions across keys, typed values (add `toSchemaStore`) |
 | `Persistence` | Schema-typed `Exit` values with TTL, shared by every process on the same backing store | Freshness: a stored `Exit` is replayed until it expires or is removed |
 | `PersistedCache` | A lookup that survives restarts; concurrent gets for one key share one lookup **inside a process** | A fleet-wide single flight (two processes that both miss both run the lookup), or a source of truth |
 | `PersistedQueue` | **At-least-once** processing with durable attempt counts, retry delays, and a dead-letter state | Exactly-once effects, ordering across retries, or atomicity with your domain tables — except through [the SQL store on a shared client](#using-the-sql-store-as-a-transactional-outbox) |
@@ -24,6 +24,8 @@ Pick the primitive from the guarantee you need, and read the right-hand column b
 Effectful key-value store service for string and binary (`Uint8Array`) values. The lowest layer of the persistence stack — a uniform interface that `Persistence` and `PersistedCache` sit on top of. Swap the backend by swapping the layer.
 
 **Mental model.** A service with `get`, `set`, `remove`, `has`, `size`, `clear`, and `modify`. `get` returns `string | undefined` (not an `Option`) — `undefined` on a miss. For typed structured data, use `KeyValueStore.toSchemaStore` to get a schema-aware wrapper whose `get` returns `Option<A>`.
+
+`modify` updates an **existing** key: on a miss it returns `undefined` without calling the callback or writing a value. Its default implementation reads and then writes in separate Effects, so concurrent callers can lose updates. The interface does not promise atomic read-modify-write; use a backend transaction or native atomic operation when that guarantee matters.
 
 ```ts
 import { Effect, Option, Schema } from "effect"
@@ -48,11 +50,12 @@ const program = Effect.gen(function*() {
     console.log("snapshot found:", raw)
   }
 
-  // Atomic modify — append a version tag to a snapshot record
-  yield* store.modify("snapshot:cycle:2024:L4:version", (v) =>
-    String(Number(v ?? "0") + 1)
+  // Initialise once, then update an existing key (single-writer example).
+  yield* store.set("snapshot:cycle:2024:L4:version", "0")
+  const version = yield* store.modify("snapshot:cycle:2024:L4:version", (v) =>
+    String(Number(v) + 1)
   )
-  // modify returns the resulting value (string | undefined)
+  // version is "1" here; a missing key would return undefined, not be created.
 
   // Namespaced sub-view — prefix all keys automatically
   const bandStore = KeyValueStore.prefix(store, "compband:")

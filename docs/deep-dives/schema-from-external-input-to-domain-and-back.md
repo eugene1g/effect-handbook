@@ -238,7 +238,7 @@ console.log(restored.recordedAt instanceof Date) // true
 
 Do not assume `JSON.stringify(domainValue)` is the inverse of parsing it. Native JSON loses `Date`, `BigInt`, `Map`, `Set`, class identity, and other domain semantics. A canonical codec states and tests the reversible representation.
 
-Custom declared types can attach a `toCodecJson` annotation. JSON Schema generation reuses that representation, keeping runtime serialization and published contracts aligned. A declaration *without* such an annotation still derives: the resulting codec rejects the value when encoding (`Expected JSON value`), and JSON Schema generation emits an unconstrained `{}`. Derivation will not complain for you, so test the encode direction of every custom type.
+Custom declared types can attach a `toCodecJson` annotation. JSON Schema generation reuses that representation, keeping runtime serialization and published contracts aligned. A bare declaration without a `toCodecJson` or `toCodec` annotation still derives: JSON-native values can encode unchanged, while non-JSON values such as `URL` instances fail with `Expected JSON value`. JSON Schema generation emits an unconstrained `{}` for a bare declaration. Derivation alone does not prove a usable representation, so test the encode direction of every custom type.
 
 ## Adapt forms, query strings, config, and JSON
 
@@ -285,7 +285,7 @@ A codec has a decode and an encode direction. A transformation that lowercases a
 
 Use `Schema.decodeTo(target, transformation)` for explicit two-way conversion. `SchemaTransformation.transform` is for total conversion; `SchemaGetter.transformEffect` (named `transformOrFail` before `rc.113`) is for a direction that may reject or needs a service. When a conversion is honestly decode-only — a digest, a lowercased lookup key — say so with `SchemaGetter.forbiddenEncoding` as the encode leg, so encoding fails with a clear issue instead of inventing a value. Test both directions for every custom transformation.
 
-> **Example status — Runnable:** the cents representation is exact in both directions for safe integers.
+> **Example status — Runnable:** a two-way floating-point conversion, not a lossless codec over its full accepted domain.
 
 ```ts
 import { Schema, SchemaTransformation } from "effect"
@@ -306,7 +306,7 @@ const cents = Schema.encodeUnknownSync(DollarsFromCents)(dollars)
 console.log(dollars, cents) // 123.45 12345
 ```
 
-For money with arbitrary precision, use `BigDecimal` and an appropriate string codec rather than the floating-point example above. The point is ownership of the representation, not a recommendation to store currency in `number`.
+The sample round-trips, but `Schema.Int` alone does not make division and multiplication by 100 exact: `9_007_199_254_740_990` cents decodes to `90071992547409.9` and encodes back to `9_007_199_254_740_991`. In the other direction, `Schema.Finite` accepts fractional-cent values such as `1.234`, which encode to `123` cents and decode to `1.23`. Retain integer minor units throughout, or use `BigDecimal` with an appropriate string codec for exact decimal money. If using `number`, constrain and test both domains against the precision you promise; do not infer reversibility from the presence of both functions.
 
 The same ownership question applies to every carrier narrower than its `Type`: `Schema.DurationFromMillis` cannot round-trip a nanosecond-precision duration, while `DurationFromNanos` and `DurationFromString` can. Pick the codec by the precision you promise ([Effect data types at the boundary](../data/schema#16-effect-data-types-at-the-boundary)).
 

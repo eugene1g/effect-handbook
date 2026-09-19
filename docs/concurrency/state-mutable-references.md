@@ -2,6 +2,8 @@
 
 Effect provides fiber-safe shared-state types (`Ref`, `SynchronizedRef`, `SubscriptionRef`) and unsynchronised in-place data structures (`MutableRef`, `MutableList`, `MutableHashMap`, `MutableHashSet`) for hot paths where Effect overhead is undesirable.
 
+> **Official guides:** [Ref](https://effect.website/docs/v4/state-management/ref); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+
 ## Ref
 
 `effect/Ref` — stable
@@ -48,13 +50,88 @@ const claimBudget = Effect.fn("claimBudget")(function*(
 
 `Ref.makeUnsafe(value)` creates a `Ref` synchronously without wrapping in an Effect — for use inside class constructors or module top-levels before concurrent fibers have started.
 
+### One transition, one call
+
+**Each `Ref` operation is atomic; a sequence of them is not.** `Ref.get` followed by `Ref.set` is two transitions, and any suspension between them — an HRIS call, a log line, a `sleep`, even `Effect.yieldNow` — lets every fiber compute its write from the same stale read. Express the whole read-compute-write as one call and pick the call by what you need back:
+
+| You need back | Use | Updater shape |
+| --- | --- | --- |
+| Nothing | `Ref.update(ref, f)` | `(a) => a` |
+| The new state | `Ref.updateAndGet(ref, f)` | `(a) => a` |
+| The previous state | `Ref.getAndUpdate(ref, f)` / `Ref.getAndSet(ref, a)` | `(a) => a` |
+| A value derived from the old state (an id, an approve/deny decision) | `Ref.modify(ref, f)` | `(a) => [result, next]` |
+| A change only in some states | `Ref.updateSome` / `Ref.modifySome` | return `Option.none()` to keep the current value |
+
+```ts
+import { Effect, Ref } from "effect"
+
+const lostUpdates = Effect.gen(function*() {
+  const approvedCount = yield* Ref.make(0)
+
+  // Anti-pattern: two atomic steps with a suspension point between them.
+  const racy = Effect.gen(function*() {
+    const seen = yield* Ref.get(approvedCount)
+    yield* Effect.yieldNow // stands in for any asynchronous work
+    yield* Ref.set(approvedCount, seen + 1)
+  })
+  yield* Effect.all(Array.from({ length: 5 }, () => racy), { concurrency: "unbounded" })
+  const afterRacy = yield* Ref.get(approvedCount) // 1 — four approvals were overwritten
+
+  // One transition per approval: nothing can interleave inside `update`.
+  const counted = yield* Ref.make(0)
+  const safe = Effect.andThen(Effect.yieldNow, Ref.update(counted, (n) => n + 1))
+  yield* Effect.all(Array.from({ length: 5 }, () => safe), { concurrency: "unbounded" })
+  const afterSafe = yield* Ref.get(counted) // 5
+
+  // `modify` hands back a value computed from the state it replaced.
+  const sequence = yield* Ref.make(7)
+  const raiseId = yield* Ref.modify(sequence, (n) => [`raise-${n}`, n + 1] as const) // "raise-7"
+
+  return { afterRacy, afterSafe, raiseId }
+})
+```
+
+- **Store immutable snapshots.** A `Ref` protects the *cell*, not the object inside it. For a `Map`, array, or record, build a new value and install it in one `update` (`(m) => new Map(m).set(dept, bps)`); mutating the stored object in place bypasses the atomic transition and changes values other fibers already read.
+- **Updaters are pure, synchronous functions.** The moment the next state needs an Effect (a fetch, a decode, a log), move to `SynchronizedRef` rather than reading, running the effect, and writing back.
+- **A `Ref` is a handle, not an Effect.** `yield* ref` does not type-check in `rc.115`, and the same holds for `SynchronizedRef`, `SubscriptionRef`, `TxRef`, `Deferred`, `Queue`, and `Fiber` handles. Yield the operation on the handle — `Ref.get(ref)`, `Deferred.await(deferred)`, `Fiber.join(fiber)` — not the handle itself. Code ported from Effect 3, where several of these were yieldable, fails at exactly this spot.
+
+### Sharing one Ref through a service
+
+To share one cell between separately written parts of a program, make the `Ref` the implementation of a service and build it once. `Ref.make` is an Effect, so provisioning is effectful: `Layer.effect` for an application, `Effect.provideServiceEffect` for a one-off program or test.
+
+```ts
+import { Context, Effect, Layer, Ref } from "effect"
+
+class MeritBudget extends Context.Service<MeritBudget, Ref.Ref<number>>()("app/MeritBudget") {
+  static readonly layer = Layer.effect(MeritBudget, Ref.make(300))
+}
+
+const spend = Effect.fn("spend")(function*(bps: number) {
+  const budget = yield* MeritBudget
+  return yield* Ref.updateAndGet(budget, (remaining) => remaining - bps)
+})
+
+// One cell for the whole program: [285, 270]
+const shared = Effect.all([spend(15), spend(15)]).pipe(Effect.provide(MeritBudget.layer))
+
+// Provided at each use site, `Ref.make` runs twice and the cells are unrelated: [285, 285]
+const separate = Effect.all([
+  spend(15).pipe(Effect.provideServiceEffect(MeritBudget, Ref.make(300))),
+  spend(15).pipe(Effect.provideServiceEffect(MeritBudget, Ref.make(300)))
+])
+```
+
+**Provide the cell once, at the edge that owns its lifetime**, exactly like any other [Layer](../foundations/services-context-layers#layer); wrapping the `Ref` in a narrower service interface (`spend`, `remaining`) keeps callers from writing arbitrary values.
+
 Use when multiple fibers share mutable state (counters, caches, toggles).
 
 ## SynchronizedRef
 
 `effect/SynchronizedRef` — stable
 
-A `Ref` whose update operations are serialised even when the update is an Effect. Wraps an internal `Semaphore` (single permit) so only one effectful transition is in flight at a time. The API mirrors `Ref` but adds `*Effect` variants: `updateEffect`, `modifyEffect`, `getAndUpdateEffect`, etc.
+A separate reference type whose update operations are serialised even when the update is an Effect. It pairs a backing `Ref` with an internal `Semaphore` (single permit) so only one transition is in flight at a time. The API mirrors `Ref` and adds `*Effect` variants: `updateEffect`, `modifyEffect`, `getAndUpdateEffect`, `updateSomeEffect`, `modifySomeEffect`, etc.
+
+> **Note:** Since `rc.113` a `SynchronizedRef` is no longer a subtype of `Ref`, so `Ref.get(syncRef)` and the other `Ref.*` combinators reject it at compile time. Call the `SynchronizedRef.*` function of the same name instead.
 
 ```ts
 import { Effect, SynchronizedRef } from "effect"
@@ -97,16 +174,25 @@ const makeCompBandCache = Effect.fn("makeCompBandCache")(function*(
 
 The semaphore is held for the entire duration of the Effect inside `updateEffect`. If the updater performs a slow async call, other fibers queue and wait. This serialisation prevents two fibers simultaneously deciding "cache is empty, I'll fetch" and firing duplicate requests. For fast atomic swaps on pure values, prefer plain `Ref`.
 
+Semantics worth knowing before you rely on it:
+
+- **Every write takes the permit, reads never do.** `set`, `update`, and `modify` queue behind an in-flight `updateEffect`; `SynchronizedRef.get` returns immediately with the last *committed* value, so a reader never blocks on a slow refresh and never sees a half-finished transition.
+- **The new value is stored only if the updater succeeds.** A failing or interrupted updater leaves the previous value in place, which is what makes "fetch, then install" safe to retry.
+- **The permit is not reentrant.** Writing to the same `SynchronizedRef` from inside its own updater waits for a permit the fiber already holds and never completes; read with `get` inside the updater, or return the final value from it.
+- **`*Some*` variants can skip the write.** The updater given to `updateSomeEffect` produces `Option<A>`, and the one given to `modifySomeEffect` produces `[B, Option<A>]`; `Option.none()` keeps the current value. Both have the usual data-first and pipeable (`ref.pipe(SynchronizedRef.modifySomeEffect(f))`) forms.
+
 Use when the next state value depends on an asynchronous computation and transitions must be serialized: load-once caches, OAuth token refresh, connection pooling, lazy config loading, circuit-breaker state transitions. Serialization prevents overlapping updaters; it does not by itself make an external side effect exactly once across interruption or retry.
+
+Official guide: [SynchronizedRef](https://effect.website/docs/v4/state-management/synchronizedref).
 
 ## SubscriptionRef
 
 `effect/SubscriptionRef` — stable
 
-A `SynchronizedRef` that is also a `Stream`. Every state change is published to an internal `PubSub`. Subscribers receive the current value immediately on subscribe (replay-1), then every subsequent update. Exposes a `changes` property of type `Stream<A>` derived from `Stream.fromPubSub`. Writes go through the same serialising semaphore as `SynchronizedRef`, so no update is lost between store and publish.
+A serialised reference that can also be observed as a `Stream`. It is its own type — not a subtype of `Ref` or `SynchronizedRef` — with the same operation names (`get`, `set`, `update`, `modify`, the `*Effect` and `*Some*` variants). Every state change is published to an internal unbounded `PubSub` with `replay: 1`, and `SubscriptionRef.changes(ref)` returns a `Stream<A>` over it: a subscriber receives the value current at the moment it subscribes, then every later update. Writes hold a single-permit semaphore while they store and publish, so no update is lost between the two.
 
 ```ts
-import { Effect, Fiber, Stream, SubscriptionRef } from "effect"
+import { Deferred, Effect, Fiber, Stream, SubscriptionRef } from "effect"
 
 // Live headcount ref: write on every hire/departure, stream to dashboards
 const headcountDashboard = Effect.gen(function*() {
@@ -115,11 +201,15 @@ const headcountDashboard = Effect.gen(function*() {
     total: 0,
     byDepartment: {}
   })
+  const subscribed = yield* Deferred.make<void>()
 
   // A fiber that streams every headcount change to a dashboard sink
   const watcher = yield* SubscriptionRef.changes(headcount).pipe(
     Stream.tap((hc) =>
-      Effect.log(`Headcount updated: total=${hc.total}`)
+      Effect.andThen(
+        Effect.log(`Headcount updated: total=${hc.total}`),
+        Deferred.succeed(subscribed, undefined) // first element = subscription is live
+      )
     ),
     // Initial value plus the two updates below; a bare changes stream is live
     // forever, so joining it without a bound would never complete.
@@ -127,6 +217,10 @@ const headcountDashboard = Effect.gen(function*() {
     Stream.runDrain,
     Effect.forkScoped
   )
+  // A forked fiber has not run yet. Without this gate both updates could land
+  // before the watcher subscribes; it would then see only the latest value and
+  // `take(3)` would wait forever.
+  yield* Deferred.await(subscribed)
 
   // Approve a new hire in Engineering — all subscribers see the update
   yield* SubscriptionRef.update(headcount, (hc) => ({
@@ -152,7 +246,50 @@ const headcountDashboard = Effect.gen(function*() {
 
 > **Tip:** Each call to `SubscriptionRef.changes` creates a new independent subscriber to the underlying `PubSub`. Two calls yield two streams both receiving the same updates. Unsubscribing (finishing or interrupting the stream) is automatic.
 
-Use when shared state must be subscribed to reactively: live data feeds for dashboards, feature flags driving live reconfiguration, status machines, or bridging Effect state into a streaming pipeline.
+> **Warning:** `changes` replays the *latest* value, not history. A subscriber that starts after three updates receives one element (the current state) and then waits for the next change, so never size a `Stream.take(n)` by counting writes that may precede the subscription. Treat the stream as "current state, then deltas", and bound it with a condition (`Stream.takeUntil`) or the consumer's scope.
+
+### Keep the ref private, expose a Stream
+
+`SubscriptionRef` is a decoupling tool: the writer is typed against the ref, every reader against `Stream<A>` only. Put the ref inside a service, export `changes` plus the few transitions you allow, and no consumer can write state or even learn that a `SubscriptionRef` exists.
+
+```ts
+import { Context, Effect, Layer, Stream, SubscriptionRef } from "effect"
+
+type CycleStatus = "planning" | "approvals" | "frozen"
+
+class MeritCycleStatus extends Context.Service<MeritCycleStatus, {
+  readonly current: Effect.Effect<CycleStatus>
+  readonly changes: Stream.Stream<CycleStatus>
+  readonly advance: (next: CycleStatus) => Effect.Effect<void>
+}>()("app/MeritCycleStatus") {
+  static readonly layer = Layer.effect(
+    MeritCycleStatus,
+    Effect.gen(function*() {
+      const ref = yield* SubscriptionRef.make<CycleStatus>("planning")
+      return {
+        current: SubscriptionRef.get(ref),
+        changes: SubscriptionRef.changes(ref),
+        advance: (next: CycleStatus) => SubscriptionRef.set(ref, next)
+      }
+    })
+  )
+}
+
+// A dashboard only knows about a Stream. One that starts during "planning" collects
+// ["planning", "approvals", "frozen"]; one that joins during "approvals" collects
+// ["approvals", "frozen"].
+const untilFrozen = Effect.gen(function*() {
+  const status = yield* MeritCycleStatus
+  return yield* status.changes.pipe(
+    Stream.takeUntil((s) => s === "frozen"),
+    Stream.runCollect
+  )
+})
+```
+
+Use when shared state must be subscribed to reactively: live data feeds for dashboards, feature flags driving live reconfiguration, status machines, or bridging Effect state into a streaming pipeline. For a transactional equivalent see [TxSubscriptionRef](./software-transactional-memory#txsubscriptionref); for fan-out of *events* rather than state, use [PubSub](./concurrency-coordination#pubsub).
+
+Official guide: [SubscriptionRef](https://effect.website/docs/v4/state-management/subscriptionref).
 
 > **Warning:** `Ref`, `SynchronizedRef`, and `SubscriptionRef` are *fiber-safe*. The `Mutable*` types below are plain JavaScript objects with no synchronisation primitives. Sharing a `MutableRef` across fibers is a data race. Keep the Mutable* family strictly inside a single-owner scope — an initialisation block, a single fiber, or an encapsulated algorithm — and never hand a reference to another fiber.
 
@@ -199,7 +336,7 @@ Use inside a synchronous, single-fiber algorithm when the pipeable Effect style 
 
 `effect/MutableList` — stable
 
-A mutable linked-list-of-buckets optimised for high-throughput append/prepend and front-draining. Uses chunked arrays (buckets) internally: append is amortised O(1), batch takes are nearly free. Tracks `.length`. Supports `append`, `prepend`, `take`, `takeN`, `takeAll`, `appendAll`, `prependAll`, `filter`, `remove`, `clear`. `take` returns the special `MutableList.Empty` symbol (not `null` or `undefined`) when the list is empty. There is no `modify` — use `filter` or direct iteration to transform elements in place. This is Effect's internal work queue — the structure that backs the fiber scheduler.
+A mutable linked-list-of-buckets optimised for high-throughput append/prepend and front-draining. Uses chunked arrays (buckets) internally: append is amortised O(1), batch takes are nearly free. Tracks `.length`. Supports `append`, `prepend`, `take`, `takeN`, `takeAll`, `appendAll`, `prependAll`, `filter`, `remove`, `clear`. `take` returns the special `MutableList.Empty` symbol (not `null` or `undefined`) when the list is empty. There is no `modify` — `filter(list, predicate)` prunes in place, and `toArray` / `toArrayN` copy without draining. Counts passed to `takeN` / `toArrayN` are normalised: a fractional count is floored, and `NaN` or a non-positive count takes nothing. This is the buffer Effect itself uses inside `Queue` and `PubSub`.
 
 ```ts
 import { MutableList } from "effect"
@@ -342,6 +479,10 @@ function deduplicateEmployeeIds(
 ```
 
 Use for fast deduplicated membership tracking inside a synchronous algorithm: visited sets during graph traversal, deduplication of IDs during bulk imports.
+
+For a set that is shared across fibers, stored in a `Ref`, or returned from a function, use the immutable [HashSet](../data/data-structures#hashset) instead: every change produces a new value, so nobody observes a half-built set.
+
+Official guide: [HashSet](https://effect.website/docs/v4/data-types/hash-set) (documents the immutable and mutable variants side by side).
 
 ## Choosing the right state tool
 

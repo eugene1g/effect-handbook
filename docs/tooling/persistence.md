@@ -4,6 +4,19 @@ The stack has three levels. `KeyValueStore` supplies raw string/binary storage a
 
 > **Warning:** All modules in this chapter live under `effect/unstable/persistence/...`. Expect API changes between minor versions. Pin your Effect version and read the changelog before upgrading.
 
+## What each primitive guarantees
+
+Pick the primitive from the guarantee you need, and read the right-hand column before relying on it.
+
+| Primitive | Gives you | Does **not** give you |
+| --- | --- | --- |
+| `KeyValueStore` | Durable strings / bytes behind a swappable backend | Transactions across keys, typed values (add `toSchemaStore`) |
+| `Persistence` | Schema-typed `Exit` values with TTL, shared by every process on the same backing store | Freshness: a stored `Exit` is replayed until it expires or is removed |
+| `PersistedCache` | A lookup that survives restarts; concurrent gets for one key share one lookup **inside a process** | A fleet-wide single flight (two processes that both miss both run the lookup), or a source of truth |
+| `PersistedQueue` | **At-least-once** processing with durable attempt counts, retry delays, and a dead-letter state | Exactly-once effects, ordering across retries, or atomicity with your domain tables — except through [the SQL store on a shared client](#using-the-sql-store-as-a-transactional-outbox) |
+| `RateLimiter` | Atomic counters; shared across processes with the Redis store | Coordination with the memory store (it is node-local); availability or fairness guarantees from Redis itself |
+| `Redis` pub/sub | A wake-up signal | Delivery: messages published while a subscriber is away are gone |
+
 ## KeyValueStore
 
 `effect/unstable/persistence/KeyValueStore` — unstable
@@ -66,9 +79,10 @@ const TestLayer = KeyValueStore.layerMemory  // in-process, volatile
 ### Available layers
 
 - **layerMemory** — In-process `Map`. Zero deps, great for tests. Volatile — wiped on restart.
-- **layerFileSystem(dir)** — One file per key under `dir`. Needs `FileSystem` + `Path` services from `@effect/platform`.
+- **layerFileSystem(dir)** — One file per key under `dir` (keys are percent-encoded into file names, so they are only guaranteed distinct on a case-sensitive file system). Needs the `FileSystem` + `Path` services, supplied by a host layer such as `NodeServices.layer` from `@effect/platform-node`. `clear` removes the directory recursively — never point it at a directory shared with other data.
 - **layerSql(options?)** — SQL table (default: `effect_key_value_store`). Works with any `SqlClient` dialect.
 - **layerStorage(evaluate)** — Wraps a lazily-evaluated `Storage`-shaped object (browser `localStorage`, etc.).
+- **Browser layers** — `BrowserKeyValueStore.layerLocalStorage`, `layerSessionStorage`, and `layerIndexedDb(options?)` from `@effect/platform-browser`. The IndexedDB layer needs the `IndexedDb` service and is the asynchronous alternative to the synchronous Web Storage layers; IndexedDB can be unavailable in private or restricted browsing contexts.
 
 **Reach for it when** you need lightweight durable string storage without an opinionated client, or when building a custom persistence backend for higher-level modules.
 
@@ -144,6 +158,21 @@ const layers = Persistence.layerMemory
 // Persistence.layerKvs         — needs KeyValueStore
 ```
 
+### Backing layers
+
+| Layer | Storage | Requires |
+| --- | --- | --- |
+| `Persistence.layerMemory` | Process-local map; entries expire by TTL and vanish on restart | — |
+| `Persistence.layerKvs` | Any `KeyValueStore` backend | `KeyValueStore` |
+| `Persistence.layerSql` | One shared `effect_persistence` table, rows partitioned by store id | `SqlClient` |
+| `Persistence.layerSqlMultiTable` | One table per store id | `SqlClient` |
+| `Persistence.layerRedis` | Redis keys with native expiry | `Redis.Redis` |
+
+- **The TTL function decides whether anything is stored.** Omitting `timeToLive` keeps entries forever; returning a zero or negative duration for an `Exit` skips the write entirely, which is how you keep failures out of the store.
+- **Stored bytes are a compatibility contract.** The `storeId`, the primary key, and the success / error schemas together define what a later release must still be able to read. After an incompatible schema change, `store.get` fails with `SchemaError` for the old entry instead of reporting a miss. Version the `storeId` (or the key) when the shape changes, and never build keys by concatenating ambiguous user strings.
+
+> **Security note (`rc.115`):** the SQL-backed stores now bind `getMany` keys as query parameters; earlier releases spliced them into the statement text. Keys come from `PrimaryKey.value(request)`, so upgrade if untrusted input can reach a `Persistable` primary key (including through `PersistedCache` or `RequestResolver.persisted`).
+
 **Reach for it when** you want cross-restart memoization for expensive effectful computations and need the full typed `Exit` (success or failure) to survive a process restart.
 
 ## Persistable
@@ -191,6 +220,8 @@ console.log(req._tag)                                            // "GetEmployee
 ```
 
 > **Tip:** A class generated by `Persistable.Class` is simultaneously a valid `Request` (can be passed to `Effect.request`), a valid `PrimaryKey` (has a stable string key), and a `Persistable` (carries schemas). This lets `RequestResolver.persisted` transparently wrap any resolver to add cross-restart caching without changing the call site.
+
+`RequestResolver.persisted(resolver, { storeId, timeToLive?, staleWhileRevalidate? })` needs `Persistence` and a `Scope`. Stored results are loaded before the wrapped resolver runs, and only the misses are resolved and written back; an entry that `staleWhileRevalidate` marks stale is answered from the store *and* resolved again so the refreshed result replaces it. Since `rc.113` a failure of the wrapped resolver is propagated to the waiting requests, and results that were already completed are preserved. See [RequestResolver](../operations/caching-batching#requestresolver).
 
 **Reach for it when** building a `PersistedCache` or using `RequestResolver.persisted` — schemas must be declared upfront so the persistence layer can serialize results.
 
@@ -266,18 +297,29 @@ const program = Effect.scoped(
 const layers = Persistence.layerMemory
 ```
 
+- **Failures are cached too.** The whole `Exit` is persisted, so a failed lookup is replayed — across restarts and across processes — until its TTL expires. That includes defects, and since `rc.113` a lookup function that *throws synchronously* is captured and persisted the same way. Return `Duration.zero` from `timeToLive` for the exits you do not want stored, or give failures a short TTL as above.
+- **Defaults:** `inMemoryCapacity` is `1024` and `inMemoryTTL` is 10 seconds, so without overrides most reads after the first 10 seconds go to the persistence store rather than memory.
+- **An incompatible stored entry fails the read.** After a success-schema change, `get` fails with `SchemaError` without running the lookup; `invalidate` the key or move to a new `storeId`.
+- **It is a cache, not a record.** Do not read business state back out of it, and do not rely on it to suppress duplicate work across a fleet.
+
 **Reach for it when** you want `Cache` semantics with durability — expensive lookups that should survive restarts and be shared across multiple worker processes connected to the same backing store.
 
 ## PersistedQueue
 
 `effect/unstable/persistence/PersistedQueue` — unstable
 
-A durable FIFO work queue backed by persistent storage. Items are schema-encoded before enqueueing; workers call `queue.take(handler)` to process one item at a time. On handler failure, the item is retried (up to a configurable maximum); on success, the item is acknowledged and removed. Restarts replay unacknowledged items automatically.
+A durable work queue backed by persistent storage. Items are schema-encoded before enqueueing; workers call `queue.take(handler)` to claim and process one item at a time. If the handler succeeds the item is acknowledged as processed; if it fails the item becomes visible again after a delay chosen by the queue's retry schedule, until `maxAttempts` is exhausted and the item is **dead-lettered** (marked failed and kept). Restarts replay unacknowledged items automatically.
 
-**Mental model.** Outbox-style queue — producer writes the intent, consumer processes idempotently. Useful for any work that must not be lost if the process dies mid-flight.
+**Mental model.** Outbox-style queue — producer writes the intent, consumer processes idempotently. Useful for any work that must not be lost if the process dies mid-flight. Delivery is at-least-once, so the handler's side effect needs its own idempotency key.
+
+The retry policy belongs to the **queue**, not to an individual `take` call (the per-`take` `{ maxAttempts }` option was removed in `rc.113`):
+
+- `maxAttempts` defaults to `10`. An attempt is counted **when the item is claimed**, so `attempts` in the handler metadata is 1-based ("this is attempt 3") and a handler crash that kills the process still consumes an attempt.
+- `retrySchedule` defaults to an exponential delay starting at 1 second and capped at 5 minutes. Its input is the attempt number, and the persisted attempt count *is* the schedule state — the schedule is replayed up to the current attempt on each failure, so delays keep progressing even when consecutive retries run in different processes. Attempt-driven schedules are therefore exact; a wall-clock schedule such as `Schedule.upTo` bounds the *summed* delays, not real elapsed time.
+- An item that no longer decodes with the queue's schema is dead-lettered immediately and the next item is taken, so a schema change can never wedge the consumer — but it also means an incompatible schema change silently diverts old items. Evolve the item schema compatibly.
 
 ```ts
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer, Schedule, Schema } from "effect"
 import { PersistedQueue } from "effect/unstable/persistence"
 
 // Each item in the queue is a pending raise approval request.
@@ -291,10 +333,13 @@ const RaiseApprovalSchema = Schema.Struct({
 type RaiseApproval = Schema.Schema.Type<typeof RaiseApprovalSchema>
 
 const program = Effect.gen(function*() {
-  // Obtain a named queue via PersistedQueueFactory (provided by PersistedQueue.layer)
+  // Obtain a named queue via PersistedQueueFactory (provided by PersistedQueue.layer).
+  // The retry policy is part of the queue definition.
   const queue = yield* PersistedQueue.make({
     name: "raise-approvals",
-    schema: RaiseApprovalSchema
+    schema: RaiseApprovalSchema,
+    maxAttempts: 5,
+    retrySchedule: Schedule.exponential("2 seconds")
   })
 
   // Producer: enqueue a raise recommendation (returns the assigned item id)
@@ -314,28 +359,86 @@ const program = Effect.gen(function*() {
   )
 
   // Consumer: process one approval at a time.
-  // On success → acknowledged and removed.
-  // On failure → retried; defaults to max 10 attempts.
-  yield* queue.take(
-    (approval: RaiseApproval, { id, attempts }) =>
-      Effect.log(
-        `[attempt ${attempts}] processing raise for employee ${approval.employeeId} (item ${id})`
-      ),
-    { maxAttempts: 5 }
+  // On success → acknowledged. On failure → retried on the queue's schedule,
+  // then dead-lettered once maxAttempts is reached.
+  yield* queue.take((approval: RaiseApproval, { id, attempts }) =>
+    Effect.log(
+      `[attempt ${attempts}] processing raise for employee ${approval.employeeId} (item ${id})`
+    )
   )
 })
 
 // In-memory store: volatile, great for tests.
 // layer provides PersistedQueueFactory from PersistedQueueStore.
-const layers = PersistedQueue.layer.pipe(
-  Layer.provide(PersistedQueue.layerStoreMemory)
-)
-// Production:
-// PersistedQueue.layer.pipe(Layer.provide(PersistedQueue.layerStoreRedis(redisConfig)))
-// PersistedQueue.layer.pipe(Layer.provide(PersistedQueue.layerStoreSql(sqlConfig)))
+const StoreLayer = PersistedQueue.layerStoreMemory
+const layers = Layer.mergeAll(
+  PersistedQueue.layer,
+  // Retention: run in ONE instance of a deployment, not on every worker.
+  PersistedQueue.layerCleanup({ interval: "1 hour", timeToLive: "30 days" })
+).pipe(Layer.provide(StoreLayer))
+// Production stores:
+// PersistedQueue.layerStoreRedis(redisConfig)
+// PersistedQueue.layerStoreSql(sqlConfig)
 ```
 
-> **Tip:** Pass a custom `id` to `queue.offer(value, { id })` and the queue will silently skip re-enqueueing if that id is already present. This gives idempotent producers — safe to call on retry without double-queueing.
+> **Tip:** Pass a custom `id` to `queue.offer(value, { id })` and the queue will silently skip re-enqueueing if that id is already present. This gives idempotent producers — safe to call on retry without double-queueing. De-duplication **outlives completion**: the id keeps suppressing duplicates until `layerCleanup` removes the completed element (`timeToLive`, default 30 days), so size that window to your longest producer replay.
+
+`PersistedQueue.layerCleanup` deletes completed elements after `timeToLive`. Failed elements are the dead-letter record and are kept **forever** unless you set `failedTimeToLive` — monitor and drain them deliberately. The SQL store creates and upgrades its tables through versioned migrations.
+
+The SQL and Redis stores claim an item with a per-worker lock that is refreshed while the handler runs (`lockRefreshInterval`, default 30 seconds) and expires after `lockExpiration` (default 2 minutes for SQL, 90 seconds for Redis); both poll every second by default. **Interrupting the handler releases the item without consuming the attempt**, so a graceful shutdown does not push work toward the dead-letter state. A hard kill cannot run that release: the attempt stays counted and the item becomes claimable again once its lock expires.
+
+### Using the SQL store as a transactional outbox
+
+**`PersistedQueue.layerStoreSql()` built on the same `SqlClient` as your repositories makes `queue.offer` part of your transaction.** The offer is a single insert on that client, so inside `sql.withTransaction` it commits or rolls back with the domain write — the [transactional outbox](../interfaces/sql#external-effects-after-commit-outbox) without a hand-written relay.
+
+```ts
+import { Effect, Schema } from "effect"
+import { PersistedQueue } from "effect/unstable/persistence"
+import { SqlClient } from "effect/unstable/sql"
+
+const RaiseApproved = Schema.Struct({
+  employeeId: Schema.Int,
+  cycle: Schema.String,
+  newSalary: Schema.Int
+})
+
+const approveRaise = Effect.fn("approveRaise")(
+  function*(employeeId: number, cycle: string, newSalary: number) {
+    const sql = yield* SqlClient.SqlClient
+    const events = yield* PersistedQueue.make({ name: "raise-approved", schema: RaiseApproved })
+    yield* sql.withTransaction(
+      Effect.gen(function*() {
+        yield* sql`update employees set base_salary = ${newSalary} where id = ${employeeId}`
+        // Same client, same transaction: a rollback removes the queued event as well.
+        // The id is derived from the business fact, so a replayed request cannot enqueue it twice.
+        yield* events.offer({ employeeId, cycle, newSalary }, { id: `raise-approved:${cycle}:${employeeId}` })
+      })
+    )
+  }
+)
+```
+
+The memory and Redis stores share no transaction with your database: a crash between the domain commit and the `offer` loses the item, and an `offer` placed before the commit can announce a change that rolls back. With those stores, write the intent row yourself — see [Recipe: A Transactional Write with an Outbox](../recipes/transactional-write-with-outbox).
+
+### Failure windows and honest guarantees
+
+Start from an invariant ("every accepted raise reaches *delivered* or *dead-letter*") and mark the crash windows on the path `input → durable state → claim → external effect → result persisted → acknowledged`.
+
+| Outcome of an external call | What is known | What to do |
+| --- | --- | --- |
+| Failed **before** dispatch | Nothing reached the sink | Retry freely. |
+| **Known** failure after dispatch | The sink rejected it | Retry only if the rejection is transient; otherwise dead-letter. |
+| **Unknown** — timeout, interruption, or crash after dispatch | The sink may have applied it | Never replay a mutation blindly. Reconcile through the sink's idempotency key or status API, or park the item for operator repair. |
+
+- **Acknowledging after the effect means at-least-once.** A crash between "the sink accepted" and "the item is acknowledged" re-runs the handler, so the side effect needs an idempotency key derived from the item id — not one generated per attempt.
+- **A lock is a lease, not a fence.** A worker that stalls longer than `lockExpiration` loses its claim while it is still running, and a second worker starts the same item. Nothing in these modules supplies a fencing token: when a stale owner must not commit, the *sink* has to reject it — a monotonic token, a compare-and-set, or a uniqueness constraint that your protocol creates, persists, and checks.
+- **Process death skips finalizers.** Restart behavior must never depend on a release action having run; graceful shutdown should acknowledge only outcomes that are already committed.
+- **Keep defects and interruption out of business retry.** A defect is a bug to fix, and interruption is cancellation — neither is evidence that the sink is unavailable.
+- **Label each guarantee by its evidence:** proved by the library (attempt counting, dead-lettering), dependent on the adapter (Redis persistence settings, SQL isolation), dependent on the deployment (one cleanup instance, clock skew), or design guidance you must implement (idempotent sinks, fencing).
+
+### Recovery testing and operations
+
+Test recovery in three separate lanes: a deterministic state machine on `layerStoreMemory` with `TestClock`; the real adapter with a kill-and-restart of the worker; and the built artifact. Cover the crash matrix — before the effect · after the sink accepted but before the result is stored · after the result but before the acknowledgement · during a retry delay · after lock expiry with the old owner paused · store outage · mixed old/new item schemas · a corrupt payload · restore from backup. Operator actions (inspect, cancel, redrive, release from dead-letter) change business outcomes, so authorize and audit them, and rehearse a restore rather than trusting that a backup exists. Workflows and cluster delivery add their own replay rules — see [the durability and distribution ladder](../deep-dives/durability-and-distribution-ladder).
 
 **Reach for it when** you need guaranteed-at-least-once delivery of background jobs that must survive process restarts and can be retried on failure.
 
@@ -420,15 +523,17 @@ const layers = RateLimiter.layer.pipe(
 
 Adaptive limiting is a separate feedback API, not another `algorithm` string. Call `adaptiveConsume` before the request, retain its `epoch`, then report the response with `adaptiveFeedback`. The state progresses through `inactive`, `cooldown`, `learning`, and `learned`: a `429` with `Retry-After` starts or extends cooldown, later traffic measures an accepted rate, and learned state schedules future requests accordingly. The in-memory store coordinates only one process; use the Redis store when this learned state must be shared by several workers.
 
+> **Note:** Writing a custom `RateLimiterStore`? Since `rc.113`, `tokenBucket` must return `[remaining, elapsedMillis]` from **one atomic operation** — the tokens left after consuming, and the time since the current refill interval started (at least `0`, less than the refill interval). The limiter derives `delay` and `resetAfter` from both; returning `[remaining, 0]` reproduces the old timing error. The same release made token-bucket timing follow whole-token refill boundaries and made fixed-window `resetAfter` report the exact remaining window under `onExceeded: "delay"` instead of rounding up to a full window.
+
 **Reach for it when** you need rate limits that work across multiple fibers or processes — protecting external APIs or enforcing per-tenant quotas in a multi-worker deployment.
 
 ## Redis
 
 `effect/unstable/persistence/Redis` — unstable
 
-A thin service wrapper around a Redis command sender used internally by the other persistence modules. Provides two primitives: `send` for raw Redis commands, and `eval` for executing typed Lua scripts via `EVALSHA` (with automatic script loading and SHA caching via `SCRIPT LOAD`).
+A thin service wrapper around a Redis client used internally by the other persistence modules. Provides three primitives: `send` for raw Redis commands, `subscribe(channel)` for a scoped pub/sub subscription delivered as a `Queue.Dequeue<RedisMessage, RedisError>` (new in `rc.111`), and `eval` for executing typed Lua scripts via `EVALSHA` (with automatic script loading and SHA caching via `SCRIPT LOAD`).
 
-**Mental model.** The barrel exports a `Redis` module namespace; the service tag inside it is `Redis.Redis`. Bring your own Redis client (e.g. `ioredis`, `node-redis`) and wrap its command method with `Redis.make({ send })`. Every module in this chapter with a `layerXxxRedis` variant requires `Redis.Redis`. Scripts are described with `Redis.script(paramsToArgs, { lua, numberOfKeys })` — a two-argument form where the first argument maps typed parameters to Redis argument arrays.
+**Mental model.** The barrel exports a `Redis` module namespace; the service tag inside it is `Redis.Redis`. Prefer a ready-made platform layer: `NodeRedis.layer(options)` / `NodeRedis.layerConfig(...)` from `@effect/platform-node` (backed by `node-redis`), or the `BunRedis` / `DenoRedis` equivalents. They acquire a scoped client, close it when the layer scope ends, and also expose the raw client through a `NodeRedis` service. To bring your own client instead, wrap it with `Redis.make({ send, subscribe })` — since `rc.111` **both** operations are required. Every module in this chapter with a `layerXxxRedis` variant requires `Redis.Redis`. Scripts are described with `Redis.script(paramsToArgs, { lua, numberOfKeys })` — a two-argument form where the first argument maps typed parameters to Redis argument arrays.
 
 ```ts
 import { Effect, Layer } from "effect"
@@ -437,6 +542,8 @@ import { Redis } from "effect/unstable/persistence"
 // Imagine `redisClient` comes from ioredis or node-redis.
 declare const redisClient: {
   call(command: string, ...args: string[]): Promise<unknown>
+  // Registers a listener and resolves to an unsubscribe function.
+  subscribe(channel: string, listener: (message: string) => void): Promise<() => Promise<void>>
 }
 
 // Redis.make returns an Effect — provide it with Layer.effect
@@ -447,7 +554,17 @@ const RedisLayer = Layer.effect(
       Effect.tryPromise({
         try: () => redisClient.call(command, ...args) as Promise<A>,
         catch: (e) => new Redis.RedisError({ cause: e })
-      })
+      }),
+    // Scoped subscription: register the listener, unsubscribe when the scope closes,
+    // and return an Effect that fails if the subscriber connection later breaks.
+    subscribe: (channel, onMessage) =>
+      Effect.acquireRelease(
+        Effect.tryPromise({
+          try: () => redisClient.subscribe(channel, (message) => onMessage({ channel, message })),
+          catch: (e) => new Redis.RedisError({ cause: e })
+        }),
+        (unsubscribe) => Effect.promise(() => unsubscribe())
+      ).pipe(Effect.as(Effect.never))
   })
 )
 
@@ -483,6 +600,8 @@ const program = Effect.gen(function*() {
   console.log("total drawn this cycle:", newTotal)
 })
 ```
+
+`redis.subscribe(channel)` lives for the current scope and shuts its queue down when that scope closes. Reconnection is host-specific: the Node and Deno subscribers reconnect and re-subscribe after an interruption, so messages published during recovery appear as **delivery gaps**; the Bun subscriber does not reconnect — a dropped connection fails the dequeue and the caller must subscribe again. Redis pub/sub is fire-and-forget either way, so treat it as a wake-up signal and keep the source of truth in a durable store.
 
 > **Note:** `Redis.make` creates an internal `Cache` of loaded script SHAs. The first call to `redis.eval(script)(...)` issues `SCRIPT LOAD` and caches the SHA. Subsequent calls use `EVALSHA` directly. If Redis restarts and loses the script, the module detects the `NOSCRIPT` error and reloads automatically.
 

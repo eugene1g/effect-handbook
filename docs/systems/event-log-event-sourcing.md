@@ -8,7 +8,7 @@ Event sourcing stores immutable facts (decisions that happened) in an append-onl
 
 `effect/unstable/eventlog` — unstable
 
-`Event.make({ tag, primaryKey, payload, success, error })` defines one kind of fact. `tag` is the stable identifier; `primaryKey` extracts the aggregate/entity id from the decoded payload; `payload`, `success`, and `error` are Schemas. The payload Schema drives MessagePack encoding for journal entries and replication.
+`Event.make({ tag, primaryKey, payload, success, error })` defines one kind of fact. `tag` is the stable identifier; `primaryKey` extracts the aggregate/entity id from the decoded payload; `payload`, `success`, and `error` are Schemas. The payload Schema drives the `SchemaBinary` encoding (`event.payloadSchemaBinary`) used for journal entries and replication, so the payload schema is a persisted wire contract: evolve it compatibly, and note that journals written before `rc.113` hold MessagePack payloads that this codec cannot read.
 
 An `Event` is the durable contract shared by writers, handlers, the journal, and remote replicas. `primaryKey` groups related events for projection and compaction. Events are typically created via `EventGroup.empty.add(...)` rather than `make` directly.
 
@@ -123,7 +123,7 @@ Use `EventLog` for journal-backed, transactional, local-first event-sourced reco
 
 The storage engine for entries. Records committed entries, exposes them for replay, publishes local changes to subscribers, and tracks per-remote sequence metadata for exchange with other journals. Ships `EventJournal.layerMemory` (in-process, ephemeral) and `EventJournal.layerIndexedDb` (persistent in the browser).
 
-The append-only ledger underneath `EventLog`. An `Entry` carries a time-ordered `EntryId` (UUID v7), the event tag, the primary key, and MessagePack-encoded payload bytes. `writeFromRemote` imports entries from another journal and deduplicates by id, enabling convergence between peer journals.
+The append-only ledger underneath `EventLog`. An `Entry` carries a time-ordered `EntryId` (UUID v7), the event tag, the primary key, and `SchemaBinary`-encoded payload bytes. `writeFromRemote` imports entries from another journal and deduplicates by id, enabling convergence between peer journals.
 
 ```ts
 import { Effect } from "effect"
@@ -137,6 +137,10 @@ const inspect = Effect.gen(function*() {
 ```
 
 > **Note:** Entry ids are generated with `EventJournal.makeEntryIdUnsafe()` and are **time-ordered** (UUID v7), so natural sort order is causal-ish replay order. Remote ids (`makeRemoteIdUnsafe`) identify peer journals for sequence tracking.
+
+> **Upgrade warning — stored payload format:** Journal entries and remote messages written by `rc.112` and earlier hold MessagePack payload bytes. `rc.113`+ reads and writes `SchemaBinary` only, and ships no compatibility reader. Before upgrading a deployment with existing journals (IndexedDB on clients, SQL on servers, and any encrypted remote store), either export and re-import the history through the new codec with a one-off migration, or start a new store id and keep the old journal read-only on the old release. Clients and servers must move together.
+
+**Custom journals.** `withRemoteUncommited(remoteId, f)` hands `f` the **non-empty** list of entries not yet sent to that remote and returns `Option.some(result)`; when nothing is uncommitted, `f` is not called and the result is `Option.none()`. A custom `EventJournal` implementation must keep that contract (the sync loop relies on it to skip empty remote writes), advance the remote cursor only when `f` succeeds, and fail with exactly the error `f` failed with.
 
 Use `layerMemory` for tests, `layerIndexedDb` for offline clients, or `SqlEventJournal` on a server.
 
@@ -186,6 +190,17 @@ const SyncLayer = EventLogRemote.layerEncrypted
 ```
 
 > **Warning:** The remote authenticates before writing — see [`EventLogSessionAuth`](#eventlogsessionauth). Writes wait until the challenge/response completes, so a client can be offline for an extended session and resync cleanly on reconnect.
+
+**Failure handling in the sync loop.**
+
+| Failure | What the runtime does |
+| --- | --- |
+| A remote write fails transiently (network drop, server restart) | Retried until it succeeds, on `Schedule.min([exponential(200 ms, ×1.5), spaced(10 s)])` — so the delay grows but never exceeds ten seconds. Pending local entries stay uncommitted for that remote and are sent after recovery. |
+| The change stream from the remote ends or fails | Logged, then re-subscribed on the same schedule from the next unseen remote sequence. |
+| The server answers a write or a change subscription with `Forbidden` (for example a server restart dropped the session binding) | The cached authentication is invalidated, the hello/authenticate handshake runs again, and the operation is retried — up to five times before the error surfaces as `EventLogRemoteError`. |
+| Nothing is uncommitted for the remote | No write is attempted at all (`withRemoteUncommited` returns `Option.none()`). |
+
+Remote delivery is therefore **at-least-once**: a write that reached the server but whose acknowledgement was lost is sent again. The shipped encrypted and unencrypted servers skip entry ids they already hold, so the redelivery is harmless; a custom server built on `EventLogServer.layerRpcHandlers` must de-duplicate by entry id in its `onWrite` as well.
 
 Use `EventLogRemote` when a client needs to sync a local event log to a central server while remaining offline-capable.
 
@@ -243,6 +258,10 @@ Use when inspecting the protocol, implementing a custom transport, or debugging 
 `effect/unstable/eventlog` — unstable
 
 A SQL-backed implementation of `EventJournal` on top of a `SqlClient`. `SqlEventJournal.layer(options?)` stores entries as encoded bytes and keeps per-remote sequence metadata in separate tables, giving a server or Node/SQLite program a durable journal that replays after restart. Drop-in replacement for `EventJournal.layerMemory`.
+
+- **Driver byte types are normalized.** Entry ids and payloads decode whether the SQL driver returns a BLOB as `Uint8Array` or as a plain `ArrayBuffer`.
+- **Your callback's error is preserved.** A failure raised inside the `write` effect or the `withRemoteUncommited` callback comes back as that same error value in the typed channel, not wrapped in an `EventJournalError`; match on your own tags.
+- **The write is transactional with the handler.** Handler work that uses the same `SqlClient` commits or rolls back together with the journal insert.
 
 Use when a persistent, restart-surviving audit journal backed by Postgres, MySQL, or SQLite is needed.
 

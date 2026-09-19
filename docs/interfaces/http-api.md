@@ -4,7 +4,7 @@ Describe the API once as data: groups of endpoints, each with Schema-typed path 
 
 > **Tip:** Keep the API *definition* (`HttpApi`, groups, endpoints, error schemas, middleware interfaces) in a module with **no server code**. The server implements handlers against it; clients derive from it. This lets a frontend import the exact same contract the backend serves, with zero server code crossing the boundary.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.108/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
+> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
 
 ## HttpApiEndpoint
 
@@ -41,6 +41,8 @@ const postRaise = HttpApiEndpoint.post("postRaise", "/employees/:id/raise", {
   success: CompRecord
 })
 ```
+
+> **Warning:** **Put the rule on the contract, not in the handler.** A permissive endpoint schema (`id: Schema.String`) with the real pattern, range, or brand check repeated inside the handler hides the rule from the derived client, the OpenAPI document, and contract tests, and it lets invalid input reach downstream work before anything rejects it. Put checks and brands on `params`, `query`, `headers`, and `payload`; the handler then only ever sees decoded values. HttpApi answers a request that fails decoding with an empty `400` and an unmatched request `Content-Type` with `415`, both before the handler runs — [HttpApiTest](#httpapitest) shows how to prove it. Schema mechanics (checks, brands, transformations) live in [Schema](../data/schema#schema).
 
 **Reach for it when** describing a single route's typed inputs and outputs — the atom every HttpApi is built from.
 
@@ -144,6 +146,8 @@ const page = HttpApiSchema.withHeaders({
 })
 ```
 
+`HttpApiSchema.status` takes a numeric code or, since `rc.109`, a status literal name from [HttpStatus](http-server#httpstatus): `RaiseInput.pipe(HttpApiSchema.status("Created"))` and `HttpApiSchema.status(201)` annotate the same thing, and the name survives code review better than a bare number.
+
 `WithHeaders(bodySchema, headersSchema)` makes the success/client value a branded `{ body, headers }` pair and works for streaming success bodies too. For a domain error that should remain the handler's error type while encoding selected fields into HTTP headers, pipe it through `encodeToWithHeaders({ body, headers }, { decode, encode })`. Nesting `WithHeaders` is rejected. Explicit `content-type` or `content-length` values in the returned headers override values inferred from the body; endpoint construction also rejects ambiguous response variants sharing the same status/content type.
 
 **Reach for it when** an endpoint needs a specific status, non-JSON content type, empty body, file upload, or streaming response.
@@ -172,6 +176,73 @@ const handler = Effect.gen(function*() {
 
 > **Note:** **Status codes on your own errors.** Define the status on the class: `class EmployeeNotFound extends Schema.TaggedError<EmployeeNotFound>()("EmployeeNotFound", {}, { httpApiStatus: 404 }) {}`. The third options argument is where HttpApi reads the code from.
 
+### Status mapping is part of the contract
+
+An HTTP status is a claim about what happened. Map every member of the public error union to the status that tells the truth, and let nothing else through.
+
+| Situation | Status | Produced by |
+| --- | --- | --- |
+| A path, query, header, or payload value fails its Schema, or a JSON body does not parse | `400`, empty body | HttpApi, before the handler runs |
+| The request `Content-Type` matches no declared payload encoding | `415`, plain-text body | HttpApi, before the handler runs |
+| No route matches | `404`, empty body | `HttpRouter` |
+| Credential absent, malformed, expired, or revoked | `401` | your authentication middleware |
+| Authenticated, but this actor may not perform this action on this tenant's resource | `403` | your use case or handler |
+| The addressed resource does not exist | `404` | a declared error |
+| State or idempotency conflict: duplicate key, stale version, raise already approved | `409` | a declared error |
+| Well-formed input that current state rejects: salary outside the level's band | `422` | a declared error |
+| A defect — anything the endpoint did not declare | `500`, empty body | HttpApi |
+| The request fiber was interrupted: by a client disconnect / by the server itself | `499` / `503` | `HttpServerError.causeResponse` |
+
+- **Only a query that succeeded and returned nothing is "not found".** A timeout, an exhausted pool, a permission error, or a malformed row is an infrastructure fault; rendering it as `404` or `409` makes clients act on a lie. Translate storage failures at the repository ([SqlError](sql#sqlerror)) and let the rest become `500`.
+- **Do not `Effect.die` an expected failure to shrink a union.** Convert to a defect only what no caller could act on at this edge — as the [handler example](#httpapibuilder) does for a `BandViolation` that a read cannot produce. A `BandViolation` the UI must display belongs in the endpoint's `error` list.
+- **Defects are sanitized for you.** A defect is answered with a content-free `500`; the `Cause` goes to the server log and any configured [`ErrorReporter`](../foundations/errors-option-result#errorreporter), never to the client. Do not add a catch-all that serializes `error.message` into the body.
+- **Interruption is not a failure response.** A disconnect interrupts the request fiber (`499` is for your access log only — nobody receives it); do not catch it, retry it, or count it as an error rate.
+- **The implicit `400` is not in the contract until you declare it.** `OpenApi.fromApi` lists only declared statuses, and a derived client sees an undeclared `400` as an `HttpClientError`. Add `HttpApiError.BadRequestNoContent` to `error` wherever inputs are validated; the client then fails with a typed `BadRequest` and the document lists `400`. To answer decode failures with your own body instead, implement a middleware with `HttpApiMiddleware.layerSchemaErrorTransform(service, (schemaError, { endpoint, group }) => ...)`.
+- **A public error value is an output surface.** Every field of a declared error is serialized to clients and copied into telemetry. Give public errors a stable tag plus safe identifiers; keep `cause`, driver messages, SQL text, stack traces, and anything `Redacted` on internal errors only.
+
+When a use case fails with a union wider than the endpoint declares, translate it with an exhaustive matcher so that a new member is a compile error rather than a silent `500`:
+
+```ts
+import { Data, Effect, Match, Schema } from "effect"
+
+class EmployeeNotFound extends Schema.TaggedError<EmployeeNotFound>()(
+  "EmployeeNotFound",
+  { employeeId: Schema.String },
+  { httpApiStatus: 404 }
+) {}
+
+class RaiseAlreadyApproved extends Schema.TaggedError<RaiseAlreadyApproved>()(
+  "RaiseAlreadyApproved",
+  { raiseId: Schema.String },
+  { httpApiStatus: 409 }
+) {}
+
+// Internal: carries a driver cause, so it is never declared on an endpoint.
+class RepositoryError extends Data.TaggedError("RepositoryError")<{
+  readonly operation: string
+  readonly cause: unknown
+}> {}
+
+type ApproveFailure = EmployeeNotFound | RaiseAlreadyApproved | RepositoryError
+
+// No wildcard branch: adding a member to ApproveFailure stops this from compiling.
+const toPublicError = Match.type<ApproveFailure>().pipe(
+  Match.tagsExhaustive({
+    EmployeeNotFound: (error) => Effect.fail(error),
+    RaiseAlreadyApproved: (error) => Effect.fail(error),
+    // The HTTP edge is the last owner of an infrastructure fault: a sanitized 500,
+    // with the full Cause in the server log.
+    RepositoryError: (error) => Effect.die(error)
+  })
+)
+
+declare const approveRaise: (raiseId: string) => Effect.Effect<void, ApproveFailure>
+
+// Effect<void, EmployeeNotFound | RaiseAlreadyApproved>
+export const approveRaiseHandler = (raiseId: string) =>
+  approveRaise(raiseId).pipe(Effect.catch(toPublicError))
+```
+
 **Reach for it when** an endpoint needs a standard HTTP error without hand-rolling the status mapping.
 
 ## HttpApiSecurity
@@ -179,6 +250,8 @@ const handler = Effect.gen(function*() {
 `effect/unstable/httpapi/HttpApiSecurity` — unstable
 
 Declarative security schemes: `HttpApiSecurity.bearer` (Authorization: Bearer), `apiKey({ key, in })` (header/query/cookie), `basic` (HTTP Basic). Attach to a middleware definition; HttpApi extracts and decodes the credential from each request (handing it to middleware as a `Redacted` value) and emits the matching `securityScheme` into the OpenAPI doc so the "Authorize" button works in Swagger/Scalar.
+
+> **Warning:** **A security scheme extracts and documents; it verifies nothing.** When the header, cookie, or query key is absent or malformed, the middleware still runs and receives an *empty* credential (`Redacted.make("")`, or an empty `username`/`password` for `basic`). Rejecting it — and checking signature, expiry, issuer, audience, and revocation — is the middleware's job.
 
 **Reach for it when** protecting endpoints and wanting both runtime credential extraction and accurate security docs from one declaration.
 
@@ -245,6 +318,85 @@ export const AuthorizationLayer = Layer.effect(
 )
 ```
 
+### Authentication is not authorization
+
+The `AuthorizationLayer` above compares the token with a literal to keep the wiring visible. A real one answers two questions, with two owners and two statuses. **Authentication** ("who is calling?") belongs to the middleware and fails with `401`. **Authorization** ("may this actor do this, to this resource, in this tenant?") belongs to the use case and fails with `403`. Holding a valid token, reaching a route, or appearing in the OpenAPI document authorizes nothing.
+
+| Step | Owner | Rule |
+| --- | --- | --- |
+| Extract the credential | `HttpApiSecurity` scheme | Keep it `Redacted`; call `Redacted.value` only inside the verifier. |
+| Verify it | middleware, through a verifier service | Signature or opaque-token lookup, expiry, issuer/audience, revocation. An empty or invalid credential is one non-revealing `401`. |
+| Provide a principal | middleware (`provides`) | A **narrow, decoded** value — actor id, tenant, permissions — never the raw token or unverified claims. |
+| Authorize the operation | use case or handler | Check the concrete actor · action · tenant · resource on every call; fail with a declared `403`. |
+
+```ts
+import { Context, Effect, Layer, type Redacted, Schema } from "effect"
+import { HttpApiMiddleware, HttpApiSecurity } from "effect/unstable/httpapi"
+
+// What handlers may know about the caller: verified facts only.
+export class CurrentPrincipal extends Context.Service<CurrentPrincipal, {
+  readonly actorId: string
+  readonly tenantId: string
+  readonly permissions: ReadonlySet<string>
+}>()("comp/CurrentPrincipal") {}
+
+export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()(
+  "Unauthenticated",
+  {},
+  { httpApiStatus: 401 }
+) {}
+
+export class Forbidden extends Schema.TaggedError<Forbidden>()(
+  "Forbidden",
+  {},
+  { httpApiStatus: 403 }
+) {}
+
+export class Authentication extends HttpApiMiddleware.Service<Authentication, {
+  provides: CurrentPrincipal
+}>()("comp/Authentication", {
+  security: { bearer: HttpApiSecurity.bearer },
+  error: Unauthenticated
+}) {}
+
+// The verifier is a capability: a JWKS check, a session lookup, or a test fake.
+export class TokenVerifier extends Context.Service<TokenVerifier, {
+  readonly verify: (
+    token: Redacted.Redacted<string>
+  ) => Effect.Effect<CurrentPrincipal["Service"], Unauthenticated>
+}>()("comp/TokenVerifier") {}
+
+export const AuthenticationLive = Layer.effect(
+  Authentication,
+  Effect.gen(function*() {
+    const verifier = yield* TokenVerifier
+    return Authentication.of({
+      // A missing header arrives here as an empty credential; the verifier must reject it.
+      bearer: Effect.fn(function*(httpEffect, { credential }) {
+        const principal = yield* verifier.verify(credential)
+        return yield* Effect.provideService(httpEffect, CurrentPrincipal, principal)
+      })
+    })
+  })
+)
+
+// Authorization runs per operation, against the resource the request names.
+export const authorize = Effect.fn("authorize")(function*(action: string, tenantId: string) {
+  const principal = yield* CurrentPrincipal
+  if (principal.tenantId !== tenantId || !principal.permissions.has(action)) {
+    return yield* new Forbidden()
+  }
+  return principal
+})
+```
+
+A handler for `POST /tenants/:tenantId/raises/:id/approve` starts with `yield* authorize("raise:approve", params.tenantId)` and declares `Forbidden` in the endpoint's `error`. Probed on `rc.115`: a request with no `Authorization` header and an invalid `:id` gets `401`, not `400`, because **middleware wraps request decoding** — an unauthenticated caller learns nothing about your validation rules; a valid token with the wrong tenant or a missing permission gets `403`, and the handler body never runs.
+
+- **Declare a middleware's error once, on the middleware.** It reaches the derived client's error channel and the OpenAPI responses of every endpoint it covers (duplicated entries were fixed in `rc.113`); repeating it on each endpoint is noise.
+- **Never infer authorization** from route possession, a documented security scheme, an unverified claim, a phantom type, or a cast. Audit system actors and "internal" bypass paths the same way as user calls.
+- **Test every denial independently**: no credential, bad credential, wrong tenant, missing permission, and the success path each get their own assertion, plus one that a secret canary appears in neither the response body nor the captured log output.
+- If the `401` needs a `WWW-Authenticate` challenge, fold the header into the error with `HttpApiSchema.encodeToWithHeaders` (see [HttpApiSchema](#httpapischema)).
+
 **Reach for it when** you need auth (or any cross-cutting concern) that both decodes credentials and provides typed context to handlers, with wiring checked at compile time.
 
 ## HttpApiBuilder
@@ -291,6 +443,34 @@ export const CompApiHandlers = HttpApiBuilder.group(
 )
 ```
 
+`HttpApiBuilder.handler(api, groupId, endpointId, f)` (ported in `rc.113`) defines one endpoint callback outside the `group` builder. It returns `f` unchanged, but infers the request shape, the allowed success and error types, and the callback's service requirements from the endpoint — so large groups can keep one handler per module and still register them with `handlers.handle`.
+
+```ts
+import { Effect, Schema } from "effect"
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
+
+class CompRecord extends Schema.Class<CompRecord>("CompRecord")({
+  employeeId: Schema.String,
+  baseSalary: Schema.Finite
+}) {}
+
+class Api extends HttpApi.make("comp-api").add(
+  HttpApiGroup.make("comp").add(
+    HttpApiEndpoint.get("getComp", "/employees/:id/comp", {
+      params: { id: Schema.String },
+      success: CompRecord
+    })
+  )
+) {}
+
+declare const loadComp: (employeeId: string) => Effect.Effect<CompRecord>
+
+// `params.id` is a string and the result must be a CompRecord — no annotations needed.
+export const getComp = HttpApiBuilder.handler(Api, "comp", "getComp", ({ params }) => loadComp(params.id))
+
+export const CompHandlers = HttpApiBuilder.group(Api, "comp", (handlers) => handlers.handle("getComp", getComp))
+```
+
 Assemble the server: provide each group's handler Layer to `HttpApiBuilder.layer`, mount docs, and serve.
 
 ```ts
@@ -311,6 +491,15 @@ const ServerLayer = HttpRouter.serve(Layer.mergeAll(ApiRoutes, DocsRoute)).pipe(
 
 Layer.launch(ServerLayer).pipe(NodeRuntime.runMain)
 ```
+
+### Handlers are lazy adapters
+
+A handler translates one decoded request into one use-case call and returns the Effect. Keep everything else out.
+
+- **Return an Effect; never run one.** No `Effect.runPromise`, no `ManagedRuntime`, no nested runtime inside a handler — the request fiber must own the work so that a disconnect or shutdown interrupts it ([HTTP Server](http-server#request-work-stays-in-the-request-fiber) shows the proof).
+- **Depend on use-case services, not infrastructure.** A handler that yields `SqlClient` or builds an `HttpClient` has absorbed persistence and tenancy policy that no other entry point (RPC, CLI, workflow) will share.
+- **Keep public DTOs separate from persistence models.** The endpoint's `success` schema is a published contract; a table row is not. Map between them in the use case or repository.
+- **Translate errors at this edge, exhaustively** ([status mapping](#status-mapping-is-part-of-the-contract)), and authorize before acting ([authentication is not authorization](#authentication-is-not-authorization)).
 
 **Reach for it when** implementing the server for an `HttpApi` — this is the only place handlers live.
 
@@ -365,6 +554,17 @@ export const callApi = Effect.gen(function*() {
 }).pipe(Effect.provide(ApiClient.layer))
 ```
 
+Options and per-call controls worth knowing:
+
+| Need | Use |
+| --- | --- |
+| Point the client at a host or base path | `HttpApiClient.make(Api, { baseUrl: "https://hr.acme.internal/api/v2" })` — shorter than a `prependUrl` transform |
+| The status or headers as well as the decoded value | pass `responseMode: "decoded-and-response"` (a `[value, response]` tuple) or `"response-only"` in the call's request object; the default is `"decoded-only"` |
+| A link or redirect target without executing a request | `HttpApiClient.urlBuilder(Api, { baseUrl })` mirrors the client's shape and returns strings: `urls.comp.getComp({ params, query })`. Params and query are encoded through the endpoint schemas, and a base URL's pathname is kept (it was dropped before `rc.113`) |
+| A larger SSE event budget for one `StreamSse` endpoint | `sseOptions: { maxEventSize }` in that call's request object (`rc.113`); the default cap is 10 MiB per pending event |
+
+The client decodes JSON, text, bytes, and — since `rc.113` — form-urlencoded responses according to the endpoint's declared encoding. Request values are encoded through the endpoint schemas *before* anything is sent, so a value that violates a check fails locally with `SchemaError`: **a typed client cannot produce malformed wire input**, which is why boundary tests need a raw request ([HttpApiTest](#httpapitest)).
+
 **Reach for it when** consuming an `HttpApi` from another service or frontend and wanting a typed client that can never silently drift from the server.
 
 ## OpenApi
@@ -384,6 +584,17 @@ const spec = OpenApi.fromApi(Api)
 ```
 
 Typically you don't call `fromApi` yourself — passing `openapiPath` to `HttpApiBuilder.layer` publishes it, and Swagger/Scalar layers consume it. Annotate at any level: `HttpApi.make(...).annotateMerge(OpenApi.annotations({ title, version }))` for the whole API, or equivalently on a group or endpoint.
+
+Facts that decide how you use the document:
+
+- **Each model owns its own artifact.** A value Schema knows a shape, so [`Schema.toJsonSchemaDocument`](../data/schema#jsonschema) yields a *JSON Schema* for config validation, structured-output prompts, or cross-language payload codegen. Methods, paths, parameter locations, statuses, per-endpoint errors, security, and media types live only on the assembled `HttpApi`, so the *OpenAPI* document must come from `OpenApi.fromApi`. Feeding either generator the other model produces a document missing exactly the facts the other owns — and a JSON Schema is not "the OpenAPI".
+- **Objects are closed here, open there.** `fromApi` generates object schemas with `onExcessProperty: "error"`, so struct bodies carry `additionalProperties: false`. A bare `Schema.toJsonSchemaDocument` call leaves objects open (`additionalProperties: true`) unless you pass the same option. Decoding is a separate matter: the server decodes with default parse options, so an unknown request property is dropped before the handler sees the payload, not rejected.
+- **Only identified schemas become components.** A schema with an `identifier` annotation is emitted once under `components.schemas` and referenced by `$ref`; anonymous structs are inlined at each use. A `Schema.Class` named `CompRecord` appears as `CompRecordEncoded`, because the document describes the encoded side. Name the DTOs you want codegen tools to reuse.
+- **Generation is deferred.** Since `rc.112` the `openapiPath`, Swagger, and Scalar routes build the document on the first request and memoize it, so startup stays cheap — and a generation defect (duplicate `operationId`, conflicting security scheme, invalid component key) surfaces on that first request, not at boot. Call `OpenApi.fromApi(Api)` in a test to move the failure into CI.
+- **Overrides apply last.** Endpoint-level `OpenApi.Override` and `OpenApi.Transform` annotations run after schema generation (`rc.113`), so a transform sees — and may rewrite — the finished operation, including its generated request and response schemas.
+- **Assert semantics, not snapshots.** Check the facts a consumer depends on — path, method, parameter locations, security requirement, media types, each declared status — instead of snapshotting the whole document, whose key order and component layout are not a contract.
+
+Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) — how `identifier` annotations become shared definitions (its "Generation Options" section describes an `additionalProperties` option; `rc.115` has `onExcessProperty` instead).
 
 **Reach for it when** you need an OpenAPI document for external consumers, codegen, or API gateways — guaranteed to match what you actually serve.
 
@@ -449,6 +660,79 @@ it.layer(TestServices)("Comp API", (it) => {
     }))
 })
 ```
+
+`HttpServer.layerServices` is the ready-made equivalent of the `TestServices` Layer above (`Path`, a weak `Etag` generator, `HttpPlatform`, and a no-op `FileSystem`). Since `rc.113` the harness also runs registered pre-response handlers, so headers and cookies added with `HttpEffect.appendPreResponseHandler` or `HttpApiBuilder.securitySetCookie` are visible on the test response.
+
+### What each test ring proves
+
+| Ring | Drive it with | Proves | Does not prove |
+| --- | --- | --- | --- |
+| 1. Compile | `tsc` over the API, the complete handler Layers, the derived client, and the root Layer | the contract, handlers, and wiring agree | any runtime behavior |
+| 2. Document | targeted assertions on `OpenApi.fromApi(Api)` | published paths, parameters, security, media types, and statuses | that the server behaves that way |
+| 3. In process | `HttpApiTest.groups` | codecs, routing, middleware, status mapping, typed errors | malformed input (the typed client cannot send it), sockets, disconnects |
+| 4. Raw wire | `HttpRouter.toWebHandler` with a hand-built `Request`, or a real listener on port `0` | malformed JSON, wrong `Content-Type`, bad headers, invalid params, streaming, disconnect, listener release | that the deployed artifact starts |
+| 5. Artifact | the built bundle or container, launched as in production | packaging, config, and startup | — |
+
+A direct call to a service method is evidence about that service, not about HTTP. To show *where* validation lives, send an invalid value over the raw wire and assert both the `400` and that the dependency behind the handler was never touched:
+
+```ts
+import { assert, it } from "@effect/vitest"
+import { Context, Effect, Layer, Ref, Schema } from "effect"
+import { HttpRouter, HttpServer } from "effect/unstable/http"
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
+
+const EmployeeId = Schema.String.check(Schema.isPattern(/^E-\d{4}$/)).pipe(Schema.brand("EmployeeId"))
+const CompRecord = Schema.Struct({ employeeId: EmployeeId, baseSalary: Schema.Finite })
+
+class Api extends HttpApi.make("comp-api").add(
+  HttpApiGroup.make("comp").add(
+    HttpApiEndpoint.get("getComp", "/employees/:id/comp", {
+      params: { id: EmployeeId }, // the rule lives on the contract
+      success: CompRecord
+    })
+  )
+) {}
+
+class CompRepository extends Context.Service<CompRepository, {
+  readonly find: (id: typeof EmployeeId.Type) => Effect.Effect<typeof CompRecord.Type>
+}>()("comp/CompRepository") {}
+
+const CompHandlers = HttpApiBuilder.group(
+  Api,
+  "comp",
+  Effect.fn(function*(handlers) {
+    const repository = yield* CompRepository
+    return handlers.handle("getComp", ({ params }) => repository.find(params.id))
+  })
+)
+
+it.effect("an invalid id never reaches the repository", () =>
+  Effect.gen(function*() {
+    const calls = yield* Ref.make(0)
+    const CountingRepository = Layer.succeed(CompRepository)({
+      find: (employeeId) =>
+        Ref.update(calls, (n) => n + 1).pipe(Effect.as({ employeeId, baseSalary: 180_000 }))
+    })
+    const Routes = HttpApiBuilder.layer(Api).pipe(
+      Layer.provide(CompHandlers),
+      Layer.provide(CountingRepository),
+      Layer.provide(HttpServer.layerServices)
+    )
+    // The typed client would reject "nope" while encoding, so speak raw HTTP instead.
+    const { dispose, handler } = HttpRouter.toWebHandler(Routes, { disableLogger: true })
+    yield* Effect.addFinalizer(() => Effect.promise(dispose))
+
+    const invalid = yield* Effect.promise(() => handler(new Request("http://localhost/employees/nope/comp")))
+    assert.strictEqual(invalid.status, 400)
+    assert.strictEqual(yield* Ref.get(calls), 0) // validation happened before the handler
+
+    const valid = yield* Effect.promise(() => handler(new Request("http://localhost/employees/E-0042/comp")))
+    assert.strictEqual(valid.status, 200)
+    assert.strictEqual(yield* Ref.get(calls), 1)
+  }))
+```
+
+For a secured mutation, cover every declared status, and the tenant and permission denials *independently*; assert over the raw wire that a defect yields a content-free `500` (inside `HttpApiTest` a handler defect surfaces as a defect of the client call, so the rendered response is not visible there); and plant a canary secret to confirm it reaches neither the response body nor the captured log output.
 
 **Reach for it when** testing handlers, schema round-trips, error mapping, or middleware — fast, faithful, without standing up a server.
 

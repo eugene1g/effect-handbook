@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
-import * as FastCheck from "fast-check"
 import {
+  ByteSize,
   Cache,
   Channel,
   Chunk,
@@ -24,8 +24,9 @@ import {
   Stream
 } from "effect"
 import { McpProtocol } from "effect/unstable/ai"
+import { Arbitrary } from "effect/unstable/arbitrary"
 import { CliConfig, GlobalFlag } from "effect/unstable/cli"
-import { Ini, Toml, Yaml } from "effect/unstable/encoding"
+import { Ini, SchemaBinary, Toml, Yaml } from "effect/unstable/encoding"
 
 const checks: Array<string> = []
 const checked = (name: string) => checks.push(name)
@@ -48,11 +49,91 @@ assert.match(SchemaIssue.makeFormatterDefault()(reportedInput.failure.issue), /s
 checked("SchemaIssue explicit formatting and opt-in input reporting")
 
 const Employee = Schema.Struct({ id: Schema.Int, name: Schema.String })
-const EmployeeArbitrary = Schema.toArbitrary(Employee)(FastCheck)
-for (const employee of FastCheck.sample(EmployeeArbitrary, { numRuns: 10 })) {
+const EmployeeArbitrary = Arbitrary.schema(Employee)
+const employeeSamples = await Effect.runPromise(Arbitrary.sampleEffect(EmployeeArbitrary, { count: 10, seed: 42 }))
+assert.equal(employeeSamples.length, 10)
+for (const employee of employeeSamples) {
   assert.equal(Schema.is(Employee)(employee), true)
 }
-checked("Schema.toArbitrary fast-check factory")
+assert.deepEqual(
+  await Effect.runPromise(Arbitrary.sampleEffect(EmployeeArbitrary, { count: 10, seed: 42 })),
+  employeeSamples
+)
+checked("native Arbitrary.schema sampling is Schema-valid and seed-deterministic")
+
+const passedCheck = await Effect.runPromise(
+  Arbitrary.checkEffect(EmployeeArbitrary, Schema.is(Employee), { runs: 50, seed: 1 })
+)
+assert.equal(passedCheck._tag, "Passed")
+const falsifiedCheck = await Effect.runPromise(
+  Arbitrary.checkEffect(Arbitrary.schema(Schema.Int), (n) => n < 5, { runs: 200, seed: 1 })
+)
+assert.equal(falsifiedCheck._tag, "Falsified")
+assert(falsifiedCheck._tag === "Falsified")
+assert.equal(falsifiedCheck.shrunkInput, 5)
+assert.deepEqual(falsifiedCheck.failure, { _tag: "ReturnedFalse" })
+assert.equal(typeof falsifiedCheck.replay, "string")
+assert.equal(typeof Arbitrary.formatCheckFailure(falsifiedCheck), "string")
+assert.equal(Arbitrary.formatCheckFailure(passedCheck), undefined)
+const replayedCheck = await Effect.runPromise(
+  Arbitrary.checkEffect(Arbitrary.schema(Schema.Int), (n) => n < 5, { replay: falsifiedCheck.replay })
+)
+assert.equal(replayedCheck._tag, "Falsified")
+const exhaustedCheck = await Effect.runPromise(
+  Arbitrary.checkEffect(
+    Arbitrary.schema(Schema.Int.check(Schema.makeFilter(() => false))),
+    () => true,
+    { runs: 10, seed: 1, maxDiscards: 50 }
+  )
+)
+assert.equal(exhaustedCheck._tag, "Exhausted")
+checked("Arbitrary.checkEffect returns Passed/Falsified/Exhausted data, shrinks, and replays")
+
+const unconstrainedInts = await Effect.runPromise(
+  Arbitrary.sampleEffect(Arbitrary.schema(Schema.Int), { count: 400, seed: 1 })
+)
+assert(unconstrainedInts.every((n) => Math.abs(n) <= 100))
+const boundedInts = await Effect.runPromise(
+  Arbitrary.sampleEffect(
+    Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 50_000, maximum: 300_000 }))),
+    { count: 200, seed: 1 }
+  )
+)
+assert(boundedInts.every((n) => n >= 50_000 && n <= 300_000))
+checked("Arbitrary default size keeps unconstrained ints small; explicit Schema bounds are honored")
+
+const probeUpload = ByteSize.mebibytes(25)
+assert.equal(ByteSize.toBigInt(probeUpload), 26_214_400n)
+assert.equal(ByteSize.format(probeUpload), "25 MiB")
+assert.equal(ByteSize.format(probeUpload, { system: "decimal" }), "26.21 MB")
+assert.equal(ByteSize.format(probeUpload, { unit: "KiB", precision: 0 }), "25600 KiB")
+assert.deepEqual(ByteSize.fromInput("1.5 KiB"), ByteSize.fromInput(1536))
+assert.equal(ByteSize.fromInput("1.5 B")._tag, "None")
+assert.equal(ByteSize.fromInput(-1)._tag, "None")
+assert.equal(ByteSize.divide(probeUpload, 0)._tag, "None")
+checked("ByteSize exact units, binary-default formatting, and partial parsing/arithmetic")
+
+const BinaryFrame = Schema.Struct({ runId: Schema.String.pipe(SchemaBinary.fieldId(1)), netPay: Schema.Finite })
+const binaryCodec = SchemaBinary.toCodec(BinaryFrame)
+const binaryBytes = Schema.encodeUnknownSync(binaryCodec)({ runId: "run_2025_06", netPay: 6100 })
+assert(binaryBytes instanceof Uint8Array)
+assert.deepEqual(Schema.decodeUnknownSync(binaryCodec)(binaryBytes), { runId: "run_2025_06", netPay: 6100 })
+const binaryRoundTrip = await Effect.runPromise(
+  Stream.make({ runId: "a", netPay: 1 }, { runId: "b", netPay: 2 }).pipe(
+    Stream.pipeThroughChannel(SchemaBinary.encode(BinaryFrame)()),
+    Stream.pipeThroughChannel(SchemaBinary.decode(BinaryFrame, { maxFrameSize: 1024 })()),
+    Stream.runCollect
+  )
+)
+assert.deepEqual(binaryRoundTrip, [{ runId: "a", netPay: 1 }, { runId: "b", netPay: 2 }])
+const truncatedFrame = await Effect.runPromiseExit(
+  Stream.make(binaryBytes.slice(0, binaryBytes.length - 1)).pipe(
+    Stream.pipeThroughChannel(SchemaBinary.decode(BinaryFrame)()),
+    Stream.runCollect
+  )
+)
+assert.equal(truncatedFrame._tag, "Failure")
+checked("SchemaBinary codec and channels round-trip; a truncated trailing frame fails")
 
 const JsonSchemaCompBand = Schema.Struct({
   level: Schema.Int.annotate({ description: "Job level" }),
@@ -62,9 +143,14 @@ const jsonSchemaDocument = Schema.toJsonSchemaDocument(JsonSchemaCompBand)
 assert.equal(jsonSchemaDocument.dialect, "draft-2020-12")
 assert.deepEqual(
   (jsonSchemaDocument.schema as any).properties.level,
-  { type: "integer", allOf: [{ description: "Job level" }] }
+  { type: "integer", description: "Job level" }
 )
-checked("JSON Schema document wrapper and checked-field annotations")
+assert.equal((jsonSchemaDocument.schema as any).additionalProperties, true)
+assert.equal(
+  (Schema.toJsonSchemaDocument(JsonSchemaCompBand, { onExcessProperty: "error" }).schema as any).additionalProperties,
+  false
+)
+checked("JSON Schema document wrapper, compacted annotations, and open-by-default objects")
 
 const patchBefore = { recommendations: [{ salary: 100 }], approved: false }
 const patchAfter = { recommendations: [{ salary: 110 }, { salary: 120 }], approved: true }
@@ -254,7 +340,7 @@ assert.deepEqual(layerRefResult, [1, 2])
 checked("LayerRef preload and refresh")
 
 console.log(JSON.stringify({
-  effect: "4.0.0-rc.108",
+  effect: "4.0.0-rc.115",
   nodeNativeTypeScript: true,
   checks
 }, null, 2))

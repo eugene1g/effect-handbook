@@ -2,7 +2,7 @@
 
 A source-grounded tour of Effect 4's reactive state layer — the same primitives that power TanStack-Query-style data fetching, SSR hydration, and fine-grained UI state, but built natively on Effects, Streams, Layers, scopes, and typed errors.
 
-This guide shares the handbook's **2026-08-12** audit target, `effect@4.0.0-rc.108`. The reactivity APIs are under `unstable/`, so pin compatible package versions and re-audit before upgrading.
+This guide shares the handbook's **2026-09-18** audit target, `effect@4.0.0-rc.115`. The reactivity APIs are under `unstable/`, so pin compatible package versions and re-audit before upgrading.
 
 For a compact module-by-module API reference, use the [Reactivity & Atom handbook topic](../systems/reactivity-atom). This deep dive repeats only the details needed to connect those modules into an application-level mental model.
 
@@ -152,7 +152,9 @@ const importMany = Reactivity.Reactivity.pipe(
 )
 ```
 
-> **Source note:** `Reactivity` stringifies string, number, bigint, and boolean keys and hashes other values with `Hash.hash`. The record form `{ todos: [id] }` expands to both the table key `todos` and each `todos:id` key. Use that expansion for mutations; register detail reads directly on `` `todos:${id}` `` when they must avoid unrelated row invalidations. Query reruns are serialized: while one run is active, repeated invalidations coalesce into at most one pending rerun.
+> **Source note:** `Reactivity` stringifies string, number, bigint, and boolean keys and hashes other values with `Hash.hash`. The record form `{ todos: [id] }` expands to both the table key `todos` and each `todos:id` key. Use that expansion for mutations; register detail reads directly on `` `todos:${id}` `` when they must avoid unrelated row invalidations. Query reruns are serialized: while one run is active, repeated invalidations coalesce into at most one pending rerun. A key list that names the same key twice is safe — the handler is stored once per key and scope cleanup tolerates the repeat (it failed before `rc.113`).
+
+> **Source note:** `Reactivity.Reactivity` is the Context key **and** the service's branded interface (`[Reactivity.TypeId]`); there is no separate `Reactivity.Service` type to import. The `ReactivityService` interface above is a reading aid, not an export. Obtain an instance from `Reactivity.layer` or `Reactivity.make` rather than writing the object by hand. The same convention applies to `LanguageModel`, `EmbeddingModel`, and `Chat`.
 
 > **Takeaway:** You rarely call `Reactivity` directly in app code. It reappears below as the engine behind `Atom.withReactivity` and `reactivityKeys` — but understanding "keys connect writes to reads, no value caching" makes the rest click.
 
@@ -608,7 +610,7 @@ Effect 4 ships the data-fetching niceties you'd otherwise pull in a library for.
 | `debounce(duration)` | Publish source changes only after they settle. |
 | `withRefresh(duration)` | Auto-refresh on an interval. |
 | `optimistic` / `optimisticFn` | Optimistic updates with automatic rollback on failure. |
-| `withFallback(fallbackAtom)` | Show a fallback result while the primary is still `Initial`. |
+| `withFallback(fallbackAtom)` | Show a fallback result (marked `waiting`) while the primary is still `Initial`. If the primary is writable, writes and refreshes go to the **primary**. |
 | `kvs({ runtime, key, schema, defaultValue })` | Persist an atom to a `KeyValueStore` (e.g. localStorage). |
 | `searchParam(name, { schema })` | Two-way bind an atom to a URL query parameter. |
 | `refreshOnWindowFocus` | Refresh whenever the tab regains focus. |
@@ -788,11 +790,11 @@ Hydration.hydrate(clientRegistry, window.__ATOMS__)
 //  encoded values are loaded by key via registry.setSerializable(...)
 ```
 
-> **Source note:** `encodeInitialAs: "ignore"` is the default; `"value-only"` emits the encoded `Initial` value. `"promise"` attaches a live `resultPromise`, so it is only suitable for a streaming transport that preserves promises—not JSON embedded in HTML. `Hydration.toValues` narrows dehydrated entries for transports that need the concrete record shape. `hydrate` applies values by key and does not reject older `dehydratedAt` timestamps, so ordering and freshness remain the caller's responsibility.
+> **Source note:** `encodeInitialAs: "ignore"` is the default; `"value-only"` emits the encoded `Initial` value. `"promise"` attaches a live `resultPromise`, so it is only suitable for a streaming transport that preserves promises—not JSON embedded in HTML. `Hydration.toValues` narrows dehydrated entries for transports that need the concrete record shape. `hydrate` applies values by key and does not reject older `dehydratedAt` timestamps, so ordering and freshness remain the caller's responsibility. `dehydrate` tolerates a bad codec: an atom whose current value fails to encode with a `SchemaError` is skipped and the rest of the registry is still emitted, so one mis-declared schema costs a client refetch rather than the whole SSR payload.
 
 For an async atom, the serialization schema must cover the whole `AsyncResult`, not only its success value. Construct it with `AsyncResult.Schema({ success: UserSchema, error: UserErrorSchema })`.
 
-For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.108/packages/effect/SCHEMA.md) for the long-form treatment.
+For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.115/packages/effect/SCHEMA.md) for the long-form treatment.
 
 `withReactivity` preserves the underlying initial-value target, so a preloaded serializable atom still refreshes the correct source atom.
 
@@ -966,6 +968,21 @@ const saveProfile = RpcClient.mutation("saveProfile")
 ```
 
 Both services expose the underlying typed client and an atom `.runtime`. Their query options can add static reactivity keys, an idle TTL (or infinite keep-alive), and a stable hydration serialization key. Mutations accept reactivity keys with each write request. A streaming RPC query becomes a writable pull atom, so writing `undefined` requests the next chunk. The query builders preserve serialization and idle-retention metadata when reactivity wrapping is applied; separately, `Atom.withReactivity` preserves the hydration initial-value target.
+
+### What the typed atoms promise about results and errors
+
+The generated atoms are thin: they call the typed client and hand you its result. Three rules keep rendering code honest.
+
+| Question | `AtomHttpApi` | `AtomRpc` |
+| --- | --- | --- |
+| What is the success type? | Exactly the generated client's type for that endpoint and `responseMode` — decoded value, `[value, response]` tuple, raw response, header-wrapped value, or a `Stream` for SSE and binary-stream endpoints. | The RPC's success type; a streaming RPC becomes a pull atom. |
+| What is in the typed error? | Endpoint errors plus middleware errors (server-declared and client-side). | RPC error, `RpcClientError`, and both error kinds of every middleware on the RPC. |
+| Where do transport and decode failures go? | For the request: **defects** (render with `onDefect`). For a returned `Stream`: the **stream's error channel** — `HttpClientError`, `Schema.SchemaError`, `Sse.Retry`, `Sse.SseError` alongside the declared stream error. | In the typed error as `RpcClientError`. |
+| How long is an unused query kept? | Omitted `timeToLive` → the registry's `defaultIdleTTL`; **`0` → no idle retention**; finite → that long; infinite → kept alive. | Same. |
+
+Two consequences for UI code. A component that reads an SSE query gets `Success` as soon as the stream *exists*; the interesting failures happen later, inside the stream, so the consumer (`Stream.catch`, or an atom built from that stream) must handle them — before `rc.113` that channel was typed `never` and such handling was silently missing. And a session-expiry middleware on an RPC now shows up in the atom's error union, so an exhaustive `AsyncResult.builder(...).onErrorTag(...)` chain stops compiling until you add the case, which is the point.
+
+`AtomHttpApi` also accepts per-call `sseOptions` (native SSE decode options; they are part of the query's family key) and dispatches endpoints of a `topLevel` group on the client root while you still address them by group identifier.
 
 ## Mastery — capstone
 

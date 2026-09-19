@@ -5,7 +5,9 @@ Long-form guides build a working mental model across related Effect APIs. They c
 ## Available guides
 
 - [Reactivity — From Atoms to Mastery](reactivity-from-atoms-to-mastery) — follow `Reactivity`, `Atom`, `AtomRegistry`, `AsyncResult`, `AtomRef`, hydration, and React integration from the dependency graph through a complete Todos feature. It assumes the Effect/Layer basics and is designed for application developers building reactive clients or SSR UI.
+- [Adopting Effect in an Existing TypeScript Codebase](adopting-effect-in-an-existing-codebase) — audit a Promise-based service, pin its behavior with characterization tests, migrate leaf-first behind an unchanged contract, and keep exactly one seam where Promise meets Effect.
 - [Anatomy of a Real Effect Application](anatomy-of-a-real-effect-application) — compose domain schemas, errors, services, Layers, configuration, resources, observability, an entrypoint, shutdown, and tests into one application.
+- [Owning Lifetimes — Startup, Readiness, and Shutdown](owning-lifetimes-startup-readiness-and-shutdown) — give every resource and fiber one owner, treat startup as a transaction, separate liveness from readiness and draining, shut down through one path, and bridge into non-Effect hosts without leaking work.
 - [Schema — From External Input to Domain and Back](schema-from-external-input-to-domain-and-back) — follow encoded input through decoding, domain modeling, transformations, HTTP/RPC/SQL/persistence boundaries, evolution, and property tests.
 - [Failure, Retry, Fallback, and Interruption](failure-retry-fallback-and-interruption) — connect `E`, `Cause`, retry classification, fallback, interruption, finalizers, and operational policy.
 - [Structured Concurrency Through a Bounded Worker](structured-concurrency-through-a-bounded-worker) — build and test a Queue-based worker with backpressure, supervised fibers, resource safety, and graceful shutdown.

@@ -10,6 +10,11 @@ A transaction is an **optimistic**, **composable**, **all-or-nothing** block of 
 - **Optimistic commit.** At commit time the runtime checks every journaled ref's `version` against the live ref. If nothing changed, it commits atomically (bumps versions, wakes waiters). If a ref changed underneath, the transaction is discarded and re-run from scratch.
 - **Retry = block until change.** `Effect.txRetry` suspends the transaction; it wakes only when one of the refs it read is committed by another fiber, then retries. Zero busy-waiting.
 - **Optimistic state does not acquire locks.** Transactions over `TxRef` and its collections resolve conflicts by retrying instead of waiting while holding a lock. Effect also exposes the explicit `TxReentrantLock`; once you coordinate several such locks, ordinary lock-ordering discipline still matters and deadlock is possible.
+- **Failure discards the journal.** A typed failure, defect, or interruption that escapes the outermost `Effect.tx` abandons *every* journaled write, so "credit the allocation, then discover the pool is short" leaves both cells exactly as they were — there is no torn state to repair and no compensating write to remember.
+- **There are no savepoints.** A failure that is caught *inside* the transaction keeps the writes made before it, including writes made by a nested `Effect.tx` (which only joined the parent). Let the failure escape the outermost boundary when you want the rollback.
+- **Readers need a transaction too.** A lone `TxRef.get` is its own one-shot transaction, so two of them in a row can straddle another fiber's commit and observe a combination no transaction ever produced. Read every related cell inside one `Effect.tx`; a body whose reads were overtaken by another commit is re-run instead of being reported, even if that stale run failed.
+
+**Scope.** Reach for STM when one *invariant spans several in-memory cells* (pool + allocations, queue + counter, permit + registry). A single cell is a [Ref](./state-mutable-references#ref); anything that must survive a restart or be visible to another process is a database transaction — see [SQL](../interfaces/sql) and the [transactional write with outbox recipe](../recipes/transactional-write-with-outbox).
 
 ### The canonical example: draw down a shared merit budget
 
@@ -48,6 +53,47 @@ const program = Effect.gen(function*() {
 
 > **Tip:** Most `Tx*` operations are *self-transactional*: a lone `yield* TxQueue.offer(q, rec)` runs in its own implicit one-shot transaction. Group several under one `Effect.tx` to commit them together. Constructors like `TxRef.make` return an `Effect` (use `yield*`); the `makeUnsafe` variants build synchronously outside an Effect.
 
+### Failure rolls back; snapshots need one transaction
+
+```ts
+import { Data, Effect, TxRef } from "effect"
+
+class BudgetExceeded extends Data.TaggedError("BudgetExceeded")<{
+  readonly overBy: number
+}> {}
+
+const program = Effect.gen(function*() {
+  const pool = yield* TxRef.make(10_000)
+  const allocated = yield* TxRef.make(0)
+
+  const allocate = (amount: number) =>
+    Effect.tx(Effect.gen(function*() {
+      yield* TxRef.update(allocated, (n) => n + amount) // journaled first...
+      const remaining = yield* TxRef.modify(pool, (n) => [n - amount, n - amount])
+      if (remaining < 0) {
+        return yield* new BudgetExceeded({ overBy: -remaining }) // ...then the body fails
+      }
+    }))
+
+  const rejected = yield* Effect.exit(allocate(12_000)) // Failure(BudgetExceeded { overBy: 2000 })
+  // Neither write survived: pool is still 10000 and allocated is still 0.
+
+  yield* allocate(4_000)
+
+  // One transaction = one consistent view of both cells: { pool: 6000, allocated: 4000 }.
+  // Two separate `TxRef.get` calls could land on either side of a concurrent `allocate`
+  // and report a total that never existed.
+  const snapshot = yield* Effect.tx(Effect.gen(function*() {
+    return {
+      pool: yield* TxRef.get(pool),
+      allocated: yield* TxRef.get(allocated)
+    }
+  }))
+
+  return { rejected, snapshot }
+})
+```
+
 ## TxRef
 
 `effect/TxRef` — stable
@@ -72,6 +118,8 @@ const program = Effect.gen(function*() {
   console.log(yield* TxRef.get(openReqs)) // 4 (the committed value)
 })
 ```
+
+The API is deliberately small — `make`, `makeUnsafe`, `get`, `set`, `update`, `modify`. There is no `updateAndGet` or `getAndSet` as on `Ref`; return whatever you need from `modify`, for example `TxRef.modify(ref, (n) => [n + 1, n + 1])` for the new value.
 
 **Reach for it when** two or more pieces of state must change together and stay mutually consistent under concurrency, or when building custom transactional data structures.
 
@@ -165,6 +213,8 @@ const program = Effect.gen(function*() {
 Transactional FIFO queue with `bounded`, `unbounded`, `dropping`, and `sliding` strategies. Interface-segregated into `TxEnqueue` (write-only) and `TxDequeue` (read-only).
 
 **Mental model.** Transactional analog of `Queue`. `TxQueue.take` on an empty queue internally calls `Effect.txRetry`, blocking (by suspend-and-wake, not spin) until an item arrives. `offer` on a full bounded queue similarly blocks. Operations compose transactionally — debit the budget pool and enqueue atomically.
+
+Batch takes have their own waiting rule: `takeN(queue, n)` waits until `min(n, capacity)` items are available and removes exactly that many, while `takeBetween(queue, min, max)` waits only for `min`. Counts are normalised — a fractional count is floored, and on an open queue `NaN` or a non-positive count returns `[]` without removing anything. For non-transactional queues see [Queue](./concurrency-coordination#queue).
 
 ```ts
 import { Effect, Fiber, TxQueue } from "effect"

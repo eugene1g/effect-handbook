@@ -2,6 +2,8 @@
 
 Effect ships a full standard library — structural equality, comparators, branded types, pattern matching, optics, arbitrary-precision decimals, and more — all composable with each other and the rest of the ecosystem.
 
+> **Official guides:** [Pattern Matching](https://effect.website/docs/v4/code-style/pattern-matching), [Branded Types](https://effect.website/docs/v4/code-style/branded-types), [Equal](https://effect.website/docs/v4/trait/equal), [Hash](https://effect.website/docs/v4/trait/hash), [Equivalence](https://effect.website/docs/v4/behaviour/equivalence), [Order](https://effect.website/docs/v4/behaviour/order), [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal), [Dual APIs](https://effect.website/docs/v4/code-style/dual); each is linked again, with any `rc.115` caveat, in the section it belongs to. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+
 ## Match
 
 `effect/Match` — stable
@@ -68,11 +70,77 @@ const classifyRaise = pipe(
 
 **Advanced arms.**
 
-Key APIs: `Match.tag`, `Match.tags`, `Match.tagStartsWith`, `Match.when`, `Match.whenOr`, `Match.whenAnd`, `Match.not`, `Match.discriminator`, `Match.discriminators`, `Match.instanceOf`, `Match.is`
+Key APIs: `Match.tag`, `Match.tags`, `Match.tagsExhaustive`, `Match.tagStartsWith`, `Match.when`, `Match.whenOr`, `Match.whenAnd`, `Match.not`, `Match.discriminator`, `Match.discriminators`, `Match.discriminatorsExhaustive`, `Match.instanceOf`, `Match.is`
 
-`Match.tag("Exceeds", "Meets", handler)` handles multiple tags in one arm. `Match.not(pattern, handler)` matches everything that does NOT match the pattern. `Match.tagStartsWith("Comp", handler)` useful for namespaced tags. `Match.withReturnType<R>()` pins the return type when TypeScript cannot infer it from arms alone.
+Built-in predicates (usable at the top level or nested inside an object pattern): `Match.string`, `Match.nonEmptyString`, `Match.number`, `Match.boolean`, `Match.bigint`, `Match.symbol`, `Match.date`, `Match.record`, `Match.null`, `Match.undefined`, `Match.defined`, `Match.any`, `Match.is(...literals)`, `Match.instanceOf(Class)`. Any `(value) => boolean` also works as a field pattern: `{ level: (n) => n >= 3 }`.
+
+`Match.tag("Exceeds", "Meets", handler)` handles multiple tags in one arm. `Match.not(pattern, handler)` matches everything that does NOT match the pattern. `Match.tagStartsWith("Comp", handler)` useful for namespaced tags. `Match.withReturnType<R>()` pins the return type of every arm — **it must be the first step of the pipeline**; placed later, TypeScript does not enforce the return type correctly.
+
+**Matching on several arguments.** `Match.fn` (new in `rc.111`) builds a reusable matcher from a selector over the function's arguments; handlers receive the narrowed selected value first, then the original arguments:
+
+```ts
+import { Match } from "effect"
+
+type Rating = "exceeds" | "meets" | "below"
+
+const meritNote = Match.fn((currency: string, rating: Rating) => rating).pipe(
+  Match.when("exceeds", (_rating, currency) => `top-of-band review in ${currency}`),
+  Match.when("meets", (_rating, currency) => `standard merit in ${currency}`),
+  Match.when("below", () => "no adjustment"),
+  Match.exhaustive
+)
+
+meritNote("USD", "meets") // "standard merit in USD"
+```
+
+Since `rc.111`, the finalizers of a `Match.value(x)` pipeline (`orElse`, `option`, `result`, `exhaustive`) type-check even when the type of `x` contains a generic type parameter, which makes one-shot matching usable inside generic functions.
+
+### Closing a matcher
+
+| Finalizer | Result when nothing matched | Use when |
+| --- | --- | --- |
+| `Match.exhaustive` | Compile error while cases remain | The input is a closed union and every member has a policy |
+| `Match.tagsExhaustive({ ... })` | Compile error for a missing or unknown tag | The same, written as one handler table |
+| `Match.orElse(fallback)` | The fallback's value | A deliberate default exists; never as a way to silence `exhaustive` |
+| `Match.option` | `Option.none()` | A partial matcher feeding `Option` combinators |
+| `Match.result` | `Result.fail(input)` — the unmatched input | The caller should see what was not handled |
+
+```ts
+import { Match } from "effect"
+
+type Reviewer = { readonly role: "admin" | "analyst" | "viewer"; readonly level: number }
+
+// Partial matcher: predicates nest inside object patterns, `option` closes it
+const approvalLimit = Match.type<Reviewer>().pipe(
+  Match.withReturnType<number>(), // first step, or it does not constrain the arms
+  Match.when({ role: "admin" }, () => 50_000),
+  Match.when({ role: "analyst", level: (n) => n >= 3 }, () => 10_000),
+  Match.option
+)
+approvalLimit({ role: "admin", level: 1 })  // Option.some(50000)
+approvalLimit({ role: "viewer", level: 9 }) // Option.none()
+
+// Policy table over an error union: a new variant is a compile error right here
+type RaiseError =
+  | { readonly _tag: "BudgetExceeded"; readonly overBy: number }
+  | { readonly _tag: "OutOfBand" }
+  | { readonly _tag: "HrisUnavailable" }
+
+const httpStatus = Match.type<RaiseError>().pipe(
+  Match.tagsExhaustive({
+    BudgetExceeded: () => 409,
+    OutOfBand: () => 422,
+    HrisUnavailable: () => 503
+  })
+)
+httpStatus({ _tag: "OutOfBand" }) // 422
+```
+
+**Classify a whole union without a wildcard.** When one boundary maps every member of a union to a policy — an HTTP status, a retry decision, a user-facing message — finish with `Match.exhaustive` or `Match.tagsExhaustive`, not a `switch` with `default` or a `Match.orElse`. A default branch silently assigns tomorrow's variant to today's fallback; the exhaustive form fails compilation exactly where the policy must be revisited. Completeness is mechanical, though: it proves every row exists, not that every row is right. The error-side of this practice lives in [Effect error handling](../foundations/errors-option-result#effect-error-handling).
 
 Use when exhaustively pattern-matching unions — discriminated unions, workflow state machines, error types — and you want the compiler to enforce coverage.
+
+Official guide: [Pattern Matching](https://effect.website/docs/v4/code-style/pattern-matching).
 
 ## Order
 
@@ -117,11 +185,27 @@ const byBand = Order.Struct({
 
 **Combinators at a glance:**
 
-Key APIs: Order.make, Order.mapInput, Order.combine, Order.combineAll, Order.flip, Order.Tuple, Order.Struct, Order.min, Order.max, Order.clamp, Order.isBetween
+Key APIs: Order.make, Order.mapInput, Order.combine, Order.combineAll, Order.flip, Order.Tuple, Order.Struct, Order.min, Order.max, Order.clamp, Order.isBetween, Order.isLessThan, Order.isGreaterThan, Order.isLessThanOrEqualTo, Order.isGreaterThanOrEqualTo
 
-`Order.flip` reverses sort direction. `Order.Struct({ level: Order.Number, name: Order.String })` builds a struct comparator in one call. `Order.clamp(O)(min, max)(value)` pins a value to a range.
+`Order.flip` reverses sort direction. `Order.Struct({ level: Order.Number, name: Order.String })` builds a struct comparator in one call. `Array.sort(values, order)` returns a **new** array; the native `values.sort(...)` mutates in place.
+
+**Helpers derived from an `Order`.** Each takes the `Order` first and returns a function of the values: the comparison predicates `isLessThan`, `isLessThanOrEqualTo`, `isGreaterThan`, `isGreaterThanOrEqualTo`, plus `min`, `max`, `clamp`, and `isBetween`. `clamp` and `isBetween` take an options object, `{ minimum, maximum }` — not positional bounds — and both ends are inclusive.
+
+```ts
+import { Order } from "effect"
+
+const band = { minimum: 90_000, maximum: 160_000 }
+
+Order.clamp(Order.Number)(185_000, band)        // 160_000 (data-first)
+Order.clamp(Order.Number)(band)(185_000)        // 160_000 (data-last, for pipe)
+Order.isBetween(Order.Number)(band)(160_000)    // true — bounds are inclusive
+Order.max(Order.Number)(120_000, 95_000)        // 120_000
+Order.isLessThan(Order.Number)(95_000, 120_000) // true
+```
 
 Use when sorting by multiple fields, finding min/max values, or clamping a value to a range.
+
+Official guide: [Order](https://effect.website/docs/v4/behaviour/order).
 
 ## Equal
 
@@ -164,7 +248,37 @@ Equal.equals(emp1, emp2) // true  — same id
 Equal.equals(emp1, emp3) // false — different id
 ```
 
+### Equality pitfalls and opt-outs
+
+- **Structural is the default in Effect 4.** Plain objects, arrays, `Map`, `Set`, `Date`, and instances of ordinary classes all compare by content, and `NaN` equals `NaN`. (Effect 3 compared plain objects and arrays by reference.) `Data` classes are about ergonomics — constructors, tags, yieldable errors — not about obtaining value equality. The comparison looks at keys and values, not at the constructor: prototype keys such as methods take part, so two instances of one class are equal when their fields are, while an instance with methods is not equal to a bare literal carrying the same fields. If exactly one operand implements `Equal`, the result is `false`.
+- **Every enumerable field counts.** An incidental field such as a request id or a fetched-at timestamp makes two records of the same entity unequal. When identity is a subset of the shape, implement `[Equal.symbol]` and `[Hash.symbol]` over the identifying fields only, as `Employee` does above.
+- **Native collections ignore `Equal`.** `new Set([{ id: "e1" }, { id: "e1" }]).size` is `2`; only Effect's hash collections ([HashMap](./data-structures#hashmap), [HashSet](./data-structures#hashset)) dedupe structurally.
+- **Compared values must stay frozen.** Hashes are cached per object and comparison results per object pair, so mutating a value after its first comparison or first use as a key leaves stale answers behind. Build a new value instead.
+- **Opting out.** `Equal.byReference(obj)` returns a proxy that compares by identity and leaves `obj` untouched; `Equal.byReferenceUnsafe(obj)` marks `obj` itself, permanently and without a proxy.
+
+```ts
+import { Equal } from "effect"
+
+const recommendation = { employeeId: "emp-001", bps: 150 }
+
+Equal.equals(recommendation, { employeeId: "emp-001", bps: 150 }) // true — structural by default
+Equal.equals(NaN, NaN)                                            // true
+
+// An incidental field makes "the same" record different
+Equal.equals(
+  { employeeId: "emp-001", requestId: "r-1" },
+  { employeeId: "emp-001", requestId: "r-2" }
+) // false
+
+// Identity semantics on demand; the original object is untouched
+const byIdentity = Equal.byReference(recommendation)
+Equal.equals(byIdentity, { employeeId: "emp-001", bps: 150 }) // false
+Equal.equals(byIdentity, byIdentity)                          // true
+```
+
 Use when you need value-semantic equality on domain objects, want to use them as `HashMap` keys, or check membership in a `HashSet`.
+
+Official guide: [Equal](https://effect.website/docs/v4/trait/equal).
 
 ## Hash
 
@@ -189,7 +303,11 @@ const someObj = { employeeId: "emp-001" }
 Hash.random(someObj)                                  // stable random hash per object identity
 ```
 
+**Hash first, then equals.** `Equal.equals` and the hash collections compare hashes before anything else: different hashes prove inequality immediately, while equal hashes only mean "maybe" and trigger the full `[Equal.symbol]` comparison. Two rules follow. Equal values **must** hash equally, or lookups miss. And `[Hash.symbol]` may use a cheap, stable *subset* of the fields that `[Equal.symbol]` compares (hashing only the id is fine) but must never read a field that equality ignores. Hashes of objects are cached, which is one more reason to treat hashed values as immutable.
+
 Use when implementing `[Hash.symbol]()` on a custom class that also implements `Equal`.
+
+Official guide: [Hash](https://effect.website/docs/v4/trait/hash).
 
 ## Equivalence
 
@@ -223,7 +341,13 @@ const eqById = Equivalence.mapInput(
 )
 ```
 
+Key APIs: Equivalence.make, Equivalence.strictEqual, Equivalence.String / Number / Boolean / BigInt / Date, Equivalence.mapInput, Equivalence.combine, Equivalence.combineAll, Equivalence.Struct, Equivalence.Tuple, Equivalence.Array, Equivalence.Record
+
+**The contract.** An `Equivalence` must be reflexive (`eq(a, a)`), symmetric (`eq(a, b)` implies `eq(b, a)`), and transitive. `Array.dedupeWith`, `groupWith`, and similar functions assume all three, so a hand-written `Equivalence.make` that breaks one (for example "within 5% of each other", which is not transitive) produces order-dependent results. `Equivalence.strictEqual<A>()` is the `===` instance for symbols and reference types, `Equal.asEquivalence()` adapts structural equality, and `Schema.toEquivalence(schema)` derives an instance from a schema instead of assembling one by hand.
+
 Use when you need a custom equality predicate for deduplication, test assertions, or domain comparisons without implementing the full `Equal` interface.
+
+Official guides: [Equivalence](https://effect.website/docs/v4/behaviour/equivalence), [Schema-derived equivalence](https://effect.website/docs/v4/schema/equivalence).
 
 ## Ordering
 
@@ -354,7 +478,31 @@ const GrantShares = Brand.all(
 )
 ```
 
+**Why brand at all.** TypeScript is structural: an `employeeId: string` parameter happily accepts a department id, a cost-center code, or unvalidated user input, because all of them are `string`. A brand makes the mix-up a compile error without changing the runtime value.
+
+**Derive the combined type from the constructor.** Build the constructor with `Brand.all(...)` first and let `Brand.Brand.FromConstructor` produce the type, so the two cannot drift apart. `Brand.Branded<A, "Key">` is shorthand for `A & Brand.Brand<"Key">`.
+
+```ts
+import { Brand } from "effect"
+
+type Int = Brand.Branded<number, "Int">
+const Int = Brand.make<Int>((n) => Number.isInteger(n) || `Expected ${n} to be an integer`)
+
+type Positive = Brand.Branded<number, "Positive">
+const Positive = Brand.make<Positive>((n) => n > 0 || `Expected ${n} to be positive`)
+
+const ShareCount = Brand.all(Int, Positive)
+type ShareCount = Brand.Brand.FromConstructor<typeof ShareCount> // number & Brand<"Int"> & Brand<"Positive">
+
+const granted: ShareCount = ShareCount(5_000)
+const rejected = ShareCount.option(-1.5) // Option.none() — both checks fail, and both messages are reported
+```
+
+Failures surface as `Brand.BrandError`: a tagged, error-like value that wraps a `SchemaIssue` and does **not** extend JavaScript's `Error`, so `instanceof Error` is `false` — branch on `_tag` or prefer the `.result` / `.option` constructors. `Brand.all` runs every constituent check and reports all failures, not just the first. To use a brand as a field of a decoded payload, bridge it into a schema: `Schema.brand("EmployeeId")` brands a schema directly, and `schema.pipe(Schema.fromBrand("ShareCount", ShareCount))` reuses an existing constructor's checks — see [Schema](./schema#schema).
+
 Use to prevent primitive confusion — mixing `EmployeeId` with `DepartmentId`, salary cents with share counts, validated with raw strings — without wrapper classes at runtime.
+
+Official guides: [Branded Types](https://effect.website/docs/v4/code-style/branded-types) (its illustrative `Brand` declaration uses a symbol key; `rc.115` brand keys are strings), [Schema branded types](https://effect.website/docs/v4/schema/advanced-usage).
 
 ## Optic
 
@@ -431,6 +579,39 @@ const scaled = positiveHeadcounts.modifyAll((n) => Math.ceil(n * 1.1))(org)
 
 `notUndefined()` preserves optionality: called on an `Optional` it returns another `Optional`, while on a `Prism` it returns a `Prism`. Replacement through composed `Iso`/`Prism` optics writes without first reading the old focus, so setters do not unexpectedly fail merely because the getter cannot currently focus. Treat the optic as the public abstraction; its internal representation is not an API.
 
+**Standalone functions.** Every read and update is also exported as a dual function that takes the optic as an argument (added in `rc.111`), which reads better in a `pipe` and lets one helper accept any optic: `Optic.get` (needs a `Lens`), `Optic.getResult`, `Optic.replace`, `Optic.replaceResult`, `Optic.modify`, `Optic.set` (needs a `Prism`), `Optic.getAll`, and `Optic.modifyAll` (need a `Traversal`). Note the argument order: the standalone `Optic.replace(source, optic, value)` is data-first, while the method is `optic.replace(value, source)`.
+
+**Narrowing the focus.** `.pick([...])` and `.omit([...])` focus on a sub-struct, and `.optionalKey("k")` focuses on a key whose removal is expressed by writing `undefined`. Replacement through them is exact: an optional field left out of a `pick` / `omit` replacement is deleted from the source rather than kept, and `optionalKey` on a tuple index splices the element out.
+
+```ts
+import { Optic, pipe } from "effect"
+
+type CompensationPlan = {
+  readonly employeeId: string
+  readonly base: { readonly annual: number; readonly currency: string }
+  readonly bonus?: number
+}
+
+const plan: CompensationPlan = {
+  employeeId: "emp-001",
+  base: { annual: 120_000, currency: "USD" },
+  bonus: 5_000
+}
+
+const annualBase = Optic.id<CompensationPlan>().key("base").key("annual")
+const bonus = Optic.id<CompensationPlan>().optionalKey("bonus")
+
+Optic.get(plan, annualBase) // 120_000
+
+// Data-last form composes in a pipeline; writing `undefined` removes the optional key
+const nextCycle = pipe(
+  plan,
+  Optic.modify(annualBase, (salary) => Math.round(salary * 1.04)),
+  Optic.replace(bonus, undefined)
+)
+// { employeeId: "emp-001", base: { annual: 124800, currency: "USD" } }
+```
+
 Use when updating deeply nested immutable data without boilerplate spread chains, or composing readers and writers for the same path.
 
 ## Predicate
@@ -502,10 +683,10 @@ import { BigDecimal, pipe } from "effect"
 const baseSalary  = BigDecimal.fromStringUnsafe("120000.00")
 const meritRate   = BigDecimal.fromStringUnsafe("0.04")
 
-const increase    = BigDecimal.multiply(baseSalary, meritRate)  // 4800.0000
-const newSalary   = BigDecimal.sum(baseSalary, increase)        // 124800.0000
+const increase    = BigDecimal.multiply(baseSalary, meritRate)  // 4800 (value 48000000n, scale 4)
+const newSalary   = BigDecimal.sum(baseSalary, increase)        // 124800 (still scale 4)
 
-BigDecimal.format(newSalary)           // "124800.0000"
+BigDecimal.format(newSalary)           // "124800" — format normalizes, so trailing zeros are dropped
 // Round to nearest dollar using the options object
 BigDecimal.round(newSalary, { scale: 0, mode: "half-from-zero" })
 // => BigDecimal representing 124800
@@ -515,8 +696,8 @@ BigDecimal.round(newSalary, { scale: 0, mode: "half-from-zero" })
 const sharePrice = BigDecimal.fromStringUnsafe("48.75")
 const grantShares = BigDecimal.fromBigInt(5000n)
 
-const grantValue = BigDecimal.multiply(sharePrice, grantShares)  // 243750.00
-BigDecimal.format(grantValue)  // "243750.00"
+const grantValue = BigDecimal.multiply(sharePrice, grantShares)  // 243750 (scale 2)
+BigDecimal.format(grantValue)  // "243750"
 
 // ── Comparison ────────────────────────────────────────────────────────────────
 // Is the proposed salary above the band minimum?
@@ -528,7 +709,7 @@ BigDecimal.isGreaterThan(
 BigDecimal.equals(
   BigDecimal.fromStringUnsafe("124800.00"),
   BigDecimal.fromStringUnsafe("124800.000")
-) // true — normalize handles trailing zeros
+) // true — comparison ignores scale, so trailing zeros do not matter
 
 // Safe division returns Option
 const perShare = BigDecimal.divide(
@@ -539,9 +720,87 @@ const perShare = BigDecimal.divide(
 
 **Rounding modes** are lowercase kebab strings: `"ceil"`, `"floor"`, `"to-zero"`, `"from-zero"`, `"half-ceil"`, `"half-floor"`, `"half-to-zero"`, `"half-from-zero"` (default), `"half-even"` (banker's), `"half-odd"`. Use `BigDecimal.round(value, { scale, mode })`.
 
-**Order and Equivalence** are both exported — plug into `Array.sort` or collection APIs directly.
+**Order and Equivalence** are both exported — plug into `Array.sort` or collection APIs directly. Both compare by numeric value regardless of scale (`1.05` at scale 2 equals `1.050` at scale 3, under `BigDecimal.equals` and `Equal.equals` alike), and since `rc.113` they share a comparator that aligns ordinary scale differences cheaply and never materialises the zeros of a huge one.
+
+**Choosing a constructor.**
+
+| Source | Constructor | Notes |
+| --- | --- | --- |
+| Integer minor units (cents, basis points) | `BigDecimal.make(12_345n, 2)` | Exact; `value / 10^scale`. Since `rc.113` a scale that is not a safe integer throws `RangeError`; a negative scale is allowed and multiplies (`make(12n, -2)` is `1200`) |
+| Untrusted text | `BigDecimal.fromString(text)` | `Option<BigDecimal>`; `"12,5"` is `Option.none()` |
+| A literal you control | `BigDecimal.fromStringUnsafe("0.04")` | Throws on malformed input |
+| A `bigint` | `BigDecimal.fromBigInt(5000n)` | Scale 0 |
+| A `number` | `BigDecimal.fromNumber(n)` / `fromNumberUnsafe(n)` | `Option` / throws for `NaN` and infinities. The float may already be imprecise — prefer text or minor units for money |
+
+**Scale, `normalize`, and display.** The same number has many `(value, scale)` representations: multiplication *adds* the operands' scales (`120000.00 × 0.04` has scale 4) and addition keeps the larger one. `BigDecimal.normalize` strips trailing zeros, and `BigDecimal.format` normalizes before rendering — so `format` **never pads**: `124800.00` prints as `"124800"` and `123.50` as `"123.5"`. Round with `BigDecimal.round` for arithmetic, and pad to the currency's minor units yourself when rendering money. Non-terminating quotients are cut off at 100 digits, and `format` switches to scientific notation once the normalized scale reaches 16, so `1 / 3` prints as `3.333…e-1`; round a quotient to the scale you actually need (`BigDecimal.round(q, { scale: 4 })` formats as `"0.3333"`).
+
+```ts
+import { BigDecimal, Option } from "effect"
+
+const gross = BigDecimal.make(12_345n, 2)                        // 123.45, exactly
+const parsed = BigDecimal.fromString("12,5")                     // Option.none() — untrusted text
+const product = BigDecimal.multiply(gross, BigDecimal.make(40n, 1))
+// 123.45 × 4.0: value 493800n, scale 3
+
+const normalized = BigDecimal.normalize(product)                 // value 4938n, scale 1
+const label = BigDecimal.format(product)                         // "493.8" — not "493.80"
+
+const sameNumber = BigDecimal.equals(BigDecimal.make(105n, 2), BigDecimal.make(1050n, 3)) // true
+const parsedOrZero = Option.getOrElse(parsed, () => BigDecimal.make(0n, 0))
+```
+
+Key APIs: make / fromString / fromStringUnsafe / fromBigInt / fromNumber / fromNumberUnsafe, sum / subtract / multiply / divide / divideUnsafe / remainder / remainderUnsafe, negate / abs / sign, round / truncate / ceil / floor / scale / normalize, min / max / clamp / between, isLessThan / isLessThanOrEqualTo / isGreaterThan / isGreaterThanOrEqualTo, isZero / isPositive / isNegative / isInteger, equals / Order / Equivalence, format / toExponential / toNumberUnsafe
+
+`remainder` follows the `divide` rule: the safe form returns `Option.none()` for a zero divisor and the `Unsafe` form throws. `clamp` and `between` take `{ minimum, maximum }`.
 
 Use for any financial or compensation calculation where floating-point rounding is unacceptable.
+
+Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are the v3 names; `rc.115` uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
+
+## ByteSize
+
+`effect/ByteSize` — stable (new in `rc.113`)
+
+An exact, non-negative, integral byte count: a branded `bigint`, so a 9 EiB object store and a 12-byte header use the same type without precision loss. It replaced the ad-hoc `FileSystem.Size` / `FileSystem.MiB` helpers and is now the size vocabulary across the ecosystem — `FileSystem` `File.Info.size`, HTTP body limits, and `Config.ByteSize`.
+
+**Mental model.** Decimal units are powers of 1,000 (`kB`, `MB`, `GB`, …); binary units are powers of 1,024 (`KiB`, `MiB`, `GiB`, …). The two families have separate constructors so "10 MB" never silently means 10 MiB. A value is always a whole number of bytes: `"1.5 KiB"` parses (1,536 bytes) but `"1.5 B"` is rejected.
+
+```ts
+import { ByteSize, Config, Option } from "effect"
+
+// ── Constructors name their unit family ──────────────────────────────────────
+const uploadLimit = ByteSize.mebibytes(25) // 25 × 1024²
+const diskQuota = ByteSize.gigabytes(500)  // 500 × 1000³
+
+// ── Parsing untrusted text: Option, or the throwing `fromInputUnsafe` ────────
+ByteSize.fromInput("64 KiB")  // Option.some(65536n)
+ByteSize.fromInput("1.5 B")   // Option.none() — not an integral byte count
+ByteSize.fromInput(-1)        // Option.none() — sizes are never negative
+
+// ── Exact arithmetic; scalar operations are partial, so they return Option ───
+const perReviewer = ByteSize.divide(diskQuota, 40)          // Option<ByteSize>, remainder discarded
+const doubled = ByteSize.times(uploadLimit, 2)              // Option<ByteSize>
+const total = ByteSize.sum(uploadLimit, ByteSize.bytes(512))
+
+// ── Comparison: use the module, not `>` on the brand ─────────────────────────
+ByteSize.isGreaterThan(total, uploadLimit)                  // true
+ByteSize.clamp(total, { minimum: ByteSize.zero, maximum: uploadLimit })
+
+// ── Presentation ─────────────────────────────────────────────────────────────
+ByteSize.format(uploadLimit)                                 // "25 MiB"    (binary units by default)
+ByteSize.format(uploadLimit, { system: "decimal" })          // "26.21 MB"  (precision defaults to 2)
+ByteSize.format(uploadLimit, { unit: "KiB", precision: 0 })  // "25600 KiB"
+ByteSize.toUnit(uploadLimit, "MiB")                          // 25 — an approximate `number`
+
+// ── Configuration: accept "25 MiB" from the environment ──────────────────────
+const maxUpload = Config.ByteSize("MAX_UPLOAD").pipe(Config.withDefault(uploadLimit))
+
+const _ = [perReviewer, doubled, Option.isSome(perReviewer), maxUpload]
+```
+
+`ByteSize.Order`, `ByteSize.Equivalence`, `ReducerSum`, `CombinerMin`, and `CombinerMax` plug into sorting, collections, and folds. `ByteSize.toNumber` returns `Option<number>` because a byte count may exceed the safe-integer range; `toNumberUnsafe` throws instead. `Schema.ByteSize` is the matching schema.
+
+Use for every size limit, quota, buffer bound, and file size — anywhere a bare `number` would leave "bytes or kilobytes? 1000 or 1024?" to a comment.
 
 ## Differ
 
@@ -665,7 +924,24 @@ Use `memoizeIdempotent` only when applying the original transformation again to 
 
 Both memoizers are identity-based `WeakMap` caches, so structurally equal objects are different keys and mutating a key does not invalidate its cached value. `memoize` cannot return `undefined`: that value is reserved internally to mean “cache miss” (return `null` or another sentinel if absence is a legitimate result).
 
+**Why functions instead of methods.** Effect's API is module functions plus one `.pipe` method, not fluent method chains, for two reasons: a bundler can drop every function you never import (a method on a class cannot be tree-shaken), and anyone can add a new operator for an existing type without patching its prototype. `dual(arity, body)` is what gives each function both call shapes — `Array.map(xs, f)` data-first for a single call, `Array.map(f)` data-last inside `pipe`.
+
+```ts
+import { Function as F, pipe } from "effect"
+
+// `dual(2, ...)`: two arguments means data-first, one argument returns the pipeable form
+const applyMerit: {
+  (rate: number): (salary: number) => number
+  (salary: number, rate: number): number
+} = F.dual(2, (salary: number, rate: number): number => Math.round(salary * (1 + rate)))
+
+applyMerit(120_000, 0.04)             // 124_800
+pipe(120_000, applyMerit(0.04))       // 124_800
+```
+
 Use for `pipe` or `flow` (everyday use), or when building dual-mode utility functions for your own library.
+
+Official guides: [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it states that `Option` and `Result` can be yielded inside `Effect.gen`; on `rc.115` they cannot — convert with `Effect.fromOption` / `Effect.fromResult`), [Dual APIs](https://effect.website/docs/v4/code-style/dual).
 
 ## Number
 
@@ -698,7 +974,7 @@ S.stripMargin(`
   |employeeId: emp-001
   |level: 3
 `)
-// "employeeId: emp-001\nlevel: 3\n"
+// "\nemployeeId: emp-001\nlevel: 3\n" — the newline after the opening backtick is kept
 
 S.camelCase("merit_cycle")      // "meritCycle"
 S.pascalCase("comp_band")       // "CompBand"
@@ -838,6 +1114,15 @@ Encoding.encodeBase64Url(someBytes)
 Encoding.decodeBase64Url(someStr)
 ```
 
+`Encoding.randomHex(length)` (added in `rc.110`) returns a random lowercase hex string for identifiers such as trace and span ids. It draws from `Math.random()`, so it is **not cryptographically secure** — never use it for tokens, secrets, or anything an attacker must not guess. `length` is not validated: it is rounded *down* to a multiple of 8, so `randomHex(10)` has 8 characters and `randomHex(3)` is the empty string.
+
+```ts
+import { Encoding } from "effect"
+
+const correlationId = Encoding.randomHex(16) // e.g. "d515b35eeabef8b9"
+const traceLikeId = Encoding.randomHex(32)   // 32 lowercase hex characters
+```
+
 ## Inspectable
 
 `effect/Inspectable` — stable
@@ -886,10 +1171,11 @@ Type-level utilities — no runtime code. Commonly encountered:
 - **`UnionToIntersection<T>`** — Converts `A | B | C` to `A & B & C`. Used in requirement accumulation.
 - **`Equals<X, Y>`** — Type-level equality check, returns `true` or `false`. Useful in conditional types.
 - **`Tags<E>`** — Extracts the string literal union of all `_tag` values from a discriminated union.
-- **`Mutable<T>` / `DeepMutable<T>`** — Strips `readonly` from object properties, shallowly or recursively.
+- **`Mutable<T>` / `DeepMutable<T>`** — Strips `readonly` from object properties, shallowly or recursively. `DeepMutable` recurses through plain records, arrays, tuples, `Map`, and `Set`, and stops at primitives, functions, and opaque objects (anything with methods or symbol-keyed properties), so a `Date`, `DateTime`, `Option`, or class instance nested inside keeps its own type.
+- **`RequiredKeys<T>`** — The union of `T`'s required property names. Named required keys are still reported when `T` also has an index signature.
 - **`NoInfer<A>`** — Prevents TypeScript from using a parameter site as an inference point — useful for pinning type parameters.
 
-Also: `TupleOf`, `TupleOfAtLeast`, `MergeLeft`/`MergeRight`, `Concurrency`, `Invariant`/`Covariant`/`Contravariant` variance wrappers, `ExtractTag`, `ExcludeTag`, `ReasonOf`, `RequiredKeys`, and more.
+Also: `TupleOf`, `TupleOfAtLeast`, `MergeLeft`/`MergeRight`, `Concurrency`, `Invariant`/`Covariant`/`Contravariant` variance wrappers, `ExtractTag`, `ExcludeTag`, `ReasonOf`, and more.
 
 ## Utils
 

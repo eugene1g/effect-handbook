@@ -2,7 +2,7 @@
 
 `effect/unstable/ai` provides a provider-agnostic AI toolkit. Business logic depends on `LanguageModel.LanguageModel` from context; a concrete provider (OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint) is injected as a `Layer`. Schemas validate structured outputs and tool parameters, streaming is a `Stream`, errors are typed, and all calls are traced. Swapping providers requires changing a Layer, not application code.
 
-> **Official companions:** The release-matched [AI examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.108/ai-docs/src/71_ai) cover language-model calls, tools, and stateful chat. The broader [AI documentation source tree](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.108/ai-docs/src) and [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.108/LLMS.md) are the official executable corpus and coding-agent entry point.
+> **Official companions:** The release-matched [AI examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/71_ai) cover language-model calls, tools, and stateful chat. The broader [AI documentation source tree](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src) and [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.115/LLMS.md) are the official executable corpus and coding-agent entry point.
 
 > **Note:** Every example below assumes a provider client Layer built from `Config`. Providers need an `HttpClient` — you choose which one (here `FetchHttpClient`):
 
@@ -14,7 +14,7 @@ import { FetchHttpClient } from "effect/unstable/http"
 // Reads OPENAI_API_KEY from your ConfigProvider; the key is Redacted, so it
 // never leaks into logs. Provide an HttpClient for the provider to use.
 const OpenAiClientLayer = OpenAiClient.layerConfig({
-  apiKey: Config.redacted("OPENAI_API_KEY")
+  apiKey: Config.Redacted("OPENAI_API_KEY")
 }).pipe(Layer.provide(FetchHttpClient.layer))
 ```
 
@@ -102,6 +102,70 @@ const draft = LanguageModel.generateText({ prompt: "Summarize this review cycle.
   .pipe(Effect.withExecutionPlan(ReviewPlan))
 ```
 
+### Tool-call resolution: concurrency and manual dispatch
+
+When the `toolkit` you pass carries handlers, `generateText`, `generateObject`, and `streamText` resolve the model's tool calls **during the call**: parameters are decoded, handlers run, and the results come back in `response.toolResults`. Two options on every generation call govern that step.
+
+| Option | Default | Rule |
+| --- | --- | --- |
+| `concurrency` | `"unbounded"` | **Set a number whenever a handler touches a rate-limited or stateful dependency**, because one model turn may request many tool calls and they all start at once by default. |
+| `disableToolCallResolution` | `false` | **Pass `true` when the application must run its own gates (authorization, approval, idempotency claim) before any handler executes.** The tools are still advertised to the model; no handler runs. |
+
+With `disableToolCallResolution: true` the response carries tool calls whose `params` stay in their **encoded** form (they are still checked against the parameter schema's encoded side, so a malformed call fails with `InvalidOutputError`), no handler result is produced for them, and handler errors and handler services drop out of the call's error and requirement types. Dispatch a call yourself through the toolkit's `handle(name, encodedParams, toolCallId?)`, which decodes the parameters, runs the handler, and returns a `Stream` of `{ result, encodedResult, isFailure, preliminary }` values: preliminary results first, then the final one. With `failureMode: "error"` a handler failure fails that stream instead of producing a final value.
+
+```ts
+import { Effect, Schema, Stream } from "effect"
+import { LanguageModel, Tool, Toolkit } from "effect/unstable/ai"
+
+class RaiseGateDenied extends Schema.TaggedError<RaiseGateDenied>()("RaiseGateDenied", {
+  toolCallId: Schema.String,
+  reason: Schema.String
+}) {}
+
+const SubmitRaise = Tool.make("SubmitRaise", {
+  description: "Submit a merit increase for HRBP approval",
+  parameters: Schema.Struct({ employeeId: Schema.String, increasePct: Schema.Finite }),
+  success: Schema.Struct({ requestId: Schema.String })
+})
+const RaiseToolkit = Toolkit.make(SubmitRaise)
+
+// Application policy: actor, tenant, band limits, idempotency claim.
+declare const authorizeRaise: (
+  toolCallId: string,
+  params: { readonly employeeId: string; readonly increasePct: number }
+) => Effect.Effect<void, RaiseGateDenied>
+
+const proposeAndSubmit = Effect.fn("proposeAndSubmit")(function*(notes: string) {
+  const toolkit = yield* RaiseToolkit // handlers come from RaiseToolkit.toLayer(...)
+  const response = yield* LanguageModel.generateText({
+    prompt: `Propose a merit increase from these notes:\n${notes}`,
+    toolkit,
+    disableToolCallResolution: true // the model proposes; nothing executes yet
+  })
+
+  const requestIds: Array<string> = []
+  for (const call of response.toolCalls) {
+    yield* authorizeRaise(call.id, call.params)
+    // Run `handle` and drain its stream in the same Effect: the handler is a
+    // child fiber of this call, so interrupting the request interrupts it too.
+    const results = yield* toolkit.handle(call.name, call.params, call.id)
+    const final = yield* Stream.runLast(results)
+    // `result` is the success type, the declared failure type, or a
+    // Tool.ExecutionFailure; `isFailure` is a plain boolean, so narrow structurally.
+    if (final._tag === "Some" && "requestId" in final.value.result) {
+      requestIds.push(final.value.result.requestId)
+    }
+  }
+  return requestIds
+})
+```
+
+> **Note:** When a response finishes with an incomplete reason (anything other than `"stop"`, `"tool-calls"`, or `"pause"` — for example `"length"`), automatic resolution does not start handlers. Each executable tool call instead receives a synthesized failed result of type `"execution-interrupted"` so the history stays well-formed for the next provider request.
+
+### Service types are branded
+
+`LanguageModel.LanguageModel`, `EmbeddingModel.EmbeddingModel`, `Chat.Chat`, and `Reactivity.Reactivity` each name **both** the Context key and the service interface; the older `LanguageModel.Service` / `Chat.Service` / `EmbeddingModel.Service` type aliases no longer exist. Each interface carries a `[TypeId]` brand. **Build implementations with the module's constructor** (`LanguageModel.make`, `EmbeddingModel.make`, `Chat.empty` / `Chat.fromPrompt`, `Reactivity.make`), because the constructor adds the brand; an object literal written by hand must include `[LanguageModel.TypeId]: LanguageModel.TypeId` (and the equivalent for the other modules) to type-check.
+
 **Reach for it when** you need any LLM call — text, validated structured data, streaming, or tool use — without coupling to a vendor SDK. This is the default entry point.
 
 ## Chat
@@ -143,29 +207,41 @@ const hrbpSession = Effect.gen(function*() {
 }).pipe(Effect.provide(OpenAiLanguageModel.model("gpt-5.2")))
 ```
 
-For an agent, loop until the model stops calling tools — `Chat` folds each tool result back into history between turns:
+For an agent, loop until the model stops calling tools — `Chat` folds each tool result back into history between turns. **Give the loop a turn limit**: a model that keeps requesting tools would otherwise spend tokens until something external stops it.
 
 ```ts
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { Chat, Tool, Toolkit } from "effect/unstable/ai"
+
+class AgentTurnLimit extends Schema.TaggedError<AgentTurnLimit>()("AgentTurnLimit", {
+  turns: Schema.Int
+}) {}
 
 const runHrbpAgent = <Tools extends Record<string, Tool.Any>>(
   question: string,
-  tools: Toolkit.Toolkit<Tools>
+  tools: Toolkit.Toolkit<Tools>,
+  maxTurns = 6
 ) =>
   Effect.gen(function*() {
     const session = yield* Chat.fromPrompt([
       { role: "system", content: "Use tools to ground every comp answer in real band data." },
       { role: "user", content: question }
     ])
-    while (true) {
-      const response = yield* session.generateText({ prompt: [], toolkit: tools })
+    for (let turn = 1; turn <= maxTurns; turn++) {
+      const response = yield* session.generateText({ prompt: [], toolkit: tools, concurrency: 4 })
       // Tool calls were executed and their results added to history for us.
-      if (response.toolCalls.length > 0) continue
-      return response.text // no more tool calls -> final answer
+      if (response.toolCalls.length === 0) return response.text // final answer
     }
+    return yield* new AgentTurnLimit({ turns: maxTurns })
   })
 ```
+
+**History rules.**
+
+- **`Chat` is in-process session state, not a store.** Its history `Ref` has no tenant, version, or concurrency control; wrap it, or use `Chat.makePersisted({ storeId })` / `Chat.layerPersisted` over a durable `BackingPersistence` layer (see [Persistence](../tooling/persistence)), when several requests or processes can touch one conversation.
+- **Exported history is a persisted format.** `exportJson` keeps text parts, provider options, and files generated by the model when a response is folded back into the prompt, so a rehydrated session replays the same context. Tool results inside that history are encoded with the schema chosen by their `isFailure` flag (see [Tool](#tool)); review stored histories when a tool's success or failure schema changes.
+- **Completed approvals stay in the response.** When a non-streaming turn resolves a previously approved tool call, the finished result is retained in that response, so `Chat` records it and later turns do not execute the approved tool again.
+- **Keep incomplete turns out of later prompts.** If a turn fails, times out, or is interrupted mid-stream, persist that status and rebuild future context only from turns that reached a terminal `finish` part.
 
 **Reach for it when** building a chatbot or agent that needs memory across turns, or needs save/restore of conversation state. For one-shot calls, plain `LanguageModel` is sufficient.
 
@@ -207,6 +283,25 @@ const LookupCompBand = Tool.make("LookupCompBand", {
   failureMode: "error"
 })
 ```
+
+### Failure results and their wire format
+
+A tool call ends in one of four shapes, and the encoded form of each is a **persisted contract** once it lands in a `Chat` history or your own store.
+
+| Outcome | `isFailure` | Value in `result` | Encoded with |
+| --- | --- | --- | --- |
+| Handler succeeded | `false` | the `success` type | `success` schema |
+| Handler failed with the declared `failure` type (`failureMode: "return"`) | `true` | the `failure` type | `Tool.failureResultSchema(tool)` |
+| Framework or handler produced an `AiError` (`failureMode: "return"`) | `true` | `AiError.AiError` | `Tool.failureResultSchema(tool)` |
+| Call was denied by an approval response, or never ran because the response finished incomplete | `true` | `Tool.ExecutionFailure` — `{ type: "execution-denied" \| "execution-interrupted", reason }` | `Tool.failureResultSchema(tool)` |
+
+- **Declare `failure` when the model should see a domain error.** `Tool.make(name, { failure: BandNotFound, failureMode: "return" })` types the handler's error channel; `failureMode: "error"` keeps the same failure in the Effect error channel instead.
+- **`Tool.failureResultSchema(tool)` is `Schema.Union([AiError.AiError, tool.failureSchema, Tool.ExecutionFailure])`.** Use it, not the bare `failure` schema, when you decode stored failed results.
+- **The codec is selected by `isFailure`, never guessed from the value.** A tool with `success: Schema.Number` and `failure: Schema.NumberFromString` stores a failed `404` as `"404"`. Histories written before `rc.113` that encoded failures through the success schema need a migration.
+- **`Tool.FailureResult` and `Tool.Result` include `Tool.ExecutionFailure` in both failure modes**, so an exhaustive narrowing of a failed result has one more case. (`Response.ToolResultPart(...)` is typed as a `Schema.Codec` rather than a `Schema.decodeTo`; this only matters if you wrote that type out.)
+- **Parameter validation follows `failureMode` too.** A call whose arguments do not decode produces `ToolParameterValidationError` (`toolName` and `description` only — the rejected arguments are no longer attached as `toolParams`). Under `"error"` the generation fails with that `AiError`; under `"return"` the error goes back to the model as a failed tool result so it can correct the call. Either way the handler does not run.
+
+> **Note:** `Tool.dynamic(name, { parameters })` accepts a Schema **or** a raw JSON Schema for tools discovered at runtime (for example from an MCP server). After `tool.setParameters(schema)` the replacement schema is what gets advertised to the model. Annotate intent with `Tool.Title`, `Tool.Readonly`, `Tool.Destructive`, `Tool.Idempotent`, and `Tool.OpenWorld`; `McpServer` forwards them as MCP tool hints.
 
 **Reach for it when** the model needs to fetch data or call an API mid-generation. Define the contract here; group and implement with `Toolkit`.
 
@@ -272,6 +367,8 @@ class CompAssistant extends Context.Service<CompAssistant, {
   ).pipe(Layer.provide(CompToolkitLayer))
 }
 ```
+
+Yielding a toolkit (`yield* CompToolkit`) resolves its handlers from context and returns a `Toolkit.WithHandler` with two members: `tools` and `handle(name, params, toolCallId?)`. `handle` takes the **encoded** parameter type — what a provider or a stored tool call actually holds — decodes it, and returns an Effect of a result `Stream`. That is the entry point for [manual dispatch](#tool-call-resolution-concurrency-and-manual-dispatch) and for tests that exercise one handler without a model.
 
 **Reach for it when** exposing one or more tools to a model. Define tools with `Tool`, group here, implement handlers with `toLayer`, and pass the toolkit to `generateText` or `Chat`.
 
@@ -377,6 +474,8 @@ const embedJobDescriptions = Effect.gen(function*() {
 )
 ```
 
+> **Note:** A vector is only comparable with vectors from the same space. Store the provider, model name, `dimensions`, and your own normalization/schema version beside every embedding, and re-embed into a new versioned index when any of them changes.
+
 **Reach for it when** building semantic search, role-matching, deduplication, or RAG retrieval — anything requiring text-to-vector conversion with automatic batching.
 
 ## Model
@@ -413,6 +512,8 @@ const program = Effect.gen(function*() {
 A service for counting tokens and truncating a `Prompt` to a token budget. `tokenize(input)` returns the token array (use `.length` for a count); `truncate(input, maxTokens)` drops whole messages from the front until the prompt fits.
 
 `Tokenizer.make({ tokenize })` builds the service from a single tokenizing function — wrap a real provider tokenizer (e.g. tiktoken) or a cheap word-splitter for tests. `truncate` is implemented on top of `tokenize` by default.
+
+**`truncate` keeps the newest messages.** It walks backward from the last message, re-tokenizes the whole retained suffix each time (so tokens the tokenizer charges *between* messages count against the budget), and stops at the first message that would overflow. It never splits a message, and it does not pin a leading system message — re-apply the system prompt with `Prompt.setSystem` after truncating when the persona must survive. Token counts from your tokenizer are an estimate for budgeting; the provider's reported `usage` is the reconciliation.
 
 ```ts
 import { Effect } from "effect"
@@ -518,17 +619,37 @@ class ReviewServiceError extends Schema.TaggedError<ReviewServiceError>()("Revie
 const draftSummary = LanguageModel.generateText({
   prompt: "Summarize this employee's review."
 }).pipe(
-  // Retry only transient rate-limit failures with exponential backoff.
+  // Retry only transient rate-limit failures, and only a bounded number of
+  // times: `upTo` caps both the recurrence count and the total backoff window.
   Effect.retry({
     while: (error) => error.reason._tag === "RateLimitError",
-    schedule: Schedule.exponential("200 millis")
+    schedule: Schedule.exponential("200 millis").pipe(
+      Schedule.upTo({ times: 3, duration: "10 seconds" })
+    )
   }),
+  // One absolute deadline for the call and all of its retries.
+  Effect.timeout("30 seconds"),
   // Translate anything that still fails into our domain error.
   Effect.catchTag("AiError", (error) =>
     Effect.fail(new ReviewServiceError({ reason: error.reason }))
   )
 )
 ```
+
+### Classifying a failure before retrying
+
+Every reason class has an `isRetryable` getter, and `AiError` forwards it (`error.isRetryable`) together with `error.retryAfter` — the provider's requested delay when the reason is a `RateLimitError` that carried one.
+
+| `reason._tag` | `isRetryable` | What to do |
+| --- | --- | --- |
+| `RateLimitError` | `true` | Back off; honor `retryAfter` when present. |
+| `InternalProviderError`, `NetworkError` with `reason: "TransportError"` | `true` | Bounded retry. |
+| `InvalidOutputError`, `StructuredOutputError`, `ToolNotFoundError`, `ToolParameterValidationError` | `true` | The model produced something unusable; a retry re-bills the whole prompt, so cap it tightly. |
+| `AuthenticationError`, `QuotaExhaustedError`, `ContentPolicyError`, `InvalidRequestError`, `UnsupportedSchemaError`, `InvalidToolResultError`, `ToolResultEncodingError`, `ToolConfigurationError`, `ToolkitRequiredError`, `InvalidUserInputError`, `UnknownError`, other `NetworkError` reasons | `false` | Fix credentials, quota, input, or code; do not loop. |
+
+- **Retry only before output or side effects exist.** Never retry after streamed text has reached the caller or after a mutating tool was dispatched; count every retry against the same token and time budget as the first attempt.
+- **A fallback model is a different capability, not a retry.** Re-validate tool, schema, and media support for it, and never use a fallback to get around a `ContentPolicyError`.
+- **`AuthenticationError` has an optional `description`.** On HTTP 401/403 the provider's own error text is passed through and appended to the kind-based hint, so logs say what was actually rejected. `AiError.HttpRequestDetails` and `AiError.HttpResponseDetails` are exported schemas for the request/response context attached to HTTP-derived reasons.
 
 **Reach for it when** you need robust error handling — retry on rate limits, surface auth/quota problems, or translate provider failures into domain error types.
 
@@ -588,7 +709,7 @@ McpSchema.INVALID_PARAMS_ERROR_CODE // -32602
 
 `effect/unstable/ai/McpProtocol` — unstable
 
-The versioned protocol adapter registry used by `McpServer`. The audited release implements MCP `2025-06-18` as `McpProtocol.v2025_06_18`; it binds the matching client/server RPC groups and transport rules. Server transports require a non-empty `protocols` list so negotiation is explicit rather than silently assuming whichever MCP revision a client sends.
+The versioned protocol adapter registry used by `McpServer`. The audited release ships four adapters — `McpProtocol.v2024_11_05`, `v2025_03_26`, `v2025_06_18`, and `v2025_11_25` — each binding the matching client/server RPC groups and transport rules. The `2025-11-25` adapter adds sampling with tools, form- and URL-based elicitation, and `McpSchema.Icon` metadata (source URI, MIME type, sizes, light/dark theme) for server info, resources, resource templates, prompts, and tools. Server transports require a non-empty `protocols` list so negotiation is explicit rather than silently assuming whichever MCP revision a client sends.
 
 ```ts
 import { McpProtocol, McpServer } from "effect/unstable/ai"
@@ -600,7 +721,7 @@ const StdioMcp = McpServer.layerStdio({
 })
 ```
 
-The 2025-06-18 adapter rejects JSON-RPC batches on its transport and requires the MCP protocol-version header where the transport carries headers. Put any future adapters you intentionally support in the same list; initialization selects the requested version and the server uses the first adapter as its fallback/default.
+The 2025-06-18 adapter rejects JSON-RPC batches on its transport. The `MCP-Protocol-Version` header is validated only on requests **after** initialization: an `initialize` request negotiates from the version offered in its body and reports the selected version in the response, so a fresh client whose default header is not registered is no longer rejected with `400` before negotiation can happen. List every adapter you intentionally support; initialization selects the requested version and the server uses the first adapter as its fallback/default.
 
 Streamable HTTP is strict at the boundary. If a request carries `Origin`, `layerHttp` returns 403 unless that exact origin appears in `allowedOrigins`. POST requires `Content-Type: application/json` (otherwise 415) and an `Accept` header that includes both `application/json` and `text/event-stream` with positive quality (otherwise 406).
 
@@ -656,6 +777,21 @@ Layer.launch(ServerLayer).pipe(NodeRuntime.runMain)
 
 > **Tip:** Define a `Toolkit` once — say your `CompToolkit` with `LookupCompBand` — and you can both call it from a `LanguageModel` *and* expose it to external clients via `McpServer.toolkit(CompToolkit)`. Same handlers, two surfaces.
 
+**What an MCP client sees from a toolkit tool.**
+
+| Handler outcome | Wire result | Reported to `ErrorReporter` |
+| --- | --- | --- |
+| Success | `isError: false`; the encoded result as JSON text, plus `structuredContent` **only when it is a JSON object** (never `null` or an array, which MCP forbids there) | no |
+| Arguments fail the parameter schema | JSON-RPC `InvalidParams` error | no |
+| Declared `failure` value that is an `Error` instance (`failureMode: "error"`) | `isError: true` with that error's `message` — give the error class a meaningful `message`, because a bare tagged error has an empty one | yes |
+| Any other failure, an `AiError`, or a defect | `isError: true` with a fixed internal-error message — details never reach the client | yes |
+| Failure from a `failureMode: "return"` tool | `isError: false`; the encoded failure is delivered as ordinary content, because such a handler stream never fails | no |
+
+Failures that the server recovers into an `isError` result are still handed to the configured `ErrorReporter`s, so provide one when you need alerting on tool faults; see [Observability](../operations/observability). **Prefer `failureMode: "error"` for tools exposed over MCP** so clients can tell a failed call from a successful one.
+
+- **Server identity can carry icons.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `icons: ReadonlyArray<McpSchema.Icon>` (`src`, optional `mimeType`, `sizes`, `theme`). The `McpSchema.Resource`, `ResourceTemplate`, `Prompt`, and `Tool` schemas have the same optional field for entries registered through the lower-level `McpServer` registry service.
+- **Prompt and resource callbacks receive decoded values.** `McpServer.prompt` / `registerPrompt` pass `content` the *decoded* type of each `parameters` schema, and resource templates resolve over both stdio and Streamable HTTP.
+
 **Reach for it when** you want capabilities usable from Claude Desktop, an IDE, or any MCP client — without writing JSON-RPC by hand.
 
 ## AnthropicStructuredOutput
@@ -678,11 +814,29 @@ OpenAI-specific rewriting: `allOf` is flattened (OpenAI does not support it) and
 
 **Reach for it when** you need OpenAI-compatible JSON Schema directly. Otherwise, `generateObject` with the OpenAI provider already uses it.
 
+## Production rules for model calls
+
+The modules above make a model call typed; they do not make it safe. These rules are the short form of [Building a Production AI Capability](../deep-dives/building-a-production-ai-capability), which works through each with code.
+
+| Concern | Rule | Mechanism on this page |
+| --- | --- | --- |
+| Trust | **Treat user text, retrieved text, prior model output, tool arguments, and tool results as untrusted**; take actor, tenant, approval, idempotency key, and policy version only from trusted request context, never from model output. | Handler closes over trusted services; Schemas validate shape, not authority. |
+| Tool execution | **Bound tool concurrency and keep mutations behind your own gate.** | `concurrency`, `disableToolCallResolution`, `toolkit.handle`, `setNeedsApproval`. |
+| Loops | **Every agent loop has a turn limit and a typed exhaustion error.** | Bounded `for` loop around `Chat.generateText`. |
+| Budgets | **Every limit is finite and checked before dispatch**: estimate prompt tokens and reserve worst-case output before the call; treat returned `usage` as reconciliation. | `Tokenizer`, `response.usage`, `Effect.timeout`. |
+| Retries | **Classify by `reason`, bound the schedule, and stop once output or a side effect exists.** | `error.isRetryable`, `error.retryAfter`, `Schedule.upTo`. |
+| Structured output | **The local `Schema` decode is authoritative** even when the provider advertises strict JSON; never fall back to parsing prose. | `generateObject`, `StructuredOutputError`. |
+| Dynamic and MCP tools | **Allow-list tool names, snapshot and validate their schemas locally, and re-review when a server changes them.** | `Tool.dynamic`, `Tool.getJsonSchema`. |
+| Media input | **Validate MIME type, size, count, and URI scheme before a file part leaves the process**; never let a prompt trigger an implicit URL fetch. | `Prompt` file parts. |
+| Telemetry | **Record model, provider, latency, finish reason, usage, and tool names; keep prompts, keys, and reasoning text out of spans and logs.** | `Telemetry`, `Model.ProviderName` / `ModelName`, `Config.Redacted`. |
+
+**Testing checklist.** Provide a scripted `LanguageModel` built with `LanguageModel.make` (it can record prompts and replay tool calls, failures, or a stream that never ends) and assert: a bounded multi-turn run succeeds; an unauthorized or unapproved call reaches **zero** handlers; a repeated call id produces one side effect; each budget fails at its exact edge; malformed tool arguments and unknown tool names fail closed; an interrupted stream leaves a recorded incomplete turn and runs its finalizers. Fakes prove policy, recorded HTTP fixtures prove adapter parsing, and a small separately authorized live suite proves only that the remote API still behaves as recorded.
+
 ## Provider packages
 
-Primitives live in `effect/unstable/ai`; concrete providers ship as satellite packages. Each exposes `Client.layerConfig({ apiKey: Config.redacted(...) })` (requires an `HttpClient`) and a `LanguageModel.model(name)` (a `Model` Layer). All produce the same `LanguageModel` service; switching providers is a one-line Layer change.
+Primitives live in `effect/unstable/ai`; concrete providers ship as satellite packages. Each exposes `Client.layerConfig({ apiKey: Config.Redacted(...) })` (requires an `HttpClient`) and a `LanguageModel.model(name)` (a `Model` Layer). All produce the same `LanguageModel` service; switching providers is a one-line Layer change.
 
-- **pkg @effect/ai-openai** — OpenAI Responses API. `OpenAiClient.layerConfig`, `OpenAiLanguageModel.model("gpt-5.2")`, `OpenAiEmbeddingModel.model(name, { dimensions })`, provider-defined tools via `OpenAiTool` (e.g. `OpenAiTool.WebSearch`), and `OpenAiTelemetry`.
+- **pkg @effect/ai-openai** — OpenAI Responses API. `OpenAiClient.layerConfig`, `OpenAiLanguageModel.model("gpt-5.2")`, `OpenAiEmbeddingModel.model(name, { dimensions })`, provider-defined tools via `OpenAiTool` (e.g. `OpenAiTool.WebSearch`), and `OpenAiTelemetry`. Prompt caching can be steered explicitly: set `options: { openai: { promptCacheBreakpoint: { mode: "explicit" } } }` on a system message or a text part to mark the end of a reusable prefix (the provider documents this for GPT-5.6 or later and may reject it on earlier models).
 
 - **pkg @effect/ai-anthropic** — Anthropic Messages API. `AnthropicClient.layerConfig`, `AnthropicLanguageModel.model("claude-opus-4-6")`, `AnthropicTool`, and `AnthropicTelemetry`. Structured output bridged automatically through `AnthropicStructuredOutput`.
 
@@ -699,7 +853,7 @@ import { OpenRouterClient, OpenRouterLanguageModel } from "@effect/ai-openrouter
 
 const AnthropicLive = AnthropicLanguageModel.model("claude-opus-4-6").pipe(
   Layer.provide(
-    AnthropicClient.layerConfig({ apiKey: Config.redacted("ANTHROPIC_API_KEY") })
+    AnthropicClient.layerConfig({ apiKey: Config.Redacted("ANTHROPIC_API_KEY") })
       .pipe(Layer.provide(FetchHttpClient.layer))
   )
 )
@@ -707,7 +861,7 @@ const AnthropicLive = AnthropicLanguageModel.model("claude-opus-4-6").pipe(
 const OpenRouterLive = OpenRouterLanguageModel.model("openai/gpt-5.2").pipe(
   Layer.provide(
     OpenRouterClient.layerConfig({
-      apiKey: Config.redacted("OPENROUTER_API_KEY"),
+      apiKey: Config.Redacted("OPENROUTER_API_KEY"),
       siteTitle: Config.succeed("Comp Planner")
     }).pipe(Layer.provide(FetchHttpClient.layer))
   )

@@ -2,7 +2,9 @@
 
 _Effect provides a composable time stack: typed duration values, a testable clock-aware date/time system, a cron parser, an effect-native PRNG, and `Schedule`, the algebraic policy engine powering retry and repeat._
 
-> **Official companions:** Effect's release-matched [Schedule cookbook](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.108/cookbooks/schedule.md) develops retry, repeat, composition, and schedule state as a worked recipe. The `ai-docs` corpus adds executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.108/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.108/ai-docs/src/07_datetime) examples.
+> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.115/ai-docs/src/07_datetime) examples.
+
+> **Official guides:** [Built-In Schedules](https://effect.website/docs/v4/scheduling/built-in-schedules) prints the delay sequence of every constructor (its "once" heading is a v3 name; the code uses `Schedule.duration`); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
 
 ## Schedule
 
@@ -44,7 +46,17 @@ const fibBackoff = Schedule.fibonacci("100 millis")
 // An elapsed-time budget. It adds no delay by itself, so combine it with a
 // cadence or backoff rather than using it as a timer.
 const thirtySecBudget = Schedule.during("30 seconds")
+
+// Recurs without end and without delay, outputting 0, 1, 2, ... It is the
+// base that the `{ times, while, until }` options object builds on.
+const noDelayForever = Schedule.forever
+
+// Recurs without end and outputs its input unchanged — the starting point for
+// a policy whose delay is derived from the input via `modifyDelay`.
+const echoStatus = Schedule.identity<"Pending" | "Approved" | "Rejected">()
 ```
+
+> **Warning:** A schedule with no stopping condition retries or repeats forever, and `Schedule.forever` does so in a hot loop. Every policy that reaches production needs a bound (`recurs`, `upTo`, `during`) and, for remote calls, a delay.
 
 ### Composing schedules
 
@@ -84,6 +96,8 @@ const warmThenSteady = Schedule.exponential("100 millis").pipe(
 `concatResult(first, second)` preserves which phase emitted an output: first-phase values are `Result.Failure`, second-phase values are `Result.Success`. Use it instead of `concat` when downstream logic must distinguish warm-up from steady state.
 
 `upTo({ times: n })` counts **schedule recurrences**, not the initial evaluation: a retry/repeat effect can therefore run up to `n + 1` times. Schedules may also fail—for example an effectful predicate or an invalid `Schedule.cron`—and `Effect.schedule` / `scheduleFrom` expose that schedule error alongside the wrapped effect's own error.
+
+Official guide: [Schedule Combinators](https://effect.website/docs/v4/scheduling/schedule-combinators) (its `jittered(0.0, 1.0)` sentence and `whileOutput` comment are stale: in `rc.115` `Schedule.jittered` takes no range and always scales by 0.8–1.2, and the only filter is `Schedule.while`).
 
 ### Filtering on the input
 
@@ -152,6 +166,10 @@ const providerRetry = Schedule.exponential("1 second").pipe(
 )
 ```
 
+`Schedule.while` also accepts a type guard over the metadata object — `(meta): meta is Schedule.Metadata<Output, NarrowedInput> => …` — and then narrows the resulting schedule's input and output types. When the predicate belongs to one call site rather than to a shared policy, the [options object](#shorthand-options-for-retry-and-repeat) is shorter than `setInputType` plus `while`.
+
+Official guide: [Retrying](https://effect.website/docs/v4/error-management/retrying).
+
 ### Polling with repeat and passthrough
 
 `Effect.repeat` repeats on success and stops on failure. Combined with `Schedule.passthrough`, poll for a terminal state and get the final value back.
@@ -177,6 +195,107 @@ const waitForMeritApproval = (cycleId: string) =>
   getMeritApprovalStatus(cycleId).pipe(Effect.repeat(pollUntilSettled))
 ```
 
+**`Effect.repeat` fails as soon as one run fails, and the caller loses the schedule context.** `Effect.repeatOrElse(effect, schedule, orElse)` hands the failure (the effect's or the schedule's) to a handler that must produce the schedule's output type, together with `Option<Schedule.Metadata>` for the previous step — `None` when the very first run failed. `Effect.retryOrElse(effect, policy, orElse)` is the failure-side twin: when the policy is exhausted, `orElse(lastError, scheduleOutput)` supplies a fallback instead of the last error.
+
+```ts
+import { Effect, Option, Schedule } from "effect"
+
+declare const sendPayrollHeartbeat: Effect.Effect<void, "Disconnected">
+
+// Ends with the number of completed beats instead of an error.
+const heartbeat = Effect.repeatOrElse(
+  sendPayrollHeartbeat,
+  Schedule.spaced("30 seconds"),
+  (error, previous) =>
+    Effect.logWarning(`payroll heartbeat stopped: ${error}`).pipe(
+      Effect.as(Option.match(previous, {
+        onNone: () => 0,
+        onSome: (meta) => meta.attempt
+      }))
+    )
+)
+```
+
+Official guide: [Repetition](https://effect.website/docs/v4/scheduling/repetition) (its "repeatN" heading is a v3 name; the code uses `Effect.repeat(effect, { times })`).
+
+### Shorthand options for retry and repeat
+
+`Effect.retry` and `Effect.repeat` also accept a plain options object instead of a `Schedule`:
+
+| Key | Meaning on `retry` | Meaning on `repeat` |
+| --- | --- | --- |
+| `schedule` | Pacing and bounds between attempts | Pacing and bounds between runs |
+| `while` | Keep retrying while the **error** matches | Keep repeating while the **success value** matches |
+| `until` | Stop retrying once the error matches | Stop repeating once the value matches |
+| `times` | At most `n` retries after the first attempt | At most `n` repetitions after the first run |
+
+The object is sugar for `Schedule.passthrough(schedule ?? Schedule.forever)` filtered with `Schedule.while`, which explains the two surprises:
+
+- **The result is the last value, not a schedule counter.** `Effect.repeat(poll, { until })` returns the value that satisfied `until`.
+- **Omitting `schedule` means zero delay.** `{ while: isTransient }` alone is an unbounded hot loop against a struggling dependency. Always pair a predicate with `schedule`, `times`, or both.
+
+Predicates may return `boolean` or an `Effect` of `boolean`. A type guard narrows the result: `until` narrows the success type on `repeat`, and on `retry` a guard in `{ while }` alone removes that error from `E` — it is retried without limit, so it can never be the final failure.
+
+```ts
+import { Effect, Schedule, Schema } from "effect"
+
+class HrisUnavailable extends Schema.TaggedError<HrisUnavailable>()(
+  "HrisUnavailable",
+  { status: Schema.Int }
+) {}
+
+class EmployeeNotFound extends Schema.TaggedError<EmployeeNotFound>()(
+  "EmployeeNotFound",
+  { employeeId: Schema.String }
+) {}
+
+declare const fetchEmployee: (
+  id: string
+) => Effect.Effect<{ readonly name: string }, HrisUnavailable | EmployeeNotFound>
+
+declare const getApprovalStatus: Effect.Effect<"Pending" | "Approved" | "Rejected">
+
+// Timing is a reusable, named value with no opinion about error types.
+const hrisBackoff = Schedule.exponential("250 millis").pipe(Schedule.jittered)
+
+// Classification sits at the call site that knows what this operation can fail with.
+const loadEmployee = (id: string) =>
+  fetchEmployee(id).pipe(
+    Effect.retry({
+      schedule: hrisBackoff,
+      times: 4,
+      while: (error) => error._tag === "HrisUnavailable"
+    })
+  )
+
+// repeat is success-driven; the guard narrows the result to the settled states.
+const settled: Effect.Effect<"Approved" | "Rejected"> = Effect.repeat(getApprovalStatus, {
+  schedule: Schedule.spaced("10 seconds"),
+  until: (status): status is "Approved" | "Rejected" => status !== "Pending"
+})
+```
+
+| Put the predicate… | When |
+| --- | --- |
+| On the call site (`{ schedule, while }`) | The classification is specific to one operation; the timing policy is shared and stays input-agnostic |
+| In the schedule (`Schedule.while`) | The whole policy — timing *and* classification — is shared and its error type is fixed, or the predicate needs `attempt`, `elapsed`, or the computed `duration` |
+
+A third form avoids `Schedule.setInputType`: pass a builder, `Effect.retry(($) => $(hrisBackoff).pipe(Schedule.while(({ input }) => input._tag === "HrisUnavailable")))`. The `$` function pins the schedule's input to the effect's error type (or success type, for `repeat`).
+
+### Retry policy checklist
+
+A retry policy is a specification, so write it down before composing combinators, then [test its shape](#testing-a-policy).
+
+- **Classify first.** Which typed errors are transient? Defects and interruption are never retried; everything not named retryable must fail on the first attempt.
+- **Bound it.** Maximum recurrences *and* a total time budget (`upTo({ times, duration })`), inside the caller's timeout rather than multiplying it.
+- **Pace it.** Backoff with a per-delay cap, plus `Schedule.jittered` in production so recovering callers do not synchronize.
+- **Retry the transient operation, not the whole use case.** Wrap the HRIS call, not the workflow that also wrote an audit row.
+- **Build the side effect inside the retried Effect.** `Effect.retry` re-runs an Effect description. `const pending = client.fetch(id)` followed by retrying `Effect.promise(() => pending)` replays one settled Promise; call the client inside `Effect.tryPromise` so every attempt starts fresh work.
+- **Confirm idempotency** for anything that writes; retry gives at-least-once attempts.
+- **Decide what is observed:** a `Schedule.tap` log or metric per retry, and the final failure left in `E`.
+
+Interruption stops both the running attempt and the pending delay, so a retried effect needs no extra cancellation plumbing.
+
 ### Scheduled repeat via Schedule.cron
 
 `Schedule.cron` parses a standard 5-field (or 6-field with seconds) cron expression and builds a schedule sleeping until the next matching wall-clock time. Accepts an optional IANA timezone string.
@@ -195,7 +314,73 @@ const quarterlyCycle = Schedule.cron(
 
 // Effect.repeat runs the effect once immediately then at each cron tick.
 const meritCycleJob = kickOffMeritCycle.pipe(Effect.repeat(quarterlyCycle))
+
+// Effect.schedule consults the schedule first: nothing runs until the next tick.
+const meritCycleJobOnTick = kickOffMeritCycle.pipe(Effect.schedule(quarterlyCycle))
 ```
+
+**`Effect.repeat` always evaluates the effect once before it asks the schedule anything; `Effect.schedule` steps the schedule first.** A deploy or crash-restart therefore re-runs a `repeat`-driven job immediately, which is rarely what a quarterly kickoff or nightly payroll run wants. The same difference shows up in counts: `Effect.repeat(task, Schedule.recurs(2))` runs three times, `Effect.schedule(task, Schedule.recurs(2))` runs twice. `Effect.schedule` feeds the schedule `undefined` on that first step, so it accepts only schedules whose input type is `unknown`; `Effect.scheduleFrom(effect, initial, schedule)` seeds a typed initial input instead.
+
+### Running a side task for as long as the main task runs
+
+To log progress or send a heartbeat while real work runs, race an endlessly repeating effect against the main effect: the repeater never completes, so when the main effect finishes first the repeater is interrupted with no fork bookkeeping.
+
+```ts
+import { Effect, Schedule } from "effect"
+
+declare const runMeritCycle: Effect.Effect<number, "BudgetExceeded">
+
+const progress = Effect.log("merit cycle still running").pipe(
+  Effect.repeat(Schedule.fixed("5 seconds"))
+)
+
+// raceFirst settles with whichever side completes first, success or failure.
+const program = Effect.raceFirst(runMeritCycle, progress)
+```
+
+> **Warning:** Use `Effect.raceFirst` here, not `Effect.race`. `race` waits for the first *success*: if `runMeritCycle` fails while the repeater is still healthy, `race` keeps waiting on a side task that never finishes and the failure is never reported. Because `raceFirst` also settles on the side task's failure, make a fallible side task infallible first (`Effect.ignore`), or a lost heartbeat cancels the merit cycle.
+
+### Inspecting a schedule
+
+A schedule is a step function from *(now, input)* to *(output, delay)*, and `Schedule.toStep` hands you that function. Feeding it timestamps and inputs by hand prints the exact delay sequence of a composed policy without running an effect or sleeping — the cheapest way to answer "does my capped backoff really plateau at two seconds and stop after five recurrences?". The step is a `Pull`: success is `[output, delay]`, and exhaustion arrives on the done channel, so close the loop with `Pull.catchDone` rather than an error handler.
+
+```ts
+import { Duration, Effect, Pull, Schedule } from "effect"
+
+const policy = Schedule.min([
+  Schedule.exponential("250 millis"),
+  Schedule.spaced("2 seconds")
+]).pipe(Schedule.upTo({ times: 5 }))
+
+const delays = Effect.gen(function*() {
+  const step = yield* Schedule.toStep(policy)
+  const millis: Array<number> = []
+
+  const loop: Effect.Effect<void> = step(0, undefined).pipe( // caller supplies `now` and the input
+    Effect.flatMap(([, delay]) => {
+      millis.push(Duration.toMillis(delay))
+      return loop
+    }),
+    Pull.catchDone(() => Effect.void)
+  )
+
+  yield* loop
+  return millis // [250, 500, 1000, 2000, 2000]
+})
+```
+
+Keep `Schedule.jittered` out of such a trace, or pin it with `Random.withSeed`; jitter draws from the `Random` service.
+
+### Testing a policy
+
+**Asserting only the final value and an attempt count proves little**: that test also passes for a policy with no backoff at all, for one that retries permanent errors, and for one with the wrong multiplier or cap. Assert the policy's shape on both paths instead:
+
+- **Retryable path:** record `attempt@virtualMillis` from `Clock.currentTimeMillis` inside the operation and assert the exact timeline — for `Schedule.exponential("100 millis")` bounded to two recurrences, `["attempt-1@0", "attempt-2@100", "attempt-3@300"]`.
+- **Non-retryable path:** run the same harness with a permanent error and assert exactly one attempt, at time zero, with the error still in `E`.
+- **Exhaustion:** with an error that never clears, assert the attempt count equals the bound plus one and that the last typed error is what the caller sees.
+- **Keep jitter out of the asserted policy.** Compose `Schedule.jittered` only in the production policy, or pin it with `Random.withSeed`.
+
+The complete harness is in [Recipe: Typed Retry with TestClock](../recipes/retry-with-test-clock); [TestClock](../tooling/testing-dev-tooling#testclock) covers the fork–adjust–join mechanics.
 
 ### Quick reference
 
@@ -209,6 +394,8 @@ const meritCycleJob = kickOffMeritCycle.pipe(Effect.repeat(quarterlyCycle))
 | `exponential(base)` | Exponential delay, 2× factor by default |
 | `fibonacci(one)` | Fibonacci delay growth |
 | `during(d)` | Stop after this much elapsed time; adds no delay |
+| `forever` | Recur without end and without delay; outputs the recurrence count |
+| `identity<A>()` | Recur without end; output equals input |
 | `max([s1, s2])` | Continue while all recur; use the slowest delay |
 | `min([s1, s2])` | Continue while any recur; use the fastest delay |
 | `concat(s)` | Run self then other sequentially |
@@ -220,6 +407,14 @@ const meritCycleJob = kickOffMeritCycle.pipe(Effect.repeat(quarterlyCycle))
 | `modifyDelay(f)` | Replace the selected delay effectfully |
 | `tap(({ input, output, duration, ... }))` | Observe full step metadata |
 | `cron(expr, tz?)` | Sleep to next cron wall-clock match |
+| `toStep(schedule)` | Extract the step function to inspect or unit-test the delay sequence |
+
+| Runner | First execution | Input fed to the schedule | Result |
+| --- | --- | --- | --- |
+| `Effect.retry(effect, policy)` | Immediately | Each typed error | The first success; the last error if the policy stops |
+| `Effect.repeat(effect, schedule)` | Immediately | Each success value | The schedule's final output (the last value, for the options form) |
+| `Effect.schedule(effect, schedule)` | After the schedule's first delay | `undefined`, then each success value | The schedule's final output |
+| `Effect.retryOrElse` / `Effect.repeatOrElse` | As `retry` / `repeat` | As above | `retryOrElse`: the fallback once the policy is exhausted; `repeatOrElse`: the fallback once a run fails |
 
 **Reach for it when** you need to retry failed API calls with backoff, poll a workflow for a terminal state, run background jobs on a cron cadence, or express any policy combining timing, attempt count, and error classification.
 
@@ -268,6 +463,58 @@ Duration.format(Duration.sum(Duration.days(30), Duration.hours(4)))  // "30d 4h"
 ```
 
 > **Tip:** `Duration.Input` accepts strings like `"500 millis"`, `"5 seconds"`, `"2 minutes"`, `"1 hour"`, `"3 days"`, and `"1 week"`. You never need to multiply by 1000 to pass a duration to `Effect.sleep`, `Schedule.spaced`, or `Effect.timeout` — just write the human name.
+
+### Parsing untrusted durations and interop edges
+
+**Parse a duration once, at startup, into a `Duration`, and pass that value everywhere after.** A bare `5` in a config file or function signature does not say seconds, milliseconds, or attempts; a `Duration` cannot be misread.
+
+| Source of the value | Use | On bad input |
+| --- | --- | --- |
+| Environment / config provider | `Config.Duration("HRIS_TIMEOUT")` | Typed `ConfigError` at startup |
+| JSON, HTTP payloads, database text | `Schema.DurationFromString` inside the boundary schema | `SchemaError` from decoding |
+| A value already typed as `Duration.Input` | `Duration.fromInput(input)` | `Option.none()` |
+| A literal you control | `Duration.fromInputUnsafe("5 seconds")`, or a constructor | Throws — never feed it external text |
+
+All four accept the same forms: a `number` is **milliseconds**, a `bigint` is **nanoseconds**, a string is `"<n> <unit>"` (`nanos` through `weeks`, singular or plural) or `"Infinity"` / `"-Infinity"`, a `[seconds, nanos]` tuple is high-resolution time, and an object such as `{ minutes: 1, seconds: 30 }` adds its fields.
+
+```ts
+import { Config, Duration, Effect, Option, Schema } from "effect"
+
+// Deployment input: a malformed value is a named startup failure.
+const hrisTimeout = Config.Duration("HRIS_TIMEOUT").pipe(
+  Config.withDefault(Duration.seconds(5))
+)
+
+// Boundary schema: "90 seconds" on the wire, Duration in the domain.
+const SyncSettings = Schema.Struct({
+  pollEvery: Schema.DurationFromString
+})
+
+// "No TTL" is a value, not a magic number.
+const cacheTtl = Option.getOrElse(
+  Duration.fromInput("15 minutes"),
+  () => Duration.infinity
+)
+
+const program = Effect.gen(function*() {
+  const timeout = yield* hrisTimeout
+  // Combine spans with Duration arithmetic, not + and *.
+  const budget = Duration.sum(Duration.times(timeout, 3), Duration.seconds(1))
+
+  // Convert to a number only where a foreign API demands one.
+  const timer = setTimeout(() => {}, Duration.toMillis(budget))
+  clearTimeout(timer)
+
+  return { budget, cacheTtl, SyncSettings }
+})
+```
+
+- **`Duration.infinity` has no nanosecond value**: `Duration.toNanos` returns `Option.none()` for it, while `Duration.toNanosUnsafe` throws. Use the `Option` form whenever a configurable TTL or timeout may be infinite.
+- **Pick the codec by the precision and range you promise.** `Schema.DurationFromMillis` encodes through a JavaScript `number`, so nanosecond-precision durations beyond 2^53 ns do not survive a round trip. `Schema.DurationFromNanos` (a `bigint` carrier) is exact but rejects an infinite duration when encoding. `Schema.DurationFromString` is exact and carries `"Infinity"`.
+
+See [Configuration & Secrets](../foundations/configuration-secrets) for loading the rest of the startup configuration.
+
+Official guide: [Duration](https://effect.website/docs/v4/data-types/duration).
 
 **Reach for it when** you need to express, compare, add, or format typed time spans rather than raw millisecond numbers. It is the currency of every scheduling and timeout API in the library.
 
@@ -350,6 +597,10 @@ DateTime.toEpochSeconds(fromSeconds) // 1_718_460_600
 const grantDate = DateTime.makeUnsafe("2023-01-15T00:00:00Z")
 ```
 
+`DateTime.Input` is an existing `DateTime`, a JavaScript `Date`, epoch milliseconds, a partial parts object such as `{ year: 2026, month: 4 }` (missing parts default to the start of the period, in UTC), or a string.
+
+> **Warning:** **A zone-less string and a zone-less `Date` do not mean the same thing.** `DateTime.make("2026-01-01 04:00:00")` treats the text as UTC and yields `04:00Z`. `DateTime.make(new Date("2026-01-01 04:00:00"))` inherits JavaScript's rule that a zone-less date-time string is *host local time*, so the same text becomes `03:00Z` on a machine running at UTC+1 — and a different instant on every other machine. Pass strings, not pre-built `Date` objects, and when the text is a wall-clock reading in a known zone, use [`makeZoned` with `adjustForTimeZone`](#constructing-zoned-values-from-wall-clock-input). `DateTime.fromDateUnsafe` throws on an invalid `Date`.
+
 ### Time zones (IANA)
 
 ```ts
@@ -367,7 +618,7 @@ const program = Effect.gen(function*() {
     DateTime.setZoneNamed("America/Los_Angeles")
   )
 
-  // Render with offset suffix: "2026-06-20T10:00:00.000-04:00"
+  // Render with offset and zone id: "2026-06-20T10:00:00.000-04:00[America/New_York]"
   const isoZoned = DateTime.formatIsoZoned(nyTime)
   yield* Effect.log(`Merit cycle closes at: ${isoZoned}`)
 
@@ -380,6 +631,82 @@ const program = Effect.gen(function*() {
   NodeRuntime.runMain
 )
 ```
+
+A zone is a value of its own, `DateTime.TimeZone`, with two variants: `TimeZone.Named` (an IANA id, DST-aware) and `TimeZone.Offset` (fixed milliseconds from UTC). **An offset zone never follows daylight saving**, so store the IANA id whenever the zone describes a place. Validate a user-supplied zone once and reuse the value:
+
+| Constructor | Accepts | Result |
+| --- | --- | --- |
+| `DateTime.zoneFromString(text)` | `"+05:30"` or `"Asia/Kolkata"` | `Option<TimeZone>` |
+| `DateTime.zoneMakeNamed(id)` | IANA id | `Option<TimeZone.Named>` |
+| `DateTime.zoneMakeNamedEffect(id)` | IANA id | Effect failing with `IllegalArgumentError` |
+| `DateTime.zoneMakeNamedUnsafe(id)` | IANA id you control | Throws on an unknown id |
+| `DateTime.zoneMakeOffset(millis)` / `DateTime.zoneMakeLocal()` | Offset in ms / the host zone | `TimeZone` |
+
+```ts
+import { DateTime, Option } from "effect"
+
+// An employee profile stores either an IANA id or a fixed offset.
+const parseProfileZone = (raw: string): DateTime.TimeZone =>
+  DateTime.zoneFromString(raw).pipe(
+    Option.getOrElse(() => DateTime.zoneMakeOffset(0)) // fall back to UTC
+  )
+
+const reviewOpens = DateTime.makeUnsafe("2026-03-01T00:00:00Z")
+
+// setZone re-reads the same instant through a validated zone value.
+const forEmployee = DateTime.setZone(reviewOpens, parseProfileZone("Asia/Kolkata"))
+// setZoneOffset is the fixed-offset shortcut (+05:30 in milliseconds).
+const fixedOffset = DateTime.setZoneOffset(reviewOpens, 5.5 * 60 * 60 * 1000)
+```
+
+`DateTime.zoneToString(zone)` renders the id or offset back to text.
+
+### Constructing zoned values from wall-clock input
+
+`setZone*` attaches a zone to an instant that is already correct. The other common case is the reverse: the input is a **local wall-clock reading** — "the merit cycle closes at 09:00 in New York" — and the instant is what you need to compute.
+
+**By default `DateTime.makeZoned` reads its input as UTC and merely attaches the zone; `adjustForTimeZone: true` interprets the input as local time in that zone**, which produces a different instant:
+
+```ts
+import { DateTime, Option } from "effect"
+
+const local = "2026-03-02T09:00:00"
+
+// Input read as UTC, zone attached: 04:00 in New York.
+const attached = DateTime.makeZonedUnsafe(local, { timeZone: "America/New_York" })
+DateTime.formatIsoZoned(attached) // "2026-03-02T04:00:00.000-05:00[America/New_York]"
+
+// Input read as New York wall-clock time: 09:00 there, 14:00 UTC.
+const wallClock = DateTime.makeZonedUnsafe(local, {
+  timeZone: "America/New_York",
+  adjustForTimeZone: true
+})
+DateTime.formatIsoZoned(wallClock) // "2026-03-02T09:00:00.000-05:00[America/New_York]"
+DateTime.formatIso(wallClock)      // "2026-03-02T14:00:00.000Z"
+
+// A payroll cutoff at 02:30 on the day clocks spring forward does not exist.
+const cutoff = DateTime.makeZoned("2026-03-08T02:30:00", {
+  timeZone: "America/New_York",
+  adjustForTimeZone: true,
+  disambiguation: "reject"
+}) // Option.none()
+
+// formatIsoZoned and makeZonedFromString round-trip without losing the zone.
+const restored: Option.Option<DateTime.Zoned> = DateTime.makeZonedFromString(
+  DateTime.formatIsoZoned(wallClock)
+)
+```
+
+Daylight-saving transitions make some wall-clock readings nonexistent (the spring-forward gap) and others ambiguous (the repeated hour in autumn). `disambiguation` applies only together with `adjustForTimeZone: true`:
+
+| `disambiguation` | Gap (02:30 on 2026-03-08, New York) | Repeated hour (01:30 on 2026-11-01, New York) |
+| --- | --- | --- |
+| `"compatible"` (default) | Later reading: 03:30 EDT | Earlier occurrence: 01:30 EDT |
+| `"earlier"` | 01:30 EST | 01:30 EDT |
+| `"later"` | 03:30 EDT | 01:30 EST |
+| `"reject"` | `makeZoned` → `Option.none()`; `makeZonedUnsafe` throws | same |
+
+**Use `"reject"` for deadlines, payroll cutoffs, and anything with legal weight, and surface the rejection to whoever entered the time**; silently moving a cutoff by an hour is a decision a person should make. `DateTime.setZone` accepts the same two options.
 
 ### Calendar math and truncation
 
@@ -408,6 +735,8 @@ const timeToCliff = DateTime.distance(today, cliffDate) // Duration (negative = 
 const reminderStart = cliffDate.pipe(DateTime.subtractDuration("30 days"))
 ```
 
+Month and year arithmetic clamps to the last valid day instead of spilling into the next month: `2026-01-31` plus `{ months: 1 }` is `2026-02-28`, and `2024-02-29` plus `{ years: 1 }` is `2025-02-28`. Consequently adding a month and then subtracting one is not always the identity — compute recurring dates from the original anchor (`grantDate + n months`), not by chaining increments. `DateTime.setParts` / `setPartsUtc` do not clamp: the parts you pass are applied together, so `{ month: 2, day: 15 }` on 31 January is 15 February, but `{ month: 2 }` alone keeps day 31 and rolls over to 3 March.
+
 ### Providing the current zone via a Layer
 
 ```ts
@@ -421,7 +750,43 @@ const kolkata   = DateTime.layerCurrentZoneOffset(5.5 * 60 * 60 * 1000)
 
 // System local zone of the Node process
 const local     = DateTime.layerCurrentZoneLocal
+
+// An already-validated TimeZone value
+const fromValue = DateTime.layerCurrentZone(DateTime.zoneMakeNamedUnsafe("Europe/Rome"))
 ```
+
+A Layer fixes the zone for the whole application. For a per-request or per-employee zone, scope `CurrentTimeZone` to one effect with `DateTime.withCurrentZone(zone)`, `withCurrentZoneNamed(id)`, `withCurrentZoneOffset(millis)`, or `withCurrentZoneLocal`. `withCurrentZoneNamed` adds `IllegalArgumentError` to the effect's error channel for an unknown id, whereas `layerCurrentZoneNamed` fails when the Layer is built. `DateTime.setZoneCurrent(dateTime)` re-zones an existing value using the service.
+
+```ts
+import { DateTime, Effect } from "effect"
+
+// Render the review deadline in each employee's own zone.
+const deadlineFor = (deadline: DateTime.Utc, employeeZone: DateTime.TimeZone) =>
+  DateTime.setZoneCurrent(deadline).pipe(
+    Effect.map(DateTime.formatIsoZoned),
+    DateTime.withCurrentZone(employeeZone)
+  )
+```
+
+### Formatting
+
+Picking the wrong formatter silently changes what a database column or API consumer receives. Output below is for 09:00 New York time on 2 March 2026.
+
+| Formatter | Zone applied | Output |
+| --- | --- | --- |
+| `DateTime.formatIso` | UTC, always | `2026-03-02T14:00:00.000Z` |
+| `DateTime.formatIsoOffset` | The value's zone | `2026-03-02T09:00:00.000-05:00` |
+| `DateTime.formatIsoZoned` | The value's zone | `2026-03-02T09:00:00.000-05:00[America/New_York]` — the form `makeZonedFromString` parses |
+| `DateTime.formatIsoDate` / `formatIsoDateUtc` | The value's zone / UTC | `2026-03-02` — the two differ near midnight |
+| `DateTime.format(dt, options)` | The value's zone | `Intl.DateTimeFormat` output, e.g. `Mar 2, 2026, 9:00 AM` |
+| `DateTime.formatUtc` / `formatLocal` | UTC / the host's zone | As `format`, with the zone forced |
+| `DateTime.formatIntl(dt, formatter)` | The formatter's | Bring your own `Intl.DateTimeFormat` |
+
+**Persist `formatIso` (an instant) or `formatIsoZoned` (an instant plus the place it was meant for); keep `format*` with `Intl` options for display only.**
+
+**Key APIs.** Guards: `isDateTime`, `isUtc`, `isZoned`, `isTimeZone`. Comparison: `min`, `max`, `between`, `isLessThan`, `isGreaterThan`, `distance`. `DateTime.isFuture` and `DateTime.isPast` are Effects that read the `Clock`, so `TestClock` controls them; `isFutureUnsafe` / `isPastUnsafe` read wall time like `nowUnsafe`. Leaving `DateTime`: `toEpochMillis`, `toDateUtc`, `toDate` (zone-adjusted), `zonedOffset` / `zonedOffsetIso`. Parts: `toParts` / `toPartsUtc`, `getPart`, `setParts` / `setPartsUtc`, `removeTime`, and `nearest` alongside `startOf` / `endOf`.
+
+Official guide: [DateTime](https://effect.website/docs/v4/data-types/datetime) (several headings keep v3 names such as `unsafeMake`; its "Zoned Constructors" section predates `disambiguation`; and it describes zone-less strings as local time, which is true only for the `Date` inputs its examples use).
 
 **Reach for it when** you need the current time in an Effect, when parsing ISO timestamps safely, when computing dates that must respect DST and timezones, or when formatting a timestamp for display or a database column.
 
@@ -465,6 +830,29 @@ Cron.format(nightly, { includeSeconds: true })        // "0 0 1 * * *"
 
 `Cron.format` serializes the calendar fields, not the whole semantic value: it drops timezone information and the special day/weekday `and` restriction. Consequently `Cron.parse(Cron.format(cron))` is not always equivalent to `cron`; persist the missing metadata separately when it matters.
 
+### Building a Cron from structured fields
+
+When the schedule comes from a settings screen or typed configuration rather than a cron string, build it with `Cron.make`. An empty collection means "unconstrained" for that field, `seconds` defaults to `[0]`, `tz` takes a `DateTime.TimeZone`, and `and: true` requires day-of-month **and** weekday to match instead of either.
+
+```ts
+import { Cron, DateTime } from "effect"
+
+// Payroll preview: 04:00 Rome time on days 8–14 of every month.
+const secondWeek = Cron.make({
+  minutes: [0],
+  hours: [4],
+  days: [8, 9, 10, 11, 12, 13, 14],
+  months: [],   // every month
+  weekdays: [], // any weekday
+  tz: DateTime.zoneMakeNamedUnsafe("Europe/Rome")
+})
+
+Cron.next(secondWeek, new Date("2026-06-01T00:00:00Z")) // 2026-06-08T02:00:00.000Z
+Cron.prev(secondWeek, new Date("2026-06-01T00:00:00Z")) // 2026-05-14T02:00:00.000Z
+```
+
+> **Warning:** `Cron.make` throws a `RangeError` synchronously for out-of-range values (`minutes: [99]`), and `Cron.next` / `Cron.prev` throw when no matching date can be found (`"0 0 31 2 *"`). Validate user-supplied fields with a Schema first, and prefer `Cron.parse`, which returns a `Result`, for cron text.
+
 ### Driving a scheduled job with Schedule.cron
 
 ```ts
@@ -478,7 +866,14 @@ declare const runPayrollBatch: Effect.Effect<void>
 
 // Effect.repeat runs the effect once immediately, then again at each cron tick.
 const payrollJob = runPayrollBatch.pipe(Effect.repeat(payrollCron))
+
+// Effect.schedule waits for the first tick — a restart at 14:00 does not run payroll.
+const payrollJobOnTick = runPayrollBatch.pipe(Effect.schedule(payrollCron))
 ```
+
+**Choose the runner by what a restart should do.** A nightly job driven by `Effect.repeat` runs on every deploy and crash-restart, then again at 01:00; `Effect.schedule` runs only at cron ticks. Neither catches up on ticks missed while the process was down — a job that must not be skipped needs durable scheduling such as [ClusterCron](../systems/cluster-sharding#clustercron) or a [Workflow](../systems/workflows-durable-execution). The schedule's output is a `Duration` (the computed wait), and an invalid expression fails the schedule with `Cron.CronParseError`.
+
+Official guide: [Cron](https://effect.website/docs/v4/scheduling/cron) (its prose says `Schedule.cron` outputs a `[start, end]` tuple and mentions `TestContext`; in `rc.115` the output is a `Duration` and `TestClock.layer()` is all a test needs).
 
 **Reach for it when** you need to parse cron expressions from configuration, check whether a scheduled job should have fired, enumerate upcoming run times for a scheduling preview UI, or drive a background job with `Schedule.cron`.
 

@@ -69,9 +69,19 @@ const writeProject = async (name, files) => {
 const diagnostics = async (project) => {
   await run(binary("tsc"), ["--noEmit", "--project", project], { cwd: validationRoot, timeout: 120_000 })
   const result = await run(binary("effect-tsgo"), ["diagnostics", "--project", project, "--strict", "--format", "text"], { cwd: validationRoot, timeout: 120_000 })
-  const problems = result.output.split(/\r?\n/).filter((line) => /\b(?:error|warning)\b/i.test(line))
+  const problems = effectDiagnosticProblems(result.output)
   if (problems.length > 0) throw new Error(`Strict Effect diagnostics emitted errors or warnings for ${project}:\n${problems.join("\n")}`)
   return { typescript: "passed", effect: "passed", output: result.output.trim() }
+}
+
+// A located diagnostic is `path(line,col): severity rule: text`. Read the severity from that slot so a
+// path or message that merely contains the word "error" (for example `rpc.client-error-recovery`) cannot
+// turn an advisory `message` into a failure. Lines without a location keep the conservative whole-line test.
+export function effectDiagnosticProblems(output) {
+  return output.split(/\r?\n/).filter((line) => {
+    const located = /^.*?\(\d+,\d+\):\s*([A-Za-z]+)\b/.exec(line)
+    return located === null ? /\b(?:error|warning)\b/i.test(line) : /^(?:error|warning)$/i.test(located[1])
+  })
 }
 
 export function assertExpectedDiagnostic(output, expected) {

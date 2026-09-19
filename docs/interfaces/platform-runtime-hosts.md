@@ -2,6 +2,10 @@
 
 Effect's platform layer separates service interfaces (in the core `effect` package, runtime-agnostic) from concrete implementations (provided as a Layer from `@effect/platform-node`, `@effect/platform-bun`, `@effect/platform-deno`, or `@effect/platform-browser`). Business logic imports only from `effect/*`; only the entrypoint imports the platform package. Swapping the Layer swaps the runtime.
 
+> **Official guides:** [Introduction to Effect Platform](https://effect.website/docs/v4/platform/introduction) (its module table lists a `PlatformLogger` that `rc.115` does not ship — the function is `Logger.toFile` — and it routes Deno through `@effect/platform-node`, while `rc.115` also publishes `@effect/platform-deno`). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+
+Who owns each of these runtimes, and when it is disposed, is a separate question from which Layer implements a service: see [Choosing a host](#choosing-a-host) below and [Owning Lifetimes — Startup, Readiness, and Shutdown](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown).
+
 ## FileSystem
 
 `effect/FileSystem` — stable
@@ -10,12 +14,24 @@ Service interface for filesystem operations: read, write, stat, copy, move, dele
 
 Mental model: typed composable wrapper over `node:fs/promises`, working identically on Bun. Business modules import from `effect/FileSystem`; the entrypoint imports `NodeFileSystem.layer`. Use `FileSystem.layerNoop` to stub in tests.
 
-Common methods: `readFileString` / `writeFileString` (text), `readFile` / `writeFile` (`Uint8Array`), `exists`, `stat`, `makeDirectory`, `copy`, `remove`, `stream` (lazy byte `Stream`, configurable chunk size), and `glob(pattern, { root, exclude })`. `watch(path)` observes direct children by default; pass `{ recursive: true }` for subdirectories. Scoped helpers `makeTempDirectoryScoped` and `makeTempFileScoped` auto-clean on scope close. An opened `File` is the public handle type; its `seek(offset, from)` returns the new branded `FileSystem.Size` offset (there is no longer a public `FileDescriptor` type).
+Common methods: `readFileString` / `writeFileString` (text), `readFile` / `writeFile` (`Uint8Array`), `exists`, `stat`, `makeDirectory`, `copy`, `remove`, `stream` (lazy byte `Stream`, configurable chunk size), and `glob(pattern, { root, exclude })`. `watch(path)` observes direct children by default; pass `{ recursive: true }` for subdirectories. Scoped helpers `makeTempDirectoryScoped` and `makeTempFileScoped` auto-clean on scope close. An opened `File` is the public handle type; its `seek(offset, from)` takes and returns a plain `bigint` position and rejects a negative result with `BadArgument`, leaving the cursor unchanged (there is no longer a public `FileDescriptor` type).
 
-**Size helpers.** `FileSystem.Size`, `FileSystem.KiB`, `FileSystem.MiB`, `FileSystem.GiB`, `FileSystem.TiB`, `FileSystem.PiB` produce branded `bigint` values accepted by `truncate` and compared against `File.Info.size`.
+The service covers the whole `node:fs` surface, so reaching for raw `node:fs` costs typed errors and testability without buying an operation:
+
+| Group | Operations |
+| --- | --- |
+| Whole-file I/O | `readFile`, `readFileString`, `writeFile`, `writeFileString` (both writes take `flag` and `mode`) |
+| Streams and handles | `stream` (lazy bytes), `sink` (a byte `Sink`; opens with flag `"w"` unless you pass one, so use `{ flag: "a" }` to append), `open` (a scoped `File`: `read`, `readAlloc`, `write`, `writeAll`, `seek`, `truncate`, `sync`, `stat`) |
+| Directories and trees | `makeDirectory` (`recursive`), `readDirectory` (`recursive`), `glob`, `copy` (like `cp -r`), `rename`, `remove` (`recursive`, `force`) |
+| Single files and links | `copyFile`, `truncate`, `link`, `symlink`, `readLink`, `realPath` |
+| Metadata and permissions | `exists`, `access` (`readable`, `writable`), `stat`, `chmod`, `chown`, `utimes` |
+| Temporary paths | `makeTempDirectory`, `makeTempFile`, and the `…Scoped` variants that delete on scope close |
+| Change notification | `watch` |
+
+**Sizes are `ByteSize` values.** The `FileSystem.Size` brand and the `FileSystem.KiB` / `MiB` / `GiB` / `TiB` / `PiB` helpers were removed in `rc.113`. `File.Info.size` is now a stable [`ByteSize.ByteSize`](../data/functional-toolkit#bytesize) — an exact non-negative `bigint` brand — so compare it with `ByteSize.isGreaterThan` and friends rather than with `>`. `stream`'s `offset` and `bytesToRead` accept any `ByteSize.Input`; `chunkSize` and `truncate`'s `length` are plain `number`s. Optional numeric `stat` metadata that exceeds the safe-integer range is reported as `Option.none()` instead of failing the whole call. The same exact-arithmetic pass (`rc.113`) reached HTTP file responses: [`HttpPlatform`](./http-server#httpplatform) clamps a requested range to the file's size, so `Content-Length` always matches the bytes actually sent.
 
 ```ts
-import { FileSystem } from "effect"
+import { ByteSize, FileSystem } from "effect"
 import { NodeFileSystem } from "@effect/platform-node"
 import { Effect, Layer, Stream } from "effect"
 
@@ -38,9 +54,9 @@ const loadCompBands = Effect.gen(function*() {
 
   // Stat the full employee dump — stream it if it's large
   const info = yield* fs.stat("./data/employees.bin")
-  if (info.size > FileSystem.MiB(100)) {
-    yield* Effect.log("large employee dump, streaming instead")
-    const bytes = fs.stream("./data/employees.bin", { chunkSize: FileSystem.KiB(64) })
+  if (ByteSize.isGreaterThan(info.size, ByteSize.mebibytes(100))) {
+    yield* Effect.log(`large employee dump (${ByteSize.format(info.size, { system: "binary" })}), streaming instead`)
+    const bytes = fs.stream("./data/employees.bin", { chunkSize: 64 * 1024 })
     yield* bytes.pipe(Stream.runDrain)
   }
 
@@ -62,6 +78,29 @@ const program = loadCompBands.pipe(
 `fs.watch(path)` returns a `Stream<WatchEvent>` whose tags are `Create`, `Update`, and `Remove`. Watching is host-dependent and may fail with `PlatformError`; a platform layer supplies the `FileSystem.WatchBackend`.
 
 When to use: any filesystem I/O in an Effect program. Use `FileSystem.layerNoop` to stub in unit tests.
+
+Official guide: [FileSystem](https://effect.website/docs/v4/platform/file-system).
+
+### Testing without a disk
+
+`FileSystem.layerNoop(partial)` builds a complete service from only the methods the code under test calls (`FileSystem.makeNoop(partial)` is the same object without the Layer, for `Effect.provideService`). **A forgotten override is loud, not silent:** on `rc.115` most defaults fail with a typed `PlatformError` whose reason is `NotFound`; `makeDirectory` and the `makeTemp*` family die with `not implemented`; only `exists` (answers `false`) and `remove` (succeeds) are quiet.
+
+```ts
+import { Effect, FileSystem } from "effect"
+
+const TestFs = FileSystem.layerNoop({
+  readFileString: (path) =>
+    path === "./data/comp_bands.csv"
+      ? Effect.succeed("level,min,mid,max\nL5,100,120,140")
+      : Effect.die(`unexpected read: ${path}`)
+})
+
+const firstBand = Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+  const csv = yield* fs.readFileString("./data/comp_bands.csv")
+  return csv.split("\n")[1] // "L5,100,120,140"
+}).pipe(Effect.provide(TestFs))
+```
 
 ## Path
 
@@ -98,6 +137,8 @@ const buildExportPath = Effect.fn("buildExportPath")(
 
 When to use: building or decomposing file paths inside an Effect. Inject via service rather than calling `path.join` directly so tests can control path logic.
 
+Official guide: [Path](https://effect.website/docs/v4/platform/path).
+
 ## Terminal
 
 `effect/Terminal` — stable
@@ -125,7 +166,37 @@ const confirmMeritRun = Effect.gen(function*() {
 // QuitError surfaces if user hits Ctrl+C — handle or let it propagate
 ```
 
+**Re-prompt by recursion, deferred with `Effect.suspend`.** A validation loop is the prompt calling itself; `suspend` makes the self-reference lazy so each retry is built only when it is needed. The error channel is the union of the two operations: `readLine` fails with `QuitError`, `display` with `PlatformError`.
+
+```ts
+import { Effect, Option, Terminal } from "effect"
+import type { PlatformError } from "effect"
+
+const parsePercent = (input: string): Option.Option<number> => {
+  const value = Number(input.trim())
+  return input.trim() !== "" && value >= 0 && value <= 25 ? Option.some(value) : Option.none()
+}
+
+// Ask until the answer parses. Ctrl+C / Ctrl+D ends the loop as QuitError.
+const askMeritPercent: Effect.Effect<
+  number,
+  Terminal.QuitError | PlatformError.PlatformError,
+  Terminal.Terminal
+> = Effect.gen(function*() {
+  const terminal = yield* Terminal.Terminal
+  yield* terminal.display("Merit increase % (0-25): ")
+  const answer = parsePercent(yield* terminal.readLine)
+  if (Option.isSome(answer)) return answer.value
+  yield* terminal.display("Enter a number between 0 and 25.\n")
+  return yield* Effect.suspend(() => askMeritPercent)
+})
+```
+
+A small script does not need the whole aggregate: `NodeTerminal.layer` (or `BunTerminal.layer`) provides `Terminal` alone.
+
 When to use: CLIs, interactive prompts, or TUI-adjacent tools requiring testable platform-independent I/O.
+
+Official guide: [Terminal](https://effect.website/docs/v4/platform/terminal).
 
 ## Stdio
 
@@ -203,40 +274,53 @@ When to use: secure randomness, UUIDs, or hashing inside an Effect with testable
 
 `effect/unstable/socket/Socket` — unstable
 
-Platform-neutral abstraction for a bidirectional socket (TCP, Unix domain, or WebSocket). A `Socket` exposes three run modes — `run` (binary `Uint8Array` handler), `runString` (text handler), `runRaw` (either) — and a scoped `writer` sending `Uint8Array | string | CloseEvent`. Typed errors: `SocketReadError`, `SocketWriteError`, `SocketOpenError`, `SocketCloseError`, all wrapped in `SocketError`.
+Platform-neutral abstraction for a bidirectional socket (TCP, Unix domain, or WebSocket). Since `rc.113` a `Socket` is **pull-based**: it exposes a scoped `reader` and a scoped `writer`, and nothing is read from the transport until the consumer pulls.
 
-Mental model: a duplex channel run in a fiber. The run loop drives incoming messages; outbound writes go via the scoped writer. Adapt to an Effect `Channel` via `Socket.toChannel` for stream/channel combinator integration.
+- `socket.reader` — acquiring it *dials the connection*; its scope owns the connection lifetime. It yields a `Reader` whose `pull` returns the next non-empty batch (one buffer for TCP, one entry per WebSocket frame) and whose `upgrade(options?)` wraps a live TCP connection in TLS (STARTTLS). `Socket.readerBytes(socket)` and `Socket.readerString(socket, encoding?)` acquire a pull already normalized to `Uint8Array` or `string`.
+- `socket.writer` — acquisition cannot fail. It yields a `Writer` with `write(chunk | CloseEvent)` and `writeAll(chunks)`; both wait for the transport's native drain signal, so a slow peer backpressures the producer. Writes issued while disconnected suspend until the next connection.
 
-WebSockets: `Socket.makeWebSocket(url)` creates a `Socket` from a URL; `Socket.layerWebSocket(url)` provides it as a service. A `WebSocketConstructor` service controls the underlying constructor (inject `ws` in Node, use the global in browsers).
+Mental model: a connection is a scoped read loop. Code placed between acquiring the reader and the first `pull` runs exactly once per (re)connection, which is where a handshake belongs. A `pull` **never completes normally** — every termination, a clean close included, fails with `SocketError` wrapping a `SocketCloseError` (or `SocketReadError`, `SocketWriteError`, `SocketOpenError`, `SocketUpgradeError`). Reconnection is therefore ordinary `Effect.retry` around the scoped loop, not a special socket option.
+
+Backpressure is end to end: TCP pauses while nobody pulls; pausable WebSockets pause at `highWaterMark` (64 KiB by default) and resume after draining. Browser WebSockets cannot pause, so they fail with `SocketReadError` when a configured `highWaterMark` is exceeded — size it for the burst you expect.
+
+WebSockets: `Socket.makeWebSocket(url)` creates a `Socket` from a URL; `Socket.layerWebSocket(url)` provides it as a service. A `WebSocketConstructor` service controls the underlying constructor (inject `ws` in Node, use the global in browsers). Its second argument is either subprotocols or a typed `WebSocketClientOptions` (`{ headers }` for the opening handshake, e.g. an `Authorization` header): the Node and Bun constructors honor it, while the global/browser constructor throws a `TypeError`, because browsers cannot set handshake headers. `makeWebSocket` forwards only `protocols`, so to send headers call the constructor service yourself and wrap the result with `Socket.fromWebSocket`.
 
 TCP in Node: use `NodeSocket.layerNet(opts)` where `opts` is a `Net.NetConnectOpts` object (e.g., `{ host, port }`). There is no `layerTCP` export.
 
 ```ts
 import { Socket } from "effect/unstable/socket"
 import { NodeSocket } from "@effect/platform-node"
-import { Effect } from "effect"
+import { Effect, Schedule } from "effect"
 
-// Connect to the payroll service over TCP and send a sync trigger
+// Connect to the payroll service over TCP, send a sync trigger, log every ack.
 const triggerPayrollSync = Effect.gen(function*() {
   const socket = yield* Socket.Socket
 
-  // Acquire the scoped writer — closed when the scope ends
-  const write = yield* socket.writer
+  // Acquiring the reader dials; this scope owns the connection.
+  const pull = yield* Socket.readerString(socket)
+  const writer = yield* socket.writer
 
-  // Start reading acknowledgements in the background
-  yield* socket.runString((msg) =>
-    Effect.log(`payroll ack: ${msg}`)
-  ).pipe(Effect.forkChild)
+  // Runs once per (re)connection, before the first pull: the handshake slot.
+  yield* writer.write("SYNC:merit-cycle-2025\n")
 
-  yield* write(`SYNC:merit-cycle-2025\n`)
-  yield* Effect.sleep("1 second")
-  yield* write(new Socket.CloseEvent(1000, "done"))
+  // Pull until the peer closes. The close arrives as a SocketError failure.
+  while (true) {
+    for (const ack of yield* pull) {
+      yield* Effect.log(`payroll ack: ${ack}`)
+    }
+  }
 }).pipe(
+  Effect.scoped,
+  // Every termination is a failure, so reconnecting is plain retry.
+  Effect.retry({ schedule: Schedule.exponential("200 millis"), times: 5 }),
   // NodeSocket.layerNet — correct name; no layerTCP exists
-  Effect.provide(NodeSocket.layerNet({ host: "127.0.0.1", port: 4000 })),
-  Effect.scoped
+  Effect.provide(NodeSocket.layerNet({ host: "127.0.0.1", port: 4000 }))
 )
 ```
+
+For combinator-style consumption, `Socket.toStream(socket)` is a read-only binary `Stream` backed by the same pull, and `Socket.toChannel` / `Socket.toChannelString` expose the duplex connection as a `Channel`. All three fail on close for the same reason `pull` does.
+
+> **Warning:** `Socket.run`, `Socket.runString`, and `Socket.runRaw` were removed in `rc.113`, along with the `onOpen` callback, the close-code predicates, `SendQueueCapacity`, and `fromWebSocket`'s `onInitialRun` option. `Socket.make` now takes `{ reader, writer }`. Migrate a `run*` handler to a scoped pull loop, move `onOpen` logic to just before the first pull, and replace close-code checks with retry (or `Effect.catch` on `SocketError`) around the loop.
 
 When to use: typed Effect-native TCP or WebSocket communication over a persistent connection.
 
@@ -244,28 +328,37 @@ When to use: typed Effect-native TCP or WebSocket communication over a persisten
 
 `effect/unstable/socket/SocketServer` — unstable
 
-Server-side counterpart to `Socket`. The `SocketServer` service exposes: `address` (bound `TcpAddress | UnixAddress`) and `run(handler)` — a never-ending Effect that accepts connections and passes each as a `Socket.Socket` to the handler. Errors are `SocketServerError` with reason `SocketServerOpenError | SocketServerUnknownError`.
+Server-side counterpart to `Socket`. The `SocketServer` service exposes: `address` — the bound `NetAddress.SocketAddress` (an `InetAddressV4 | InetAddressV6` with `address` and `port`, or a `UnixPathAddress` with `path`) — and `run(handler)`, a never-ending Effect that accepts connections and passes each as a `Socket.Socket` to the handler. Errors are `SocketServerError` with reason `SocketServerOpenError | SocketServerUnknownError`.
 
-Mental model: provide a handler; the server calls it concurrently per accepted connection. Each handler gets a fresh `Socket` whose scope closes when the handler completes. `NodeSocketServer.layer({ port: 4000 })` wires up a Node TCP server; `NodeSocketServer.layerWebSocket({ port: 8080 })` wires up a WebSocket server backed by `ws`.
+Mental model: provide a handler; the server calls it concurrently per accepted connection. Each handler gets a fresh `Socket` whose scope closes when the handler completes. An accepted socket starts **paused** and its reader attaches to the existing connection, so it cannot reconnect after close — a failed `pull` simply ends that handler. `NodeSocketServer.layer({ port: 4000 })` wires up a Node TCP server; `NodeSocketServer.layerWebSocket({ port: 8080 })` wires up a WebSocket server backed by `ws`.
 
 ```ts
-import { SocketServer } from "effect/unstable/socket"
+import { NetAddress } from "effect/unstable/net"
+import { Socket, SocketServer } from "effect/unstable/socket"
 import { NodeSocketServer } from "@effect/platform-node"
 import { Effect } from "effect"
 
 // A small HRIS push-notification server: echo events back with a prefix
 const hrisNotificationServer = Effect.gen(function*() {
   const server = yield* SocketServer.SocketServer
-  const addr = server.address as { port: number }
-  yield* Effect.log(`HRIS push server listening on port ${addr.port}`)
+  const bound = NetAddress.isInetAddress(server.address)
+    ? NetAddress.formatInet(server.address)
+    : server.address.path
+  yield* Effect.log(`HRIS push server listening on ${bound}`)
 
   return yield* server.run((socket) =>
-    socket.runString((msg) =>
-      Effect.gen(function*() {
-        // socket.writer is a scoped Effect — acquire it inside the handler scope
-        const write = yield* socket.writer
-        yield* write(`ACK:${msg}`)
-      })
+    Effect.gen(function*() {
+      const pull = yield* Socket.readerString(socket)
+      const writer = yield* socket.writer
+      while (true) {
+        for (const msg of yield* pull) {
+          yield* writer.write(`ACK:${msg}`)
+        }
+      }
+    }).pipe(
+      Effect.scoped,
+      // The peer hanging up is the normal end of this connection, not a server fault.
+      Effect.catchTag("SocketError", (error) => Effect.logDebug("connection closed", error))
     )
   )
 }).pipe(
@@ -274,7 +367,63 @@ const hrisNotificationServer = Effect.gen(function*() {
 )
 ```
 
+The bound address and every accepted peer address are [`NetAddress`](#netaddress) values rather than strings.
+
 When to use: accepting TCP or WebSocket connections — custom protocols, push event relays, or bidirectional streaming pipelines.
+
+## NetAddress
+
+`effect/unstable/net/NetAddress` — unstable (new in `rc.113`)
+
+Pure, platform-neutral **values** for network addresses: `Ipv4Address` / `Ipv6Address` (`IpAddress`), `MacAddress`, internet socket addresses `InetAddressV4` / `InetAddressV6` (`InetAddress`, an IP plus a port), and `UnixPathAddress`. `SocketAddress = InetAddress | UnixPathAddress` is what `SocketServer.address` and `HttpServer.address` now report. Every value implements `Equal` and `Hash`, so addresses work as `HashMap` keys and compare structurally.
+
+Mental model: parse once at the boundary, then pass a typed address instead of a string. Parsing is *checked* — `ipFromString`, `inetAddressFromString`, and `macAddressFromString` return a `Result` with a `NetAddressError`, and each has a throwing `*Unsafe` twin for trusted literals. Formatting is canonical: `formatIp`, `formatInet` (brackets IPv6 before the port), and `formatUrlHost` (brackets IPv6 for use inside a URL; scoped IPv6 is rejected by the URL helpers). Classification predicates — `isLoopback`, `isPrivate`, `isLinkLocal`, `isMulticast`, `isUniqueLocal`, `isUnspecified` — replace ad-hoc prefix string checks, which is what an SSRF or allow-list guard should be built on.
+
+```ts
+import { Result } from "effect"
+import { IpNetwork, NetAddress } from "effect/unstable/net"
+
+// Untrusted input: checked parsing returns a Result, never throws.
+const parsed = NetAddress.ipFromString("10.20.3.999")
+if (Result.isFailure(parsed)) {
+  console.log(parsed.failure._tag) // "NetAddressError"
+}
+
+// Trusted literal: the Unsafe twin throws on a typo instead of limping on.
+const payrollHost = NetAddress.ipFromStringUnsafe("10.20.3.7")
+NetAddress.isLoopback(payrollHost) // false
+NetAddress.formatIp(payrollHost)   // "10.20.3.7"
+
+// A socket address keeps the port typed; IPv6 is bracketed when formatted.
+const hris = NetAddress.inetAddressFromStringUnsafe("[2001:db8::1]:8443")
+hris.port                               // 8443
+NetAddress.formatInet(hris)             // "[2001:db8::1]:8443"
+NetAddress.formatUrlHost(hris.address)  // "[2001:db8::1]"
+
+// Allow-list an outbound webhook target by CIDR membership, not by string prefix.
+const internalRange = IpNetwork.fromStringUnsafe("10.20.0.0/16")
+const isInternal = IpNetwork.contains(internalRange, payrollHost) // true
+```
+
+`Schema` ships matching codecs — `Schema.IpAddressFromString`, `Schema.InetAddressFromString`, `Schema.MacAddressFromString`, `Schema.SocketAddress`, and the v4/v6-specific variants — so a config value or request field decodes straight to an address. Migration: replace reads of a server address's old `hostname` with `NetAddress.formatIp(address.address)`, and use `address.path` for Unix sockets. Bun and Deno HTTP server layers can now fail with `ServeError` when the listener address cannot be converted.
+
+When to use: any time an address crosses a boundary — config, request data, allow/deny lists, logging a bound listener — and whenever address equality or classification matters.
+
+## IpNetwork
+
+`effect/unstable/net/IpNetwork` — unstable (new in `rc.113`)
+
+A CIDR network: a network address plus a prefix length, generic over the address family (`Ipv4Network`, `Ipv6Network`). Construction is strict — `IpNetwork.fromString("10.20.3.7/16")` **fails** because host bits are set; use `IpNetwork.fromAddress` (which masks them) or go through `IpInterface` when you have a host address. Operations: `contains(network, address)`, `containsNetwork`, `overlaps`, `firstAddress` / `lastAddress`, `addressCount` (a `bigint`, since an IPv6 range does not fit a `number`), and `format`. PostgreSQL `cidr` columns decode to `IpNetwork` in the native `@effect/sql-pg` client.
+
+When to use: allow/deny lists, subnet planning, and tenant or region routing by address range.
+
+## IpInterface
+
+`effect/unstable/net/IpInterface` — unstable (new in `rc.113`)
+
+An address **with** its prefix length — `10.20.3.7/16` — the form a host or network interface is configured with. Unlike `IpNetwork`, host bits are preserved. `IpInterface.fromString` parses it (with `ParseOptions`), `IpInterface.format` renders it, and `IpNetwork.fromInterface(iface)` yields the containing network (`10.20.0.0/16`). PostgreSQL `inet` columns decode to `IpInterface`.
+
+When to use: modelling "this host, on this subnet" without losing either half.
 
 ## Worker
 
@@ -285,6 +434,8 @@ Parent-side API for communicating with a worker thread or IPC child process. A `
 Mental model: typed bidirectional channel where `I` flows in and `O` flows out. The parent buffers sends until the worker signals readiness, then drains the queue.
 
 Setup: call `NodeWorker.layer(spawnFn)` to provide both `WorkerPlatform` and `Spawner`; acquire a typed `Worker` via `WorkerPlatform.spawn(id)`. The spawn function receives a numeric ID and returns a `WorkerThreads.Worker` or IPC `ChildProcess`.
+
+Lifetime: `run` owns the worker. **A worker that exits or throws — before or after the ready handshake — fails `run`** with a `WorkerError` whose reason is `WorkerReceiveError` (since `rc.113` a worker that dies before signalling readiness no longer leaves `run` hanging uninterruptibly). When the scope around `run` closes, the Node and Bun adapters send the worker a close message, wait up to five seconds for it to exit, and then call `terminate()` (Node: `kill("SIGKILL")` for an IPC child) — so worker-side finalizers get a bounded chance to run. The browser adapter only sends the close message; it does not terminate a dedicated worker you spawned.
 
 ```ts
 import { Worker } from "effect/unstable/workers"
@@ -321,7 +472,7 @@ When to use: offloading CPU-heavy computation to a worker thread while retaining
 
 `effect/unstable/workers/WorkerRunner` — unstable
 
-Worker-side counterpart to `Worker`. A `WorkerRunner<O, I>` listens for `I` messages from the parent (tagged by port ID), calls the handler, and sends `O` replies via `send(portId, message)` or `sendUnsafe`. The optional `disconnects` queue notifies when a port closes.
+Worker-side counterpart to `Worker`. A `WorkerRunner<O, I>` listens for `I` messages from the parent (tagged by port ID), calls the handler, and sends `O` replies via `send(portId, message)` or `sendUnsafe`. The optional `disconnects` queue notifies when a port closes; the browser and Deno runners provide it (many ports can share one worker there), the Node runner has a single parent and does not. An RPC server running over a worker forwards every disconnect, so a closed port's in-flight requests are interrupted rather than left running.
 
 Mental model: if `Worker` is the client, `WorkerRunner` is the server. Write the worker's main function by yielding the `WorkerRunnerPlatform` service and calling `platform.start()`, then provide the platform layer from `NodeWorkerRunner.layer`.
 
@@ -395,6 +546,21 @@ const prodExportCmd = ChildProcess.make("payroll-cli", ["export"]).pipe(
 )
 ```
 
+`make` also has a template-literal form, with or without options first. **Interpolations are arguments, never shell text:** each interpolated value becomes exactly one argument (an array becomes several), so untrusted input cannot inject a command; the literal part is split on whitespace only, so quotes are *not* parsed — put anything containing a space in an interpolation (probed on `rc.115`; `rc.113` also fixed the template form losing the arguments that followed an astral-Unicode escape).
+
+```ts
+import { ChildProcess } from "effect/unstable/process"
+
+const employee = "Ada Lovelace; rm -rf /" // stays one harmless argument
+const flags = ["--format=csv", "--cycle=2026 H1"]
+
+// payroll-cli ["export", "--format=csv", "--cycle=2026 H1", "--employee", "Ada Lovelace; rm -rf /"]
+const exportOne = ChildProcess.make`payroll-cli export ${flags} --employee ${employee}`
+
+// Options first, then the template.
+const listing = ChildProcess.make({ cwd: "/app/payroll", forceKillAfter: "2 seconds" })`ls -la`
+```
+
 When to use: composing commands before running them, separating command description from execution.
 
 ## ChildProcessSpawner
@@ -405,9 +571,11 @@ Service that executes `ChildProcess.Command` values.
 
 Key APIs: spawner.string(cmd), spawner.lines(cmd), spawner.spawn(cmd)
 
-`string` collects stdout as a single string. `lines` collects stdout as `Array<string>`. `spawn` returns a scoped `ChildProcessHandle` with `stdout`, `stderr`, `all` (merged) as byte `Stream`s, and `exitCode` as an Effect waiting for process completion. Exit code is a branded `ExitCode`; compare with `ChildProcessSpawner.ExitCode(0)`.
+`string` collects stdout as a single string. `lines` collects stdout as `Array<string>`. `streamString` / `streamLines` are the incremental `Stream` forms, and `exitCode(cmd)` runs a command for its status alone; all five take `{ includeStderr }` except `exitCode`. `spawn` returns a scoped `ChildProcessHandle` with `stdout`, `stderr`, `all` (merged) as byte `Stream`s, and `exitCode` as an Effect waiting for process completion. Exit code is a branded `ExitCode`; compare with `ChildProcessSpawner.ExitCode(0)`.
 
 Platform implementations: `NodeServices.layer` includes `NodeChildProcessSpawner.layer`; Bun uses `BunServices.layer`.
+
+**Termination waits, and only `forceKillAfter` bounds it.** On Node and Bun, closing the scope around `spawn` (or calling `handle.kill(options?)`) signals the child's whole *process group* with `killSignal` (default `SIGTERM`), then waits for the leader to exit and up to one more second for descendants to disappear. Nothing escalates by default, so a child that ignores `SIGTERM` holds the scope — and therefore your shutdown — open until it exits by itself (probed: a `trap '' TERM; sleep 4` child delayed release by the remaining four seconds). Set `forceKillAfter` on the command (or pass it to `kill`) to send `SIGKILL` to the group at that deadline; the probe then released in 300 ms. The waits use native timers rather than the Effect `Clock`, so they elapse under `TestClock` without `adjust`. On Windows the tree is ended with `taskkill /T /F` and only the leader is awaited; the Deno adapter differs again (see [Platform packages](#platform-packages)).
 
 ```ts
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -468,6 +636,8 @@ The services above are interfaces. Platform packages provide concrete Layer impl
 **@effect/platform-node** — package
 
 Implements FileSystem, Path, Terminal, Stdio, Crypto, ChildProcessSpawner, Socket, SocketServer, Worker, WorkerRunner, HTTP, Redis, cluster transports, and stream adapters using Node.js APIs. `NodeServices.layer` is deliberately narrower: it aggregates ChildProcessSpawner, Crypto, FileSystem, Path, Stdio, and Terminal. Sockets, workers, HTTP (`NodeHttpServer.layer`), and other adapters have explicit layers.
+
+Two `rc.113` packaging changes: `@effect/platform-node/Mime` was deleted along with the `mime` dependency — use [`Mime`](./http-server#mime) from `effect/unstable/http`; and `NodeRedis` moved from `ioredis` to the `redis` (node-redis) client, so the optional peer dependency is now `redis >=5.0.0 <7.0.0`.
 
 ```ts
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
@@ -530,7 +700,7 @@ Contains implementation shared by the Node, Bun, and Deno adapters: Node-compati
 
 Browser-specific implementations: `BrowserCrypto.layer` (Web Crypto API), `BrowserSocket.layer` (native WebSocket), `BrowserWorker.layer` and `BrowserWorkerRunner.layer` (dedicated/shared workers via `postMessage`). No FileSystem or ChildProcess in browsers. Additional APIs include `Permissions`, `Clipboard`, `Geolocation`, typed DOM event streams, Fetch/XHR clients, browser persistence/key-value layers, and the typed IndexedDB subsystem below.
 
-`BrowserRuntime.runMain` attaches a `beforeunload` listener to interrupt the root fiber on page navigation.
+`BrowserRuntime.runMain` listens for **`pagehide`** (it was `beforeunload` before `rc.113`) and interrupts the root fiber when the document is being discarded. A *persisted* `pagehide` — the page entering the back/forward cache — is ignored, because that document may be restored with its fibers intact. The interruption is best effort: the browser may tear the page down before asynchronous finalizers, network flushes, or timers complete, so persist anything important before unload rather than in a finalizer.
 
 ```ts
 import { BrowserRuntime, BrowserWorker } from "@effect/platform-browser"
@@ -545,6 +715,63 @@ app.pipe(
   BrowserRuntime.runMain
 )
 ```
+
+## Choosing a host
+
+A platform Layer says *how* a capability is implemented. The host decides something more important: **who owns the runtime, what cancels work, and whether cleanup is actually awaited.** Pick the row first, then the package.
+
+| Host | Runner and owner | What the host guarantees | What it cannot promise |
+| --- | --- | --- | --- |
+| Node / Bun / Deno process | `NodeRuntime.runMain`, `BunRuntime.runMain`, `DenoRuntime.runMain` once at the root; the launched Layer's scope owns everything | SIGINT and SIGTERM interrupt the main fiber; finalizers run; the process exits after teardown with `0`, `130` (interrupt-only), or the error's exit code | Surviving SIGKILL or an expired grace period; signal delivery when another process is PID 1 in the container; identical signal behavior on Windows — verify on the target |
+| Web-standard handler (serverless, edge) | `HttpRouter.toWebHandler` or `HttpEffect.toWebHandlerLayer` returns `{ handler, dispose }`; module scope owns the Layer, each request owns its own scope | The Layer is built eagerly; each request's scope closes once its response body has finished; `request.signal` interrupts the request fiber | That `dispose` is ever awaited, that the isolate is reused, or that work continues after the response. A Fetch-shaped API is not Node: no `node:*` modules unless the platform says so |
+| Foreign framework callback (Express, Hono, UI, plugin API) | One `ManagedRuntime`, created at boot and disposed by the host's shutdown hook | One shared Layer graph; idempotent `dispose()` | Cancellation and drain — nothing happens unless you forward the host's `AbortSignal` and stop admission yourself |
+| Browser page | `BrowserRuntime.runMain` | A non-persisted `pagehide` interrupts the main fiber | Completion of asynchronous finalizers or network flushes during teardown |
+| Worker thread or IPC child | The parent's scope around `Worker.run`; worker side runs a `WorkerRunner` with its platform Layer | Node and Bun: close message, five-second grace, then `terminate()` | Worker-side cleanup that needs longer than the grace; termination of a browser worker (the adapter only asks it to close) |
+| CLI | `Command.run` handed to the platform `runMain` | Same as a process; Ctrl+C inside a prompt is a typed `QuitError` | — |
+| Test | The scope of `it.effect` / `it.layer` | Scope closes at the end of the test; time is virtual | Anything about real signals, ports, files, or bundling — fakes do not exercise them |
+
+- **Same program, different owner.** Business code is identical in every row; only the outermost line and the platform Layer change. If a module has to know which row it runs in, a platform import has leaked inward.
+- **Server-side rendering is two hosts.** The server request and the hydrated page have separate scopes and runtimes: serialize validated data across that seam, never a service, fiber, `Scope`, or runtime.
+- **Edge isolates may forbid timers at module scope.** Since `rc.113` the default scheduler falls back to a microtask when setting a timer throws (Cloudflare Workers' global scope), so an Effect run at module load no longer crashes there. A module-level `ManagedRuntime` amortizes acquisition across invocations of a reused isolate, but it must not capture request data and must not assume disposal runs.
+- **Platform-specific defaults follow the host.** `Logger.consolePretty()` detects TTY versus browser rendering; pin one with `Logger.consolePrettyTty` or `Logger.consolePrettyBrowser`. `Logger.toFile` writes through the `FileSystem` service, so it needs a platform Layer in scope (both in [Observability](../operations/observability#logger)).
+
+Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime) (it gives the exit code as only `0` or `1` and names only SIGINT; `rc.115` also uses `130` and handles SIGTERM). Recipes: [a graceful Node entrypoint](../recipes/graceful-entrypoint-and-shutdown), [ManagedRuntime at an imperative boundary](../recipes/managed-runtime-integration), and [request cancellation through a host](../recipes/request-cancellation-through-a-host).
+
+### Keep platform and unstable imports behind a capability
+
+**Let domain code depend on a small app-owned service, and let exactly one module import the platform package or the `effect/unstable/*` path that implements it.** The reason is churn as much as portability: `effect/unstable/*` modules may change in any release, and during the release-candidate series stable ones moved too (`rc.113` reshaped `Socket`, removed the `FileSystem` size helpers, and deleted `@effect/platform-node/Mime`). A quarantined import turns such a release into a one-file change. Tests provide a fake Layer instead of patching globals.
+
+```ts
+import { Context, Data, Effect, Layer } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+
+class PayrollCliFailed extends Data.TaggedError("PayrollCliFailed")<{
+  readonly cause: unknown
+}> {}
+
+// Domain code sees only this capability.
+class PayrollCli extends Context.Service<PayrollCli, {
+  readonly pendingEmployeeIds: Effect.Effect<ReadonlyArray<string>, PayrollCliFailed>
+}>()("app/PayrollCli") {
+  // The one place that knows about the unstable process API.
+  static layer = Layer.effect(
+    PayrollCli,
+    Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      return {
+        pendingEmployeeIds: spawner.lines(
+          ChildProcess.make`payroll-cli list-pending --format=ids`
+        ).pipe(Effect.mapError((cause) => new PayrollCliFailed({ cause })))
+      }
+    })
+  )
+
+  static layerTest = (ids: ReadonlyArray<string>) =>
+    Layer.succeed(PayrollCli)({ pendingEmployeeIds: Effect.succeed(ids) })
+}
+```
+
+> **Note:** This applies to *leaf* capabilities — a file store, a status client, a subprocess. Framework-level unstable modules such as `HttpApi`, `RpcServer`, or `SqlClient` are used directly throughout a codebase; manage those by pinning one Effect version and re-auditing on upgrade (see [Incompatible unstable package versions](../troubleshooting/troubleshooting-and-anti-patterns#incompatible-unstable-package-versions)).
 
 ## Browser IndexedDB
 

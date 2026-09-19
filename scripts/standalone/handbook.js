@@ -103,6 +103,7 @@
         level: Number(heading.tagName.slice(1)),
         title: heading.childNodes[0] ? heading.textContent.replace("\u200b", "").trim() : "",
         page: page ? page.dataset.pageTitle : "",
+        aliases: (aliasesByHeading.get(heading.id) || "").toLocaleLowerCase(),
         text: [sectionText(heading), aliasesByHeading.get(heading.id) || ""].join(" ").replace(/\s+/g, " ").trim()
       }
     }
@@ -121,6 +122,9 @@
         if (title.indexOf(term) >= 0) return total + 4
         return total + 10
       }, entry.level / 10)
+      // A curated intent alias ("promise cell", "data loader") is a deliberate route to this heading, so the
+      // whole phrase matching an alias outranks incidental substring hits such as "cell" inside "cancellable".
+      if (entry.aliases && entry.aliases.indexOf(terms.join(" ")) >= 0) score = entry.level / 10 - 1
       var at = text.indexOf(terms[0])
       var start = Math.max(0, at - 55)
       var snippet = entry.text.slice(start, start + 145)

@@ -10,7 +10,7 @@
 
 This edition describes the published `effect@4.0.0-rc.115` API, not unreleased `main`. The source audit covered all 138 stable modules exported from `effect`, all 20 public `effect/unstable/*` families (202 modules), the platform/SQL/AI/Atom/OpenTelemetry/Vitest packages, their tests and examples, and every canonical Markdown page in this site. Examples were checked with pnpm, Node's native TypeScript execution, TypeScript 7.0.2 in strict mode, and the Effect `@effect/tsgo` diagnostics. Short fragments may declare application-specific boundaries, but every Effect API shown is present in the audited release.
 
-New to Effect 4? Start with [Getting Started](foundations/getting-started) — it covers the `rc` dist-tag trap (an untagged `npm install effect` still installs Effect 3), TypeScript and ESM settings, and a first program. Coming from Effect 3? Use [Migrating from Effect 3](troubleshooting/migrating-from-effect-3). Bringing Effect into an existing Promise-based codebase? Read [Adopting Effect in an Existing TypeScript Codebase](deep-dives/adopting-effect-in-an-existing-codebase).
+New to Effect 4? Start with [Getting Started](foundations/getting-started) — it covers the `rc` dist-tag trap (an untagged `npm install effect` still installs Effect 3), TypeScript and ESM settings, and a first program.
 
 ### What changed from rc.108 to rc.115
 

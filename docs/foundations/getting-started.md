@@ -34,7 +34,7 @@ pnpm add effect@rc @effect/platform-node@rc
 | A language-model provider | `@effect/ai-openai`, `@effect/ai-anthropic`, `@effect/ai-openrouter`, `@effect/ai-openai-compat` |
 | OpenTelemetry SDK export, UI bindings, test helpers | `@effect/opentelemetry`, `@effect/atom-react` (also `-solid`, `-vue`), `@effect/vitest` |
 
-Packages you may remember from Effect 3 — `@effect/platform`, `@effect/cli`, `@effect/rpc`, `@effect/sql`, `@effect/cluster`, `@effect/workflow`, `@effect/ai`, `@effect/experimental` — have no v4 release; their modules moved into `effect`. [Migrating from Effect 3](../troubleshooting/migrating-from-effect-3) has the map.
+Do not install `@effect/platform`, `@effect/cli`, `@effect/rpc`, `@effect/sql`, `@effect/cluster`, `@effect/workflow`, `@effect/ai`, or `@effect/experimental`: they have no Effect 4 release, and their modules ship inside `effect` (mostly under `effect/unstable/*`).
 
 ## Runtime and compiler requirements
 
@@ -169,7 +169,7 @@ import { TestClock } from "effect/testing"
 
 ## Effect diagnostics in the editor and in CI
 
-The Effect language service ships as `@effect/tsgo`, built on the native TypeScript compiler, and needs `typescript` 7 installed beside it. It adds Effect-aware diagnostics and quick fixes: an Effect that was never yielded or assigned, a bare `yield` without `*`, implementation services leaking through a service method, a second copy of an Effect package, and APIs that were removed or renamed in v4. `npx @effect/tsgo setup` adds the dependency and the `@effect/language-service` entry under `compilerOptions.plugins`; `effect-tsgo patch` (run it from a `prepare` script, as the Effect repository does) patches the local TypeScript install so `tsc` emits the same diagnostics; and `effect-tsgo diagnostics --project tsconfig.json --strict` is a standalone CI check in which warnings fail the build. This handbook compiles every example under exactly that pair: strict `tsc` and strict Effect diagnostics. [Testing & Dev Tooling](../tooling/testing-dev-tooling) covers the tooling in depth.
+The Effect language service ships as `@effect/tsgo`, built on the native TypeScript compiler, and needs `typescript` 7 installed beside it. It adds Effect-aware diagnostics and quick fixes: an Effect that was never yielded or assigned, a bare `yield` without `*`, implementation services leaking through a service method, a second copy of an Effect package, and APIs that do not exist in the installed version. `npx @effect/tsgo setup` adds the dependency and the `@effect/language-service` entry under `compilerOptions.plugins`; `effect-tsgo patch` (run it from a `prepare` script, as the Effect repository does) patches the local TypeScript install so `tsc` emits the same diagnostics; and `effect-tsgo diagnostics --project tsconfig.json --strict` is a standalone CI check in which warnings fail the build. This handbook compiles every example under exactly that pair: strict `tsc` and strict Effect diagnostics. [Testing & Dev Tooling](../tooling/testing-dev-tooling) covers the tooling in depth.
 
 ## Where next
 
@@ -183,7 +183,6 @@ The Effect language service ships as `@effect/tsgo`, built on the native TypeScr
 | Pick between similar primitives | [Choosing Effect Primitives](../reference/choosing-effect-primitives) |
 | See the whole application shape | [Anatomy of a Real Effect Application](../deep-dives/anatomy-of-a-real-effect-application) |
 | Bring Effect into a Promise-based codebase | [Adopting Effect in an Existing TypeScript Codebase](../deep-dives/adopting-effect-in-an-existing-codebase) |
-| Upgrade Effect 3 code | [Migrating from Effect 3](../troubleshooting/migrating-from-effect-3) |
 | Write a production entrypoint | [Recipe: A Graceful Node Entrypoint](../recipes/graceful-entrypoint-and-shutdown) |
 | Test with virtual time and replaceable services | [Testing & Dev Tooling](../tooling/testing-dev-tooling) and [Testing an Effect Application](../deep-dives/testing-an-effect-application) |
 | Diagnose a confusing type error or a hang | [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns) |

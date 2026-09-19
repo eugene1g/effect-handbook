@@ -250,7 +250,7 @@ Equal.equals(emp1, emp3) // false — different id
 
 ### Equality pitfalls and opt-outs
 
-- **Structural is the default in Effect 4.** Plain objects, arrays, `Map`, `Set`, `Date`, and instances of ordinary classes all compare by content, and `NaN` equals `NaN`. (Effect 3 compared plain objects and arrays by reference.) `Data` classes are about ergonomics — constructors, tags, yieldable errors — not about obtaining value equality. The comparison looks at keys and values, not at the constructor: prototype keys such as methods take part, so two instances of one class are equal when their fields are, while an instance with methods is not equal to a bare literal carrying the same fields. If exactly one operand implements `Equal`, the result is `false`.
+- **Structural is the default in Effect 4.** Plain objects, arrays, `Map`, `Set`, `Date`, and instances of ordinary classes all compare by content, and `NaN` equals `NaN`. `Data` classes are about ergonomics — constructors, tags, yieldable errors — not about obtaining value equality. The comparison looks at keys and values, not at the constructor: prototype keys such as methods take part, so two instances of one class are equal when their fields are, while an instance with methods is not equal to a bare literal carrying the same fields. If exactly one operand implements `Equal`, the result is `false`.
 - **Every enumerable field counts.** An incidental field such as a request id or a fetched-at timestamp makes two records of the same entity unequal. When identity is a subset of the shape, implement `[Equal.symbol]` and `[Hash.symbol]` over the identifying fields only, as `Employee` does above.
 - **Native collections ignore `Equal`.** `new Set([{ id: "e1" }, { id: "e1" }]).size` is `2`; only Effect's hash collections ([HashMap](./data-structures#hashmap), [HashSet](./data-structures#hashset)) dedupe structurally.
 - **Compared values must stay frozen.** Hashes are cached per object and comparison results per object pair, so mutating a value after its first comparison or first use as a key leaves stale answers behind. Build a new value instead.
@@ -755,7 +755,7 @@ Key APIs: make / fromString / fromStringUnsafe / fromBigInt / fromNumber / fromN
 
 Use for any financial or compensation calculation where floating-point rounding is unacceptable.
 
-Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are the v3 names; `rc.115` uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
+Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are stale names; `rc.115` uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
 
 ## ByteSize
 

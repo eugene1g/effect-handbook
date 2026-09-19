@@ -307,7 +307,7 @@ The capstone uses fail-fast semantics. `Ndjson.decodeSchema` fails the channel o
 
 This is the general rule for every stream recovery operator: a failure is terminal for the failed region, and `Stream.catch`, `catchTag`, or `catchCause` can only *append a different stream* after the elements already delivered — rows written before the failure stay written. The operator table, including `Stream.timeout` ending a stalled source **silently** rather than failing, is in [Handling stream failures](../concurrency/streaming-channels#5-handling-stream-failures).
 
-Official guide: [Error handling in streams](https://effect.website/docs/v4/stream/error-handling) (its "timeoutFail"-style headings are v3 names; rc.115 has `Stream.timeoutOrElse`).
+Official guide: [Error handling in streams](https://effect.website/docs/v4/stream/error-handling) (its "timeoutFail"-style headings are stale names; rc.115 has `Stream.timeoutOrElse`).
 
 ## Delivery and transaction semantics
 

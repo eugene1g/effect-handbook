@@ -208,8 +208,6 @@ The items describe Effect `4.0.0-rc.115`. They are deliberately short; the ownin
 - Were JSON Schema consumers and snapshots checked against open-by-default output? [JsonSchema](../data/schema#jsonschema)
 - Is the code free of `yield*` on `Option`, `Result`, fibers, refs, and deferreds? [Moving between Option, Result, and Effect](../foundations/errors-option-result#moving-between-option-result-and-effect)
 - Were `PersistedQueue` retry options moved to `make`, and are dead-lettered items monitored? [PersistedQueue](../tooling/persistence#persistedqueue)
-- For an Effect 3 codebase: was the upgrade done in dependency order with no compatibility shims, casts, or widened `E` / `R`? [Upgrade order](../troubleshooting/migrating-from-effect-3#upgrade-order)
-- Were the behavior changes — Layer sharing, flat `Cause`, structural equality, logger replacement, process keep-alive — each verified by a test rather than by the compiler? [How to verify](../troubleshooting/migrating-from-effect-3#how-to-verify)
 - Do Effect diagnostics run in CI so removed APIs and floating Effects fail the build? [Effect diagnostics in the editor and in CI](../foundations/getting-started#effect-diagnostics-in-the-editor-and-in-ci)
 
 ## Deeper checklists on other pages
@@ -231,4 +229,4 @@ These sections go further than a review question can. Use them when a section ab
 | Host bridges | [How to test this seam](../recipes/managed-runtime-integration#how-to-test-this-seam) |
 | AI capabilities | [Production rules for model calls](../systems/ai-language-models#production-rules-for-model-calls), [AI — Operational checklist](../deep-dives/building-a-production-ai-capability#operational-checklist) |
 | Reactive UI state | [Performance & correctness checklist](../deep-dives/reactivity-from-atoms-to-mastery#performance-correctness-checklist) |
-| Brownfield adoption and migration | [How to know you are done](../deep-dives/adopting-effect-in-an-existing-codebase#how-to-know-you-are-done), [How to verify](../troubleshooting/migrating-from-effect-3#how-to-verify) |
+| Brownfield adoption | [How to know you are done](../deep-dives/adopting-effect-in-an-existing-codebase#how-to-know-you-are-done) |

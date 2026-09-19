@@ -119,7 +119,7 @@ const payrollEvents = Stream.callback<typeof PayrollEvent.Type, HrisUnavailable>
 
 For a push source the real choices are a stated loss policy (`"dropping"` or `"sliding"`, ideally with a counter on every `false`), pausing the source externally, or restructuring so the producer is an Effect that awaits a bounded `Queue` and the stream is `Stream.fromQueue`. "No loss" together with "the producer cannot slow down" needs durable storage, not a bigger buffer. `fromEventListener` accepts `bufferSize` but no strategy, so a full buffer drops the newest events; with `{ once: true }` it ends the stream after the first event. Queue and PubSub overload semantics are covered in [Concurrency & Coordination](./concurrency-coordination#queue).
 
-**`unfold` vs `paginate`.** The `unfold` step is always effectful and returns `[element, nextState]`, or `undefined` to stop — exactly one element per step. `paginate` returns a whole page plus `Option<nextState>` and still emits the last page when the next state is `None`, which is why it fits page-shaped APIs. There is no `unfoldEffect` or `paginateEffect` in v4.
+**`unfold` vs `paginate`.** The `unfold` step is always effectful and returns `[element, nextState]`, or `undefined` to stop — exactly one element per step. `paginate` returns a whole page plus `Option<nextState>` and still emits the last page when the next state is `None`, which is why it fits page-shaped APIs. There is no `unfoldEffect` or `paginateEffect`.
 
 **Ending a repeated effect.** `Stream.fromEffectRepeat(effect)` re-runs an effect forever, one element per run. Fail it with `Cause.done()` to end the stream *normally* — the way to drain an imperative iterator or cursor without carrying `unfold` state (see [Pull](../foundations/core-runtime-execution#pull) for the `Done` signal).
 
@@ -407,7 +407,7 @@ const resilientApprovals = liveApprovals.pipe(
 
 Two placement rules follow from "retry re-runs the upstream region". **Place `retry` directly after the source it should reconnect**, upstream of any non-idempotent write — everything above it in the pipe runs again on each attempt (see the [streaming deep dive](../deep-dives/streaming-ingestion-without-accidental-buffering)). **Put per-element recovery inside the element's effect** — `Stream.mapEffect((row) => write(row).pipe(Effect.catchTag(...)))` keeps the stream alive, whereas a `Stream.catch*` after it can only replace the rest of the stream. Retry classification and backoff policy are ordinary [`Schedule`](./scheduling-time#schedule) material.
 
-Official guide: [Error handling in streams](https://effect.website/docs/v4/stream/error-handling) (its "timeoutFail", "timeoutFailCause", and "timeoutTo" headings are v3 names; the code under them, and rc.115, use `Stream.timeoutOrElse`).
+Official guide: [Error handling in streams](https://effect.website/docs/v4/stream/error-handling) (its "timeoutFail", "timeoutFailCause", and "timeoutTo" headings are stale names; the code under them, and rc.115, use `Stream.timeoutOrElse`).
 
 ### 6. Owning resources inside a stream
 
@@ -509,7 +509,7 @@ Key APIs: `Sink.sum`, `Sink.count`, `Sink.head()`, `Sink.last()`, `Sink.take(n)`
 | Group | Sinks | Notes |
 |---|---|---|
 | Consume everything | `collect()`, `count`, `sum`, `last()`, `drain`, `reduce`, `reduceArray`, `forEach`, `forEachArray`, `timed` | `forEachArray` runs once per *pulled chunk*, whatever size that is. `timed` drains and returns the elapsed `Duration`. |
-| Stop early (bounded) | `head()`, `take(n)`, `takeWhile`, `takeUntil`, `find`, `every`, `some`, `fold`, `foldUntil`, `reduceWhile`, `forEachWhile` | All but `forEachWhile` report leftovers (`L = In`). `fold(initial, continueWhile, step)` has a lazy seed and an *effectful* step; `reduceWhile` is the pure form and replaces v3's size-capped set/map collectors; `foldUntil(initial, max, step)` stops after `max` inputs. |
+| Stop early (bounded) | `head()`, `take(n)`, `takeWhile`, `takeUntil`, `find`, `every`, `some`, `fold`, `foldUntil`, `reduceWhile`, `forEachWhile` | All but `forEachWhile` report leftovers (`L = In`). `fold(initial, continueWhile, step)` has a lazy seed and an *effectful* step; `reduceWhile` is the pure form and also covers size-capped set/map collection; `foldUntil(initial, max, step)` stops after `max` inputs. |
 | No input needed | `succeed`, `fail`, `die`, `never` | Finish (or not) without pulling. |
 | Adapt | `map` / `mapEffect` (result), `mapInput` / `mapInputEffect` / `mapInputArray` (input), `mapError`, `mapEnd`, `ignoreLeftover`, `flatMap`, `orElse` | `mapInput` is what makes a generic sink reusable across element types. |
 
@@ -570,7 +570,7 @@ const _audit = Stream.make(
 
 **Leftovers are the rest of the chunk already pulled — not the rest of the stream.** A sink finishes with an `End` tuple `[result, leftover?]`. `Sink.mapEnd` can read and rewrite both halves, `Sink.ignoreLeftover` narrows `L` to `never`, and `Sink.flatMap` hands the first sink's leftovers to the second, so "parse a header, then fold the body" composes. Because leftovers depend on chunking, `Sink.take(3)` over `Stream.make(1, 2, 3, 4, 5)` (one chunk) leaves `[4, 5]`, but over chunks `[1, 2]`, `[3, 4]`, `[5]` it leaves `[4]`. Ignoring leftovers never pulls more input.
 
-**`Stream.transduce(sink)` re-applies a sink as an operator.** `Stream.run(sink)` applies it once; `transduce` runs it repeatedly, feeds each run's leftovers into the next, and emits every result — this is why `L` exists. `transduce(Sink.take(n))` is fixed-size batching; a `Sink.fold` whose predicate looks at accumulated cost gives **weighted** batching (v3's `Sink.foldWeighted` is gone). Two edges: the element that crosses the limit is already in the batch, and an empty trailing result can be emitted when the input ends on a batch boundary, so filter empties.
+**`Stream.transduce(sink)` re-applies a sink as an operator.** `Stream.run(sink)` applies it once; `transduce` runs it repeatedly, feeds each run's leftovers into the next, and emits every result — this is why `L` exists. `transduce(Sink.take(n))` is fixed-size batching; a `Sink.fold` whose predicate looks at accumulated cost gives **weighted** batching (there is no `Sink.foldWeighted`). Two edges: the element that crosses the limit is already in the batch, and an empty trailing result can be emitted when the input ends on a batch boundary, so filter empties.
 
 ```ts
 import { Effect, Sink, Stream } from "effect"
@@ -607,7 +607,7 @@ const byteBoundedBatches = exportRows.pipe(
 
 `Sink.fromWritableStream({ evaluate, onError })` adapts a WHATWG `WritableStream` into a back-pressured Sink. Construction is scoped and cancellation/close follows the Sink lifecycle, so use it for browser responses, compression streams, or other host-native writable targets.
 
-Official guides: [Creating sinks](https://effect.website/docs/v4/sink/creating) (its HashSet/HashMap and "foldWeighted" headings are v3 leftovers; the code folds with `Sink.reduce`, `Sink.reduceWhile`, and `Sink.fold`), [Sink operations](https://effect.website/docs/v4/sink/operations), [Leftovers](https://effect.website/docs/v4/sink/leftovers) (its `[4, 5]` leftover appears only because the input is a single chunk).
+Official guides: [Creating sinks](https://effect.website/docs/v4/sink/creating) (its HashSet/HashMap and "foldWeighted" headings are stale; the code folds with `Sink.reduce`, `Sink.reduceWhile`, and `Sink.fold`), [Sink operations](https://effect.website/docs/v4/sink/operations), [Leftovers](https://effect.website/docs/v4/sink/leftovers) (its `[4, 5]` leftover appears only because the input is a single chunk).
 
 **Use when** the consumption logic is itself a reusable, composable unit — domain aggregations or writers that should be swappable independently of the stream feeding them.
 

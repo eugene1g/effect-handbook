@@ -606,7 +606,7 @@ Official guide: [Result](https://effect.website/docs/v4/data-types/result) (the 
 
 `effect/Filter` — stable
 
-New in v4. A function `(input) => Result<Pass, Fail>` that decides whether a value passes (optionally refining or transforming it) or is filtered out. A predicate that can narrow the type and explain the rejection.
+A function `(input) => Result<Pass, Fail>` that decides whether a value passes (optionally refining or transforming it) or is filtered out. A predicate that can narrow the type and explain the rejection.
 
 **Mental model.** A refinement built on `Result`. The pass branch can have a different type than the input, so filters act as type guards and mini-parsers that compose. They power `Effect.catchFilter` and stream filtering.
 
@@ -648,7 +648,7 @@ Use when you need a reusable, composable keep-or-drop rule that also refines typ
 
 Helpers for defining value types — classes, tagged classes, tagged enums (discriminated unions), and error classes. Two `Data` values with the same contents are `Equal`, usable as keys in `HashMap`/`HashSet` and comparable via `Equal.equals`.
 
-**Mental model.** In v4, [`Equal.equals`](../data/functional-toolkit#equal) is already structural for plain objects, arrays, and instances of ordinary classes, so `Data` is not what *gives* you value equality. `Data` supplies the ergonomics around it: class syntax with a typed constructor argument, an automatic `_tag`, tagged-enum constructors with `$is`/`$match`, and yieldable `Error` subclasses. A plain factory function is a complete value-object constructor when you need none of that; `Equal.byReference(value)` opts one object back into reference equality.
+**Mental model.** [`Equal.equals`](../data/functional-toolkit#equal) is already structural for plain objects, arrays, and instances of ordinary classes, so `Data` is not what *gives* you value equality. `Data` supplies the ergonomics around it: class syntax with a typed constructor argument, an automatic `_tag`, tagged-enum constructors with `$is`/`$match`, and yieldable `Error` subclasses. A plain factory function is a complete value-object constructor when you need none of that; `Equal.byReference(value)` opts one object back into reference equality.
 
 ```ts
 import { Data, Equal } from "effect"
@@ -708,7 +708,7 @@ Three caveats:
 - **`===` remains reference equality.** Use `Equal.equals` wherever value equality is meant: assertions, de-duplication, cache keys.
 - **Never mutate a value after it has been compared, hashed, or used as a key.** `Equal.equals` caches its result per object pair and `Hash` caches hashes, so a mutated value keeps its stale equality. Build a new value instead.
 
-v3's `Data.struct`, `Data.tuple`, `Data.array`, and `Data.case` do not exist in `rc.115`; the module exports `Class`, `TaggedClass`, `TaggedEnum` / `taggedEnum`, `Error`, and `TaggedError`. Generic unions use `Data.TaggedEnum.WithGenerics<N>`.
+The `Data` module exports `Class`, `TaggedClass`, `TaggedEnum` / `taggedEnum`, `Error`, and `TaggedError`. Generic unions use `Data.TaggedEnum.WithGenerics<N>`.
 
 `Data.TaggedError` builds an `Error` subclass that is also a tagged, value-equal effect failure — suitable for quick internal errors. For serializable errors, prefer `Schema.TaggedError` (shown above).
 

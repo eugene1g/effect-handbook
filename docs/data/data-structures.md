@@ -2,7 +2,7 @@
 
 Effect's data structure modules share a common design: immutable, `pipe`-first dual APIs, and structural `Equal`/`Hash` throughout. Once familiar with one module, the rest follow the same pattern.
 
-> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is the v3 name; `rc.115` spells it `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is a stale name; `rc.115` spells it `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than the pinned `rc.115` release, so where they differ, this page and the tagged source win.
 
 ## Array
 

@@ -17,6 +17,7 @@ import {
   slugifyHeading
 } from "../handbook.ts"
 import { mapOutsideFences, resolveMarkdownTarget } from "./build-agent-handbook.ts"
+import { renderPublishedVersions, resolveEditionContext, versionsFilename } from "./versions.ts"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const docsRoot = path.join(root, "docs")
@@ -67,13 +68,15 @@ export async function buildPageMarkdownArtifacts({
 
   const sources = new Map(pages.map(({ relativePath, source }) => [relativePath, source]))
   const modules = buildModuleIndex(sources)
-  const llms = buildLlmsIndex({ base: normalizedBase, siteUrl: normalizedSiteUrl, sources })
+  const edition = resolveEditionContext({ base: normalizedBase, siteUrl: normalizedSiteUrl })
+  const llms = buildLlmsIndex({ base: normalizedBase, siteUrl: normalizedSiteUrl, sources, edition })
   const artifacts = [
     ...pages,
     { kind: "index", relativePath: llmsIndexFilename, contents: Buffer.from(llms) },
     { kind: "index", relativePath: moduleIndexFilename, contents: Buffer.from(renderModuleIndexMarkdown(modules)) },
     { kind: "index", relativePath: moduleIndexJsonFilename, contents: Buffer.from(renderModuleIndexJson(modules, urls)) },
-    { kind: "index", relativePath: robotsFilename, contents: Buffer.from(buildRobotsTxt(urls)) }
+    { kind: "index", relativePath: robotsFilename, contents: Buffer.from(buildRobotsTxt(urls, edition)) },
+    { kind: "index", relativePath: versionsFilename, contents: Buffer.from(renderPublishedVersions(edition)) }
   ]
 
   return {
@@ -339,11 +342,14 @@ export function renderModuleIndexJson(modules, urls = {}) {
 export function buildLlmsIndex({
   base = process.env.VITEPRESS_BASE ?? "/",
   siteUrl = process.env.HANDBOOK_SITE_URL,
-  sources
+  sources,
+  edition
 } = {}) {
   const normalizedBase = normalizeBase(base)
   const normalizedSiteUrl = normalizeSiteUrl(siteUrl)
   const url = (relativePath) => artifactUrl(relativePath, normalizedBase, normalizedSiteUrl)
+  const editions = edition ?? resolveEditionContext({ base: normalizedBase, siteUrl: normalizedSiteUrl })
+  const currentEdition = editions.editions.find((entry) => entry.isCurrent)
   const pageSources = sources ?? new Map(sitePages.map((page) => [page.source, readFileSync(path.join(docsRoot, page.source), "utf8")]))
   const pageWords = new Map([...pageSources].map(([source, markdown]) => [source, wordCount(markdown)]))
   const sumWords = (pageList) => pageList.reduce((total, source) => total + (pageWords.get(source) ?? 0), 0)
@@ -355,6 +361,8 @@ export function buildLlmsIndex({
     "",
     `> A source-grounded guide audited ${handbookRelease.auditedAt} against Effect ${handbookRelease.version} (${handbookRelease.commit.slice(0, 12)}).`,
     "",
+    `This is the **${currentEdition.id} edition** (effect@${currentEdition.effectVersion}). One edition is published per Effect major.minor; the site root always serves the latest. Match the edition to the \`effect\` version installed in your project (see [Editions](#editions) below, or fetch [${versionsFilename}](${editions.rootSiteUrl ?? editions.rootBase}${versionsFilename})).`,
+    "",
     "Use the intent map or capability catalog first, then fetch only the linked Markdown page or domain bundle. Use the complete concise aggregate for broad cross-cutting review, not as the default retrieval unit. Every HTML page has a Markdown twin at the same path with `.md` appended (`/` is `/index.md`); fetch the twin, never the HTML. Sizes are given in words; budget roughly 1.3 tokens per word, more for code-heavy pages.",
     "",
     `- [Using this handbook from an agent](${url(agentGuideSource)}): The reading protocol — which artifact to fetch for which task, the Markdown URL rule, how to read the catalog, how to cite, and a drop-in instructions block (${formatWords(pageWords.get(agentGuideSource) ?? 0)}).`,
@@ -363,6 +371,13 @@ export function buildLlmsIndex({
     `- [Example inventory and validation plan](${url("effect-4-examples.json")}): Classifies compile, contextual, run, pseudocode, and expected-invalid examples without embedding transient validation results.`,
     `- [Complete concise handbook](${url("effect-4-handbook.md")}): All concise reference, recipe, and troubleshooting pages; long-form deep dives are intentionally excluded (${formatWords(sumWords(concisePages))}; the same text is served as [${llmsFullFilename}](${url(llmsFullFilename)})).`
   ]
+
+  lines.push("", "## Editions", "")
+  lines.push("Each edition is a complete, independently audited handbook with its own `llms.txt`, module index, catalog, and Markdown twins at the same relative paths. Pick the edition whose id matches your installed `effect` major.minor; if that minor is not listed, use the highest listed edition below it in the same major. Editions of different majors are not interchangeable.", "")
+  for (const entry of editions.editions) {
+    const flags = [entry.isLatest ? "latest" : "frozen", entry.isCurrent ? "this file" : undefined].filter(Boolean).join(", ")
+    lines.push(`- [${entry.id} — effect@${entry.effectVersion}](${entry.url}llms.txt): audited ${entry.auditedAt} (${flags}).`)
+  }
 
   lines.push("", "## Domain bundles", "")
   for (const bundle of agentBundles) {
@@ -399,9 +414,10 @@ export function buildLlmsIndex({
 
 // --- robots.txt --------------------------------------------------------------------
 
-export function buildRobotsTxt(urls = {}) {
+export function buildRobotsTxt(urls = {}, edition) {
   const normalizedBase = normalizeBase(urls.base ?? "/")
   const normalizedSiteUrl = normalizeSiteUrl(urls.siteUrl)
+  const editions = edition ?? resolveEditionContext({ base: normalizedBase, siteUrl: normalizedSiteUrl })
   const lines = [
     "User-agent: *",
     "Allow: /",
@@ -410,6 +426,7 @@ export function buildRobotsTxt(urls = {}) {
     `# Index of every page and artifact: ${artifactUrl(llmsIndexFilename, normalizedBase, normalizedSiteUrl)}`,
     `# Full concise handbook as one Markdown file: ${artifactUrl(llmsFullFilename, normalizedBase, normalizedSiteUrl)}`,
     `# Module index: ${artifactUrl(moduleIndexFilename, normalizedBase, normalizedSiteUrl)}`,
+    `# Editions for other Effect versions (one per major.minor): ${editions.rootSiteUrl ?? editions.rootBase}${versionsFilename}`,
     "# Every HTML page has a Markdown twin at the same path with .md appended; fetch the twin."
   ]
   if (normalizedSiteUrl) lines.push("", `Sitemap: ${new URL("sitemap.xml", normalizedSiteUrl).href}`)

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url"
 
 import { sitePages } from "../handbook.ts"
 import { renderMarkdownTwin } from "./build-page-markdown.ts"
+import { loadVersions } from "./versions.ts"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const base = normalizeBase(option("--base") ?? process.env.VITEPRESS_BASE ?? "/")
@@ -96,6 +97,18 @@ try {
   assert(llmsIndex.startsWith("# The Effect 4 Handbook\n"), "llms.txt did not return the LLM index")
   const robots = await evaluate(cdp, `fetch(${JSON.stringify(`${base}robots.txt`)}).then((response) => response.text())`)
   assert(robots.startsWith("User-agent: *\n"), "robots.txt did not return the robots policy")
+  const publishedVersions = JSON.parse(await evaluate(cdp, `fetch(${JSON.stringify(`${base}versions.json`)}).then((response) => response.text())`))
+  const expectedVersions = loadVersions()
+  assert(publishedVersions.latest === expectedVersions.latest, `versions.json names latest ${publishedVersions.latest}; expected ${expectedVersions.latest}`)
+  assert(publishedVersions.editions.length === expectedVersions.versions.length, "versions.json edition count differs from the manifest")
+  const switcher = await evaluate(cdp, `(() => {
+    const select = document.querySelector(".version-switcher select")
+    return select && { value: select.value, options: [...select.options].map((option) => option.textContent.trim()), banner: !!document.querySelector(".version-banner") }
+  })()`)
+  assert(switcher, "The edition switcher is missing from the navigation bar")
+  assert(switcher.value === expectedVersions.latest, `The edition switcher selects ${switcher.value}; expected ${expectedVersions.latest}`)
+  assert(switcher.options.some((label) => label.endsWith("(latest)")), "The edition switcher does not mark the latest edition")
+  assert(switcher.banner === false, "A newer-edition banner is shown on the latest edition")
 
   await evaluate(cdp, `(() => {
     Object.defineProperty(navigator, "clipboard", {

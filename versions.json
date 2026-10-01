@@ -1,0 +1,13 @@
+{
+  "$comment": "Published editions of the handbook, one per Effect major.minor. The `latest` edition is built from the current checkout and served at the site root as well as at /<id>/; every other edition is frozen and built from the git tag in `ref` into /<id>/. See README.md, section 'Multiple Effect versions'.",
+  "schemaVersion": 1,
+  "latest": "4.0",
+  "versions": [
+    {
+      "id": "4.0",
+      "effectVersion": "4.0.0",
+      "auditedAt": "2026-10-01",
+      "ref": null
+    }
+  ]
+}

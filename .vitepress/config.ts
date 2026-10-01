@@ -6,6 +6,7 @@ import { defineConfig } from "vitepress"
 
 import { capabilities, handbookRelease, siteGroups, sitePages, slugifyHeading } from "../handbook.ts"
 import { renderMarkdownTwin } from "../scripts/build-page-markdown.ts"
+import { resolveEditionContext } from "../scripts/versions.ts"
 
 process.env.VITE_EXTRA_EXTENSIONS = [process.env.VITE_EXTRA_EXTENSIONS, "md"].filter(Boolean).join(",")
 
@@ -13,6 +14,27 @@ const base = normalizeBase(process.env.VITEPRESS_BASE ?? "/")
 const repository = process.env.HANDBOOK_REPOSITORY ?? process.env.GITHUB_REPOSITORY
 const repositoryUrl = process.env.HANDBOOK_REPOSITORY_URL ?? (repository ? `https://github.com/${repository}` : undefined)
 const siteUrl = normalizeSiteUrl(process.env.HANDBOOK_SITE_URL)
+// Which edition this build is, and where the other editions live. The theme
+// renders the switcher from this and fetches the root versions.json at
+// runtime so a frozen edition still learns about newer ones.
+const edition = resolveEditionContext({ base, siteUrl })
+const editionThemeData: Record<string, unknown> = {
+  versions: {
+    current: edition.current,
+    latest: edition.latest,
+    rootBase: edition.rootBase,
+    rootUrl: edition.rootSiteUrl ?? edition.rootBase,
+    versionsUrl: `${edition.rootBase}versions.json`,
+    editions: edition.editions.map((entry) => ({
+      id: entry.id,
+      effectVersion: entry.effectVersion,
+      auditedAt: entry.auditedAt,
+      isLatest: entry.isLatest,
+      isCurrent: entry.isCurrent,
+      path: entry.path
+    }))
+  }
+}
 const pagesBySource = new Map(sitePages.map((page) => [page.source, page]))
 const docsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../docs")
 
@@ -103,6 +125,7 @@ export default defineConfig({
     pageData.frontmatter.head = [...(pageData.frontmatter.head ?? []), ...head]
   },
   themeConfig: {
+    ...editionThemeData,
     siteTitle: "Effect 4 Handbook",
     nav: [
       { text: "Handbook", link: "/" },
@@ -171,7 +194,7 @@ export default defineConfig({
       linkText: "Back to the handbook"
     },
     footer: {
-      message: `Audited ${handbookRelease.auditedAt} against Effect ${handbookRelease.version}.`,
+      message: `Edition ${edition.current} · audited ${handbookRelease.auditedAt} against Effect ${handbookRelease.version}.`,
       copyright: "Canonical Markdown and generated site share one source."
     },
     ...(repositoryUrl ? {

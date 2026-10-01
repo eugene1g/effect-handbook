@@ -7,6 +7,7 @@ import { agentBundles, sitePages } from "../handbook.ts"
 import { buildAgentHandbook } from "./build-agent-handbook.ts"
 import { artifactUrl, buildPageMarkdownArtifacts, headingAnchors, llmsFullFilename, moduleIndexFilename, moduleIndexJsonFilename, robotsFilename } from "./build-page-markdown.ts"
 import { buildRetrievalArtifacts, catalogFilename, examplesFilename } from "./build-retrieval-artifacts.ts"
+import { resolveEditionContext } from "./versions.ts"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const docsRoot = path.join(root, "docs")
@@ -16,8 +17,20 @@ const siteUrl = process.env.HANDBOOK_SITE_URL
 const origin = "https://handbook.invalid"
 const htmlCache = new Map()
 
-const files = await walk(distRoot)
+// `pnpm docs:build` assembles every edition under `dist/<id>/`; each edition
+// was verified by its own build, so the root checks below look only at the
+// root edition's files. The editions must still be present.
+const editionContext = resolveEditionContext({ base, siteUrl })
+const editionDirectories = editionContext.editions.map((entry) => `${entry.id}/`)
+const allFiles = await walk(distRoot)
+const files = allFiles.filter(({ relative }) => !editionDirectories.some((directory) => relative.startsWith(directory)))
 assert(files.length > 0, "VitePress output is empty; run `pnpm docs:build` first")
+if (!process.env.HANDBOOK_VERSION) {
+  for (const entry of editionContext.editions) {
+    assert(allFiles.some(({ relative }) => relative === `${entry.id}/index.html`), `Edition ${entry.id} was not assembled under dist/${entry.id}/; run \`pnpm docs:build\``)
+    assert(allFiles.some(({ relative }) => relative === `${entry.id}/llms.txt`), `Edition ${entry.id} has no llms.txt under dist/${entry.id}/`)
+  }
+}
 assert(files.every(({ kind }) => kind === "file"), "The Pages artifact contains a symlink or another non-file entry")
 assert(!files.some(({ relative }) => relative.includes("/.vitepress/dist/")), "The Pages artifact contains a nested dist directory")
 
@@ -75,11 +88,21 @@ for (const artifact of pageMarkdown.artifacts) {
 for (const bundle of agentBundles) {
   await verifyMarkdownLinks(bundle.filename, await readFile(path.join(distRoot, bundle.filename), "utf8"))
 }
+// Links into other editions (and to the root versions.json) leave this
+// build's tree; `pnpm docs:versions` asserts those targets once the editions
+// are assembled next to the root build.
+const edition = editionContext
+const otherEditionPrefixes = edition.editions.map((entry) => entry.path).filter((prefix) => prefix !== base)
+const isCrossEditionLink = (pathname) =>
+  (edition.rootBase !== base && pathname === `${edition.rootBase}versions.json`) ||
+  otherEditionPrefixes.some((prefix) => pathname.startsWith(prefix))
 const llmsIndex = await readFile(path.join(distRoot, "llms.txt"), "utf8")
 for (const reference of markdownReferences(llmsIndex)) {
   const resolved = new URL(reference, `${origin}${base}`)
   assert(resolved.origin === origin || Boolean(siteUrl), `llms.txt contains an unexpected origin: ${reference}`)
   const pathname = siteUrl ? new URL(reference).pathname : resolved.pathname
+  if (isCrossEditionLink(pathname)) continue
+  assert(pathname.startsWith(base), `llms.txt links outside this build and outside any edition: ${reference}`)
   const target = decodeURIComponent(pathname.slice(base.length))
   assert(await isFile(path.join(distRoot, target)), `llms.txt links to a missing artifact: ${reference}`)
   if (resolved.hash && target.endsWith(".md")) {

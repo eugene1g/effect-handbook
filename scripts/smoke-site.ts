@@ -6,6 +6,9 @@ import path from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
+import { sitePages } from "../handbook.ts"
+import { renderMarkdownTwin } from "./build-page-markdown.ts"
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const base = normalizeBase(option("--base") ?? process.env.VITEPRESS_BASE ?? "/")
 const expectedDeepDiveCodeBlocks = countCodeBlocks(await readFile(
@@ -84,9 +87,15 @@ try {
     .then((text) => text.slice(0, 80))`)
   assert(bundleStart.startsWith("<!-- Generated"), "Agent Markdown download did not return the generated bundle")
 
-  const expectedSchema = await readFile(path.join(root, "docs/data/schema.md"), "utf8")
+  const schemaPage = sitePages.find((page) => page.source === "data/schema.md")
+  const expectedSchema = renderMarkdownTwin(schemaPage, await readFile(path.join(root, "docs/data/schema.md"), "utf8"), { base, siteUrl: process.env.HANDBOOK_SITE_URL })
   const rawSchema = await evaluate(cdp, `fetch(${JSON.stringify(`${base}data/schema.md`)}).then((response) => response.text())`)
-  assert(rawSchema === expectedSchema, "Published Schema Markdown differs from its canonical source")
+  assert(rawSchema === expectedSchema, "Published Schema Markdown differs from its generated twin")
+  assert(rawSchema.startsWith("<!-- Markdown twin of "), "Published Schema Markdown lacks the twin header")
+  const llmsIndex = await evaluate(cdp, `fetch(${JSON.stringify(`${base}llms.txt`)}).then((response) => response.text())`)
+  assert(llmsIndex.startsWith("# The Effect 4 Handbook\n"), "llms.txt did not return the LLM index")
+  const robots = await evaluate(cdp, `fetch(${JSON.stringify(`${base}robots.txt`)}).then((response) => response.text())`)
+  assert(robots.startsWith("User-agent: *\n"), "robots.txt did not return the robots policy")
 
   await evaluate(cdp, `(() => {
     Object.defineProperty(navigator, "clipboard", {

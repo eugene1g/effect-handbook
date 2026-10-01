@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use Effect 4 Handbook"
+  short_description: "Consult the Effect 4 Handbook as Markdown"
+  default_prompt: "Use $use-effect-4-handbook to answer this Effect 4 question from the handbook's Markdown artifacts, citing the section you relied on."

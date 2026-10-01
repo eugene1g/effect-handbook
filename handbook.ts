@@ -30,6 +30,7 @@ const pageDescriptions = {
   "tooling/persistence.md": "Persistence services, backing stores, serialization, primary keys, and durable application state.",
   "tooling/testing-dev-tooling.md": "Effect testing, Vitest integration, generators, doctests, language tooling, and repository tools.",
   "reference/cheat-sheet-index.md": "A task-oriented Effect 4 cheat sheet and linked index into the concise handbook.",
+  "reference/agent-guide.md": "How a coding agent should read this handbook: which Markdown artifact to fetch for which task, the .md URL rule, catalog and example-inventory fields, citing sections, and a drop-in instructions block.",
   "reference/choosing-effect-primitives.md": "Contrastive decision tables for selecting Effect primitives by errors, services, lifetime, backpressure, durability, and distribution.",
   "troubleshooting/troubleshooting-and-anti-patterns.md": "Searchable symptoms, causes, fixes, and common Effect code-generation anti-patterns.",
   "reference/review-checklists.md": "Design-review and code-review checklists for Effect services, errors, lifetimes, concurrency, boundaries, persistence, observability, and tests.",
@@ -73,6 +74,8 @@ const pageRelated = Object.freeze({
   "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md": ["foundations/core-runtime-execution.md", "foundations/services-context-layers.md", "interfaces/platform-runtime-hosts.md", "recipes/graceful-entrypoint-and-shutdown.md", "recipes/request-cancellation-through-a-host.md"],
   "foundations/getting-started.md": ["foundations/core-runtime-execution.md", "tooling/testing-dev-tooling.md", "deep-dives/adopting-effect-in-an-existing-codebase.md"],
   "reference/review-checklists.md": ["reference/choosing-effect-primitives.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
+  "reference/agent-guide.md": ["index.md", "reference/cheat-sheet-index.md", "reference/choosing-effect-primitives.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
+  "reference/cheat-sheet-index.md": ["reference/agent-guide.md", "reference/choosing-effect-primitives.md"],
   "recipes/request-cancellation-through-a-host.md": ["recipes/managed-runtime-integration.md", "foundations/core-runtime-execution.md", "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md"],
   "recipes/transactional-write-with-outbox.md": ["interfaces/sql.md", "recipes/schema-httpapi-sql-boundary.md", "deep-dives/durability-and-distribution-ladder.md"]
 })
@@ -179,7 +182,8 @@ export const handbookGroups = [
       page("CLI Framework", "tooling/cli-framework.md"),
       page("Persistence", "tooling/persistence.md"),
       page("Testing & Dev Tooling", "tooling/testing-dev-tooling.md"),
-      page("Cheat Sheet & Index", "reference/cheat-sheet-index.md")
+      page("Cheat Sheet & Index", "reference/cheat-sheet-index.md"),
+      page("Using the Handbook from an Agent", "reference/agent-guide.md")
     ]
   }
 ]
@@ -247,7 +251,8 @@ export const agentBundles = [
     "recipes/managed-runtime-integration.md",
     "recipes/request-cancellation-through-a-host.md",
     "tooling/testing-dev-tooling.md",
-    "reference/cheat-sheet-index.md"
+    "reference/cheat-sheet-index.md",
+    "reference/agent-guide.md"
   ]),
   bundle("web", "Effect 4 Web & Service Boundaries", "effect-4-web.md", [
     "data/schema.md",

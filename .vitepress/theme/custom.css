@@ -39,6 +39,27 @@
   gap: 8px;
 }
 
+.markdown-toolbar__hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--vp-c-text-3);
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-toolbar__hint a {
+  color: var(--vp-c-text-2);
+  text-decoration: underline dotted;
+}
+
+.markdown-toolbar__hint a:hover {
+  color: var(--vp-c-brand-1);
+}
+
 .markdown-toolbar__status {
   margin-right: 4px;
   color: var(--vp-c-text-2);

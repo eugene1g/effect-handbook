@@ -22,6 +22,8 @@ const rawUrl = computed(() => {
 })
 
 const copyLabel = computed(() => copying.value ? "Copying…" : "Copy Markdown")
+const llmsUrl = withBase("/llms.txt")
+const agentGuideUrl = withBase("/reference/agent-guide")
 
 watch(rawUrl, () => {
   copyAttempt += 1
@@ -125,6 +127,11 @@ function clearStatus(): void {
 
 <template>
   <div v-if="rawUrl" class="markdown-toolbar" role="group" aria-label="Markdown source">
+    <span class="markdown-toolbar__hint">
+      Agents: this page is Markdown at <a :href="rawUrl" type="text/markdown">{{ rawUrl }}</a> ·
+      <a :href="llmsUrl">llms.txt</a> ·
+      <a :href="agentGuideUrl">reading guide</a>
+    </span>
     <span class="markdown-toolbar__status" role="status" aria-live="polite" aria-atomic="true">
       {{ status }}
     </span>

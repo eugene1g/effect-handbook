@@ -151,6 +151,8 @@ Two tooling habits make agents measurably more effective with Effect: install th
 
 - **Reading programmatically** — Every page has a Markdown twin at the same path with `.md` appended, `llms.txt` routes intents to sections, and `effect-4-modules.md` lists every module. [Using the Handbook from an Agent](reference/agent-guide) is the full protocol, including a drop-in `AGENTS.md` block.
 
+- **Other Effect versions** — One edition of the handbook is published per Effect `major.minor`, each audited against one release and served under its own path (`/4.0/`, `/4.1/`, …); the site root is always the newest. Use the edition switcher in the navigation bar, or `versions.json` at the site root, to match the handbook to the `effect` version you have installed.
+
 Major module entries cover what the API is, its mental model, a real example, and a "reach for it when" line. Smaller supporting modules stay compact so this remains useful as an agent reference.
 
 > **Tip:** Every Effect API in this handbook is grounded in the audited implementation, tests, or package examples. Pin compatible `effect` and `@effect/*` versions together, and re-audit unstable imports before upgrading.

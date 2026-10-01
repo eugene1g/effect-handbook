@@ -12,4 +12,6 @@ node_modules/
 /public/llms.txt
 /public/llms-full.txt
 /public/robots.txt
+/public/versions.json
+.versions/
 .vitepress/.temp/

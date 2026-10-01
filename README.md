@@ -34,9 +34,10 @@ Useful commands:
 
 ```bash
 pnpm docs:check       # verify the canonical source inventory and structure
-pnpm docs:build       # build the site, agent Markdown, indexes, and offline HTML into dist/
+pnpm docs:build       # build the site, agent Markdown, indexes, offline HTML, and every edition into dist/
 pnpm docs:standalone  # regenerate only the double-clickable offline HTML
 pnpm docs:verify      # crawl and verify the production output
+pnpm docs:versions    # re-assemble only the editions in versions.json under dist/<version>/
 pnpm docs:smoke       # exercise both HTTP and file:// builds in headless Chrome
 pnpm docs:links       # check external documentation links (also runs weekly in CI)
 pnpm docs:eval        # measure catalog retrieval against checked-in realistic intent cases
@@ -49,6 +50,24 @@ After `pnpm docs:build`, open [`dist/effect-4-handbook.html`](dist/effect-4-hand
 The deterministic retrieval suite is stored in [`evals/retrieval-cases.json`](evals/retrieval-cases.json). It gates Recall@1/Recall@3 and doubles as the rubric for periodic model runs using only `llms.txt`; generated code from those runs must still pass the tracked TypeScript/Effect example validator and focused runtime assertions.
 
 When adding or moving a concise topic, update `handbookGroups` in `handbook.ts`. For a long-form guide, add its Markdown to `docs/deep-dives/` and register it in `deepDiveGroups`. Keep prose portable Markdown rather than using Vue components or VitePress-only syntax.
+
+## Multiple Effect versions
+
+The handbook is published as **editions**, one per Effect `major.minor`, so that someone pinned to `effect@4.0.x` keeps an accurate handbook after 4.1, 4.7, or 5.0 ship. [`versions.json`](versions.json) is the single source of truth:
+
+- The `latest` edition is the current checkout. It is built at the site root **and** at `/<id>/` (for example `/4.0/`), so its edition URL stays valid after a newer edition takes over the root.
+- Every other edition is **frozen**: it names the git tag (`ref`) it is built from, and the Pages workflow rebuilds it from that tag — with that tag's own dependencies, scripts, and verification — into `/<id>/`. Frozen editions are never edited in place; a correction is a new tag and a new `ref`.
+- `pnpm docs:check` refuses to pass unless the `latest` entry names exactly the release and audit date in `handbook.ts`.
+- Every build publishes `versions.json` (manifest plus resolved URLs) at its root; the site renders an edition switcher in the navigation bar from it, and a frozen edition's pages fetch the root `versions.json` at runtime to show a "newer handbook available" banner without being rebuilt. `llms.txt`, `robots.txt`, and the agent guide route agents to the edition that matches their installed `effect` version.
+
+**Publishing a new edition** (new Effect minor or major, say 4.1.0):
+
+1. Tag the last commit of the current edition: `git tag effect-4.0.0/2026-10-01 <commit>` (Effect version + audit date, the two facts `handbookRelease` records) and push the tag.
+2. In `versions.json`, give the 4.0 entry `"ref": "effect-4.0.0/2026-10-01"`, add `{ "id": "4.1", "effectVersion": "4.1.0", "auditedAt": "<date>", "ref": null }`, and set `"latest": "4.1"`.
+3. Run the `refresh-effect-handbook` skill against 4.1.0 on `main`; `handbookRelease` and the new entry must agree before `docs:check` passes.
+4. Merge. The deploy builds `/` and `/4.1/` from `main` and `/4.0/` from the tag. Re-auditing a frozen edition (for example after a 4.0.3 patch touches an `experimental` API) means a new tag and an updated `ref`; the path `/4.0/` does not change.
+
+`pnpm docs:build` always produces the complete tree: the root edition first, then every edition under `dist/<id>/` (the latest from the checkout, frozen ones from their tags in temporary worktrees with their own dependencies and verification). `pnpm docs:verify` checks the root edition and confirms each edition is present; each edition's own `docs:verify` ran during assembly.
 
 ## Periodic correctness refresh
 

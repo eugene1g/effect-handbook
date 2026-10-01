@@ -44,9 +44,12 @@ test("writes Markdown twins that preserve the source and detects drift", async (
     assert.equal(rewriteLinksToRelativeTwins(source, page.source), body, page.source)
   }
 
-  for (const name of ["llms.txt", "effect-4-modules.md", "effect-4-modules.json", "robots.txt"]) {
+  for (const name of ["llms.txt", "effect-4-modules.md", "effect-4-modules.json", "robots.txt", "versions.json"]) {
     await readFile(path.join(outputDirectory, name))
   }
+  const published = JSON.parse(await readFile(path.join(outputDirectory, "versions.json"), "utf8"))
+  assert.equal(published.artifactKind, "handbook-editions")
+  assert.ok(published.editions.some((entry) => entry.status === "latest" && entry.id === published.latest))
 
   assert.equal((await checkPageMarkdownArtifacts({ outputDirectory })).ok, true)
   await writeFile(path.join(outputDirectory, "index.md"), "stale\n")
@@ -134,6 +137,9 @@ test("builds grouped links for root, Pages base, and an absolute site URL", () =
   assert.match(index, /\[Capability catalog\]\(\/effect-handbook\/effect-4-catalog\.json\)/)
   assert.match(index, /\[Example inventory and validation plan\]\(\/effect-handbook\/effect-4-examples\.json\)/)
   assert.match(index, /\[llms-full\.txt\]\(\/effect-handbook\/llms-full\.txt\)/)
+  assert.match(index, /This is the \*\*4\.0 edition\*\* \(effect@4\.0\.0\)/)
+  assert.match(index, /## Editions\n/)
+  assert.match(index, /- \[4\.0 — effect@4\.0\.0\]\(\/effect-handbook\/4\.0\/llms\.txt\): audited \d{4}-\d{2}-\d{2} \(latest, this file\)\./)
   assert.match(index, /## Domain bundles/)
   assert.match(index, /\(~\d+(\.\d)?K words\)/)
   assert.match(index, /## Intent and primitive map/)
@@ -146,6 +152,7 @@ test("builds grouped links for root, Pages base, and an absolute site URL", () =
   const robots = buildRobotsTxt({ base: "/effect-handbook/" })
   assert.match(robots, /^User-agent: \*\nAllow: \/\n/)
   assert.match(robots, /\/effect-handbook\/llms\.txt/)
+  assert.match(robots, /major\.minor\): \/effect-handbook\/versions\.json/)
   assert.doesNotMatch(robots, /Sitemap:/)
   assert.match(buildRobotsTxt({ siteUrl: "https://example.com/handbook" }), /\nSitemap: https:\/\/example\.com\/handbook\/sitemap\.xml\n$/)
   assert.equal(handbookRelease.version, "4.0.0")

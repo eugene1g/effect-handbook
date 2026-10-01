@@ -4,6 +4,7 @@ import process from "node:process"
 import { fileURLToPath } from "node:url"
 
 import { deepDivePages, handbookGroups, handbookPages, siteGroups, sitePages } from "../handbook.ts"
+import { assertVersionsMatchRelease } from "./versions.ts"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const docsRoot = path.join(root, "docs")
@@ -52,6 +53,11 @@ for (const page of sitePages) {
 assert(handbookGroups.flatMap((group) => group.items).length === handbookPages.length, "Sidebar groups and page manifest disagree")
 assert(siteGroups.flatMap((group) => group.items).length === sitePages.length, "Site groups and page manifest disagree")
 assert(handbookPages.every((page) => sitePages.includes(page)), "Every concise handbook page must also be a site page")
+try {
+  assertVersionsMatchRelease()
+} catch (error) {
+  assert(false, `versions.json disagrees with handbook.ts: ${error.message}`)
+}
 console.log(`Canonical Markdown verified: ${handbookPages.length} concise pages + ${deepDivePages.length} deep-dive pages, ${headingCount} headings, ${codeBlockCount} code blocks.`)
 
 async function listFiles(directory, prefix = "") {

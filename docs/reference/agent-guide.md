@@ -17,6 +17,19 @@ The HTML pages advertise the same thing for crawlers: each one carries `<link re
 
 Long twins (eight or more top-level sections) open with a generated **Contents** line listing every section with its anchor, so you can decide what to read before reading it.
 
+## Match the edition to the installed Effect version
+
+The handbook is published as **editions**, one per Effect `major.minor`, each audited against one exact release. The site root always serves the newest edition; every edition, including the newest, is also served under its own path — `/4.0/`, `/4.1/`, `/5.0/` — with the same relative layout, so `/4.0/data/schema.md` and `/5.0/data/schema.md` are the same page for different Effect versions.
+
+Before reading anything else:
+
+1. Read the installed version from `node_modules/effect/package.json`.
+2. Take its `major.minor` and fetch that edition's `llms.txt`, for example `/4.0/llms.txt` for `effect@4.0.3`.
+3. If that path is missing, fetch `/versions.json` at the site root. It lists every published edition with its `effectVersion`, audit date, status (`latest` or `frozen`), and the URLs of its `llms.txt`, module index, and catalog. Use the highest listed edition below yours **within the same major**; editions of different majors describe different libraries and are never interchangeable.
+4. State the edition and audited release you used when you answer.
+
+Every edition's `llms.txt` opens with its own edition and release and has an **Editions** section linking to the others, so you can correct course from any entry point. A frozen edition is rebuilt from its git tag, never edited, so what you read there will not change under you; the HTML pages of a frozen edition show a banner pointing at the newest handbook, but the Markdown twins do not.
+
 ## Which artifact to fetch for which task
 
 Start at `llms.txt`. It is a few thousand words, lists every page and bundle with its current word count, and maps common intents to the exact section that answers them. From there, pick by task:
@@ -94,11 +107,12 @@ Paste this block into the project's `AGENTS.md`, `CLAUDE.md`, or equivalent and 
 Use the Effect 4 Handbook at https://HOST/ for Effect questions. Rules:
 
 1. Fetch Markdown, never HTML: append `.md` to any page path (`/` is `/index.md`).
-2. Start at https://HOST/llms.txt. Use its "Intent and primitive map" to find the exact section; use https://HOST/effect-4-modules.md when you already know the module name.
-3. Fetch one page or one domain bundle (`effect-4-core.md`, `-web`, `-concurrency`, `-distributed`, `-ai`) rather than the full `effect-4-handbook.md`, unless the task spans the whole library.
-4. Prefer `compile` and `run` examples from https://HOST/effect-4-examples.json; treat `pseudocode` fences as sketches and `invalid` fences as counter-examples.
-5. The installed `effect` package (`node_modules/effect/AGENTS.md`, `ai-docs/src`, and the `.d.ts` files) wins over the handbook when they disagree.
-6. Cite sections as `<twin path>#<anchor>` and name the audited release from the twin's first line.
+2. Use the edition for the installed version: read `node_modules/effect/package.json`, take `major.minor`, and prefix every path with it (`https://HOST/4.0/llms.txt` for effect 4.0.x). https://HOST/versions.json lists the published editions; never use an edition from a different major.
+3. Start at that edition's `llms.txt`. Use its "Intent and primitive map" to find the exact section; use its `effect-4-modules.md` when you already know the module name.
+4. Fetch one page or one domain bundle (`effect-4-core.md`, `-web`, `-concurrency`, `-distributed`, `-ai`) rather than the full `effect-4-handbook.md`, unless the task spans the whole library.
+5. Prefer `compile` and `run` examples from the edition's `effect-4-examples.json`; treat `pseudocode` fences as sketches and `invalid` fences as counter-examples.
+6. The installed `effect` package (`node_modules/effect/AGENTS.md`, `ai-docs/src`, and the `.d.ts` files) wins over the handbook when they disagree.
+7. Cite sections as `<edition>/<twin path>#<anchor>` and name the audited release from the twin's first line.
 ```
 
 The repository also ships the same protocol as an installable skill at `.agents/skills/use-effect-4-handbook/SKILL.md`, for agent frameworks that load skills from a directory.
@@ -118,4 +132,5 @@ All of these are produced from the Markdown under `docs/` by the repository buil
 | `effect-4-examples.json` | The example inventory described above. |
 | `<page>.md` | The Markdown twin of each page, with header, optional contents line, and links rewritten to twins. |
 | `effect-4-handbook.html` | A self-contained offline copy of the whole site for humans; agents should not fetch it. |
+| `versions.json` | Every published edition — id, exact Effect version, audit date, `latest` or `frozen`, and the URLs of its `llms.txt`, module index, and catalog. Served at the site root and inside every edition. |
 | `robots.txt`, `sitemap.xml` | Crawl policy pointing at the entry points above; the sitemap is emitted for production builds with a public URL. |

@@ -2,9 +2,9 @@
 
 _Effect provides a composable time stack: typed duration values, a testable clock-aware date/time system, a cron parser, an effect-native PRNG, and `Schedule`, the algebraic policy engine powering retry and repeat._
 
-> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/07_datetime) examples.
+> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/07_datetime) examples.
 
-> **Official guides:** [Built-In Schedules](https://effect.website/docs/v4/scheduling/built-in-schedules) prints the delay sequence of every constructor (its "once" heading is a stale name; the code uses `Schedule.duration`); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules) introduces `Effect.repeat`, `Effect.schedule`, and `Effect.retry`; [Choosing and combining schedules](https://effect.website/docs/v4/scheduling/choosing-and-combining-schedules) walks through the constructors, limiters, and combinators; the [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook) has complete retry and polling programs. Section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
 
 ## Schedule
 
@@ -36,6 +36,10 @@ const every30sWindow = Schedule.windowed("30 seconds")
 
 // Exactly one recurrence after one minute; unlike `during`, this is a delay.
 const oneFollowUp = Schedule.duration("1 minute")
+
+// Recurs immediately once (no delay), outputting void. Shorthand for a
+// single follow-up where `duration`'s wait is unwanted.
+const exactlyOnce = Schedule.once
 
 // Pure exponential backoff. Second argument is the multiplier (default 2).
 const expBackoff = Schedule.exponential("200 millis")
@@ -97,7 +101,7 @@ const warmThenSteady = Schedule.exponential("100 millis").pipe(
 
 `upTo({ times: n })` counts **schedule recurrences**, not the initial evaluation: a retry/repeat effect can therefore run up to `n + 1` times. Schedules may also fail—for example an effectful predicate or an invalid `Schedule.cron`—and `Effect.schedule` / `scheduleFrom` expose that schedule error alongside the wrapped effect's own error.
 
-Official guide: [Schedule Combinators](https://effect.website/docs/v4/scheduling/schedule-combinators) (its `jittered(0.0, 1.0)` sentence and `whileOutput` comment are stale: in `rc.116` `Schedule.jittered` takes no range and always scales by 0.8–1.2, and the only filter is `Schedule.while`).
+Official guide: [Choosing and combining schedules](https://effect.website/docs/v4/scheduling/choosing-and-combining-schedules) (`upTo`, `while`, `modifyDelay`, `jittered`, `tap`, `max`, `min`, and `concat`).
 
 ### Filtering on the input
 
@@ -216,7 +220,7 @@ const heartbeat = Effect.repeatOrElse(
 )
 ```
 
-Official guide: [Repetition](https://effect.website/docs/v4/scheduling/repetition) (its "repeatN" heading is a stale name; the code uses `Effect.repeat(effect, { times })`).
+Official guide: [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules).
 
 ### Shorthand options for retry and repeat
 
@@ -233,8 +237,9 @@ The object is sugar for `Schedule.passthrough(schedule ?? Schedule.forever)` fil
 
 - **The result is the last value, not a schedule counter.** `Effect.repeat(poll, { until })` returns the value that satisfied `until`.
 - **Omitting `schedule` means zero delay.** `{ while: isTransient }` alone is an unbounded hot loop against a struggling dependency. Always pair a predicate with `schedule`, `times`, or both.
+- **`schedule` or `times` cancels type narrowing.** A type-guard `while`/`until` only narrows the result (on `repeat`) or the error (on `retry`) when the options object has neither `schedule` nor `times`. Either one can end the loop before the predicate does — a capped recurrence count or a schedule that completes on its own — so the compiler keeps the original, unnarrowed type whenever `schedule`/`times` is present, even though the refinement itself is unchanged.
 
-Predicates may return `boolean` or an `Effect` of `boolean`. A type guard narrows the result: `until` narrows the success type on `repeat`, and on `retry` a guard in `{ while }` alone removes that error from `E` — it is retried without limit, so it can never be the final failure.
+Predicates may return `boolean` or an `Effect` of `boolean`. With a bare `{ until }` or `{ while }` and no `schedule`/`times`, a type guard narrows the result: `until` narrows the success type on `repeat`, and `while` alone removes that error from `E` on `retry` — it is retried without limit, so it can never be the final failure. Add `schedule` or `times` back for pacing or a hard cap, and the result or error type widens to the source type again.
 
 ```ts
 import { Effect, Schedule, Schema } from "effect"
@@ -259,6 +264,8 @@ declare const getApprovalStatus: Effect.Effect<"Pending" | "Approved" | "Rejecte
 const hrisBackoff = Schedule.exponential("250 millis").pipe(Schedule.jittered)
 
 // Classification sits at the call site that knows what this operation can fail with.
+// `while` here is a plain predicate, not a type guard, so `times`/`schedule`
+// have no bearing on its type — they only bound the retry count and pacing.
 const loadEmployee = (id: string) =>
   fetchEmployee(id).pipe(
     Effect.retry({
@@ -268,8 +275,17 @@ const loadEmployee = (id: string) =>
     })
   )
 
-// repeat is success-driven; the guard narrows the result to the settled states.
+// repeat is success-driven. With no `schedule`/`times`, `until`'s refinement
+// is the only way the loop can stop, so it is also the only type the result
+// needs to carry.
 const settled: Effect.Effect<"Approved" | "Rejected"> = Effect.repeat(getApprovalStatus, {
+  until: (status): status is "Approved" | "Rejected" => status !== "Pending"
+})
+
+// Add `schedule` back for pacing between polls, and the result widens to the
+// full status type again: the schedule could in principle end the loop
+// before `until` does, even though the refinement text is unchanged.
+const settledPaced: Effect.Effect<"Pending" | "Approved" | "Rejected"> = Effect.repeat(getApprovalStatus, {
   schedule: Schedule.spaced("10 seconds"),
   until: (status): status is "Approved" | "Rejected" => status !== "Pending"
 })
@@ -391,6 +407,7 @@ The complete harness is in [Recipe: Typed Retry with TestClock](../recipes/retry
 | `fixed(d)` | Cadence aligned to this schedule's first step; skip missed ticks |
 | `windowed(d)` | Sleep to the next elapsed-time window boundary |
 | `duration(d)` | Recur exactly once after `d` |
+| `once` | Recur immediately once, with no delay; outputs `void` |
 | `exponential(base)` | Exponential delay, 2× factor by default |
 | `fibonacci(one)` | Fibonacci delay growth |
 | `during(d)` | Stop after this much elapsed time; adds no delay |
@@ -873,7 +890,7 @@ const payrollJobOnTick = runPayrollBatch.pipe(Effect.schedule(payrollCron))
 
 **Choose the runner by what a restart should do.** A nightly job driven by `Effect.repeat` runs on every deploy and crash-restart, then again at 01:00; `Effect.schedule` runs only at cron ticks. Neither catches up on ticks missed while the process was down — a job that must not be skipped needs durable scheduling such as [ClusterCron](../systems/cluster-sharding#clustercron) or a [Workflow](../systems/workflows-durable-execution). The schedule's output is a `Duration` (the computed wait), and an invalid expression fails the schedule with `Cron.CronParseError`.
 
-Official guide: [Cron](https://effect.website/docs/v4/scheduling/cron) (its prose says `Schedule.cron` outputs a `[start, end]` tuple and mentions `TestContext`; in `rc.116` the output is a `Duration` and `TestClock.layer()` is all a test needs).
+Official guide: [Scheduling work with cron](https://effect.website/docs/v4/scheduling/cron).
 
 **Reach for it when** you need to parse cron expressions from configuration, check whether a scheduled job should have fired, enumerate upcoming run times for a scheduling preview UI, or drive a background job with `Schedule.cron`.
 

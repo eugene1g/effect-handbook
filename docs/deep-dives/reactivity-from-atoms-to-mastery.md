@@ -2,7 +2,7 @@
 
 A source-grounded tour of Effect 4's reactive state layer — the same primitives that power TanStack-Query-style data fetching, SSR hydration, and fine-grained UI state, but built natively on Effects, Streams, Layers, scopes, and typed errors.
 
-This guide shares the handbook's **2026-09-19** audit target, `effect@4.0.0-rc.116`. The reactivity APIs are under `unstable/`, so pin compatible package versions and re-audit before upgrading.
+This guide shares the handbook's **2026-09-19** audit target, `effect@4.0.0`. The reactivity APIs are tagged `@stability unstable`, so pin compatible package versions and re-audit before upgrading.
 
 For a compact module-by-module API reference, use the [Reactivity & Atom handbook topic](../systems/reactivity-atom). This deep dive repeats only the details needed to connect those modules into an application-level mental model.
 
@@ -23,14 +23,14 @@ Reactive state libraries you know — Jotai, Recoil, Zustand, TanStack Query —
 
 | Module | What it is | Lives in |
 | --- | --- | --- |
-| `Reactivity` | Key-based pub/sub invalidation service. The wiring that says "this write affects these reads." | `effect/unstable/reactivity` |
-| `Atom` | A description of one reactive value — static, derived, Effect-backed, or Stream-backed. | `effect/unstable/reactivity` |
-| `AtomRegistry` | The runtime store that holds atom state, deps, subscriptions, and lifecycle. | `effect/unstable/reactivity` |
-| `AsyncResult` | `Initial \| Success \| Failure` (+ `waiting`) — the shape every async atom yields. | `effect/unstable/reactivity` |
-| `AtomRef` | Standalone synchronous observable cells (no registry). Fine-grained local mutable state. | `effect/unstable/reactivity` |
-| `Hydration` | `dehydrate`/`hydrate` serializable atoms for SSR. | `effect/unstable/reactivity` |
-| `AtomHttpApi` | Typed HttpApi clients exposed as query and mutation atoms. | `effect/unstable/reactivity` |
-| `AtomRpc` | Typed unary and streaming RPC clients exposed as atoms. | `effect/unstable/reactivity` |
+| `Reactivity` | Key-based pub/sub invalidation service. The wiring that says "this write affects these reads." | `effect/reactivity` |
+| `Atom` | A description of one reactive value — static, derived, Effect-backed, or Stream-backed. | `effect/reactivity` |
+| `AtomRegistry` | The runtime store that holds atom state, deps, subscriptions, and lifecycle. | `effect/reactivity` |
+| `AsyncResult` | `Initial \| Success \| Failure` (+ `waiting`) — the shape every async atom yields. | `effect/reactivity` |
+| `AtomRef` | Standalone synchronous observable cells (no registry). Fine-grained local mutable state. | `effect/reactivity` |
+| `Hydration` | `dehydrate`/`hydrate` serializable atoms for SSR. | `effect/reactivity` |
+| `AtomHttpApi` | Typed HttpApi clients exposed as query and mutation atoms. | `effect/reactivity` |
+| `AtomRpc` | Typed unary and streaming RPC clients exposed as atoms. | `effect/reactivity` |
 | `AtomReact` | React hooks, provider, Suspense, and hydration boundary. | `@effect/atom-react` |
 
 ### Imports you'll use everywhere
@@ -47,7 +47,7 @@ import {
   AsyncResult,
   Reactivity,
   Hydration,
-} from "effect/unstable/reactivity"
+} from "effect/reactivity"
 
 // The React bindings ("AtomReact") are a sibling package:
 import {
@@ -60,7 +60,7 @@ import {
 } from "@effect/atom-react"
 ```
 
-> **Caution:** These modules live under `unstable/` and can change between releases. This guide describes the audited target above.
+> **Caution:** These modules are tagged `@stability unstable` and can change between releases. This guide describes the audited target above.
 
 > **Takeaway:** An **Atom is a value, not a hook**. Define atoms once at module scope. They are inert descriptions; a **Registry** brings them to life. This separation is what makes them testable, server-renderable, and shareable across frameworks.
 
@@ -103,7 +103,7 @@ type Keys = ReadonlyArray<unknown> | Readonly<Record<string, ReadonlyArray<unkno
 
 ```ts
 import { Effect } from "effect"
-import { Reactivity } from "effect/unstable/reactivity"
+import { Reactivity } from "effect/reactivity"
 
 const program = Effect.gen(function* () {
   const reactivity = yield* Reactivity.Reactivity
@@ -130,7 +130,7 @@ The effectful combinators are the ergonomic surface. `mutation` wraps a write so
 
 ```ts
 import { Effect, Queue } from "effect"
-import { Reactivity } from "effect/unstable/reactivity"
+import { Reactivity } from "effect/reactivity"
 
 // a write that invalidates ["todos"] after it succeeds:
 const addTodo = (text: string) =>
@@ -152,7 +152,7 @@ const importMany = Reactivity.Reactivity.pipe(
 )
 ```
 
-> **Source note:** `Reactivity` stringifies string, number, bigint, and boolean keys and hashes other values with `Hash.hash`. The record form `{ todos: [id] }` expands to both the table key `todos` and each `todos:id` key. Use that expansion for mutations; register detail reads directly on `` `todos:${id}` `` when they must avoid unrelated row invalidations. Query reruns are serialized: while one run is active, repeated invalidations coalesce into at most one pending rerun. A key list that names the same key twice is safe — the handler is stored once per key and scope cleanup tolerates the repeat (it failed before `rc.113`).
+> **Source note:** `Reactivity` stringifies string, number, bigint, and boolean keys and hashes other values with `Hash.hash`. The record form `{ todos: [id] }` expands to both the table key `todos` and each `todos:id` key. Use that expansion for mutations; register detail reads directly on `` `todos:${id}` `` when they must avoid unrelated row invalidations. Query reruns are serialized: while one run is active, repeated invalidations coalesce into at most one pending rerun. A key list that names the same key twice is safe — the handler is stored once per key and scope cleanup tolerates the repeat.
 
 > **Source note:** `Reactivity.Reactivity` is the Context key **and** the service's branded interface (`[Reactivity.TypeId]`); there is no separate `Reactivity.Service` type to import. The `ReactivityService` interface above is a reading aid, not an export. Obtain an instance from `Reactivity.layer` or `Reactivity.make` rather than writing the object by hand. The same convention applies to `LanguageModel`, `EmbeddingModel`, and `Chat`.
 
@@ -165,7 +165,7 @@ An `Atom<A>` is a description of one reactive value. Three flavours to start: a 
 **Atom.ts — the basics**
 
 ```ts
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 // 1. A writable state cell — like useState, but defined ONCE at module scope:
 const count = Atom.make(0)                       // Atom.Writable<number>
@@ -188,7 +188,7 @@ The `get` passed to a read function is an `AtomContext`. Beyond `get(atom)` it c
 
 ```ts
 import { Effect, Option } from "effect"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 const a = Atom.make(1)
 const b = Atom.make(2)
@@ -228,7 +228,7 @@ Every atom carries `lazy` and `keepAlive` metadata, tunable with copy-combinator
 **combinators (copy-on-write)**
 
 ```ts
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 const a = Atom.make(0).pipe(Atom.keepAlive)               // never auto-disposed
 const b = Atom.make(0).pipe(Atom.setIdleTTL("30 seconds")) // dispose 30s after last use
@@ -252,7 +252,7 @@ The registry is where atoms come alive. It stores each atom's current value in a
 **AtomRegistry.ts — read / write / subscribe**
 
 ```ts
-import { Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { Atom, AtomRegistry } from "effect/reactivity"
 
 const count = Atom.make(0)
 const double = Atom.make((get) => get(count) * 2)
@@ -285,7 +285,7 @@ This is the part that surprises people. Atoms are **lazy** and **auto-disposed**
 **GC behaviour (from the test suite)**
 
 ```ts
-import { Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { Atom, AtomRegistry } from "effect/reactivity"
 
 const counter = Atom.make(0)
 const r = AtomRegistry.make()
@@ -316,7 +316,7 @@ The registry is also a `Context.Service`, so you can read/write atoms from insid
 
 ```ts
 import { Effect } from "effect"
-import { Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { Atom, AtomRegistry } from "effect/reactivity"
 
 const count = Atom.make(0)
 
@@ -342,7 +342,7 @@ The moment an atom is backed by an `Effect` or `Stream`, its value is an `AsyncR
 **AsyncResult.ts — the shape**
 
 ```ts
-import type { AsyncResult } from "effect/unstable/reactivity"
+import type { AsyncResult } from "effect/reactivity"
 
 // The exact exported union has three variants, and every one carries `waiting`:
 type State<A, E = never> = AsyncResult.AsyncResult<A, E>
@@ -361,7 +361,7 @@ This two-axis design (variant × waiting) is the whole trick. A refresh doesn't 
 **constructing / inspecting**
 
 ```ts
-import { AsyncResult } from "effect/unstable/reactivity"
+import { AsyncResult } from "effect/reactivity"
 
 const r = AsyncResult.success<number, Error>(42)
 const fallback = 0
@@ -388,7 +388,7 @@ Three idioms, increasing in power. `match` is the exhaustive 3-way switch. `matc
 
 ```ts
 import { Data } from "effect"
-import { AsyncResult } from "effect/unstable/reactivity"
+import { AsyncResult } from "effect/reactivity"
 
 class LoadError extends Data.TaggedError("LoadError")<{}> {}
 const result: AsyncResult.AsyncResult<ReadonlyArray<number>, LoadError> =
@@ -416,7 +416,7 @@ The `builder` is a type-tracked fluent renderer: the compiler only exposes `.exh
 
 ```ts
 import { Data } from "effect"
-import { AsyncResult } from "effect/unstable/reactivity"
+import { AsyncResult } from "effect/reactivity"
 
 class NotFoundError extends Data.TaggedError("NotFoundError")<{ id: string }> {}
 class PermissionError extends Data.TaggedError("PermissionError")<{}> {}
@@ -437,7 +437,7 @@ const rendered = AsyncResult.builder(result)
 **AsyncResult.all**
 
 ```ts
-import { AsyncResult } from "effect/unstable/reactivity"
+import { AsyncResult } from "effect/reactivity"
 
 const userResult = AsyncResult.success({ id: 1 })
 const settingsResult = AsyncResult.success({ theme: "dark" })
@@ -461,7 +461,7 @@ Now the payoff for being Effect-native. Back an atom with an `Effect` and it man
 
 ```ts
 import { Data, Effect } from "effect"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 interface User { readonly id: number }
 class FetchError extends Data.TaggedError("FetchError")<{ cause: unknown }> {}
@@ -495,7 +495,7 @@ Most real data access needs dependencies (an API client, a DB, config). `Atom.ru
 
 ```ts
 import { Clock, Context, Effect, Layer } from "effect"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 interface Todo { id: number; text: string; done: boolean }
 
@@ -542,7 +542,7 @@ A `fn` atom is a *writable* atom whose write value is the function argument. Wri
 
 ```ts
 import { Effect } from "effect"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 const searchEffect = (query: string) => Effect.succeed(query)
 
@@ -569,7 +569,7 @@ There's also `Atom.fnSync` for synchronous functions (returns `Option<A>` before
 **Atom.pull**
 
 ```ts
-import { Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { Atom, AtomRegistry } from "effect/reactivity"
 
 // A writable atom over a Stream. It pulls the first chunk, and each write pulls
 // the next — accumulating items by default. Great for "load more" / infinite scroll.
@@ -589,7 +589,7 @@ The exact success type uses a non-empty batch: `{ readonly done: boolean; readon
 **Atom.family**
 
 ```ts
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 // Memoised factory: the SAME atom instance for the same arg (WeakRef-GC'd).
 // Essential — never call runtime.atom(...) inline in render with a new arg each time.
@@ -619,7 +619,7 @@ Effect 4 ships the data-fetching niceties you'd otherwise pull in a library for.
 
 ```ts
 import { Schema } from "effect"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 const prices = runtime.atom(Api.use((a) => a.prices)).pipe(
   Atom.swr({
@@ -647,7 +647,7 @@ A different tool for a different job. `AtomRef` is a standalone, synchronous, ob
 **AtomRef.ts**
 
 ```ts
-import { AtomRef } from "effect/unstable/reactivity"
+import { AtomRef } from "effect/reactivity"
 
 const form = AtomRef.make({ name: "", email: "" })
 
@@ -664,7 +664,7 @@ The superpower is `prop`: a typed lens into one field that is itself a fully rea
 **prop lenses, map, collection**
 
 ```ts
-import { AtomRef } from "effect/unstable/reactivity"
+import { AtomRef } from "effect/reactivity"
 
 const form = AtomRef.make({ name: "", email: "" })
 
@@ -701,7 +701,7 @@ Now we close the loop from the foundation above. The reason `Reactivity` exists 
 **auto-invalidation loop**
 
 ```ts
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 // READ side: a query atom that refreshes whenever ["todos"] is invalidated.
 const todos = runtime.atom(Api.use((a) => a.list)).pipe(
@@ -729,7 +729,7 @@ Under the hood, `withReactivity(keys)` registers a handler that calls `get.refre
 **record keys**
 
 ```ts
-import { Atom, Reactivity } from "effect/unstable/reactivity"
+import { Atom, Reactivity } from "effect/reactivity"
 
 // A per-item query listens only to its exact row key:
 const todoById = Atom.family((id: number) =>
@@ -764,7 +764,7 @@ Server-render with real atom values, ship them in the HTML payload, and rehydrat
 
 ```ts
 import { Schema } from "effect"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 // Attach a stable key + a Schema codec. Only serializable atoms are dehydrated.
 const username = Atom.make("").pipe(
@@ -779,7 +779,7 @@ const username = Atom.make("").pipe(
 **Hydration.ts**
 
 ```ts
-import { Hydration } from "effect/unstable/reactivity"
+import { Hydration } from "effect/reactivity"
 
 // --- server: after rendering into a per-request registry ---
 const snapshot = Hydration.dehydrate(serverRegistry) // Initial results are ignored
@@ -794,7 +794,7 @@ Hydration.hydrate(clientRegistry, window.__ATOMS__)
 
 For an async atom, the serialization schema must cover the whole `AsyncResult`, not only its success value. Construct it with `AsyncResult.Schema({ success: UserSchema, error: UserErrorSchema })`.
 
-For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/packages/effect/SCHEMA.md) for the long-form treatment.
+For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/effect/SCHEMA.md) for the long-form treatment.
 
 `withReactivity` preserves the underlying initial-value target, so a preloaded serializable atom still refreshes the correct source atom.
 
@@ -805,7 +805,7 @@ Some atoms must read differently on the server (no `window`, no `Date.now()` dri
 **withServerValue**
 
 ```ts
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 const startedAt = Atom.make(() => Date.now()).pipe(
   Atom.withServerValue(() => 0) // stable on the server -> no hydration mismatch
@@ -826,7 +826,7 @@ The `@effect/atom-react` package connects atoms to components: a registry provid
 
 ```tsx
 import { RegistryProvider, useAtom, useAtomValue } from "@effect/atom-react"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 const count = Atom.make(0)
 const double = Atom.make((get) => get(count) * 2)
@@ -869,7 +869,7 @@ export function App() {
 ```tsx
 import { Suspense } from "react"
 import { useAtomSuspense, useAtomSet, useAtomValue } from "@effect/atom-react"
-import { AsyncResult, Atom } from "effect/unstable/reactivity"
+import { AsyncResult, Atom } from "effect/reactivity"
 
 function TodoList() {
   // suspends until the atom leaves Initial; throws the squashed cause/error on failure
@@ -908,7 +908,7 @@ function Screen() {
 ```tsx
 import { HydrationBoundary, useAtomValue } from "@effect/atom-react"
 import * as ScopedAtom from "@effect/atom-react/ScopedAtom"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 // Each <Provider> instance owns its OWN atom — different subtrees don't share state:
 const Counter = ScopedAtom.make(() => Atom.make(0))
@@ -939,7 +939,7 @@ Selectors are compared with the mapped atom's default `Object.is` equality. Keep
 `AtomHttpApi` and `AtomRpc` connect Effect's typed clients to the same registry, runtime, reactivity, retention, and hydration machinery. They are the high-level path when your data source already has an [HttpApi](../interfaces/http-api) or [RPC](../interfaces/rpc) contract.
 
 ```ts
-import { AtomHttpApi, AtomRpc } from "effect/unstable/reactivity"
+import { AtomHttpApi, AtomRpc } from "effect/reactivity"
 
 // Given an HttpApi contract `Api` and an HTTP client layer `HttpClientLive`:
 const Http = AtomHttpApi.Service()("app/Http", {
@@ -980,7 +980,7 @@ The generated atoms are thin: they call the typed client and hand you its result
 | Where do transport and decode failures go? | For the request: **defects** (render with `onDefect`). For a returned `Stream`: the **stream's error channel** — `HttpClientError`, `Schema.SchemaError`, `Sse.Retry`, `Sse.SseError` alongside the declared stream error. | In the typed error as `RpcClientError`. |
 | How long is an unused query kept? | Omitted `timeToLive` → the registry's `defaultIdleTTL`; **`0` → no idle retention**; finite → that long; infinite → kept alive. | Same. |
 
-Two consequences for UI code. A component that reads an SSE query gets `Success` as soon as the stream *exists*; the interesting failures happen later, inside the stream, so the consumer (`Stream.catch`, or an atom built from that stream) must handle them — before `rc.113` that channel was typed `never` and such handling was silently missing. And a session-expiry middleware on an RPC now shows up in the atom's error union, so an exhaustive `AsyncResult.builder(...).onErrorTag(...)` chain stops compiling until you add the case, which is the point.
+Two consequences for UI code. A component that reads an SSE query gets `Success` as soon as the stream *exists*; the interesting failures happen later, inside the stream, so the consumer (`Stream.catch`, or an atom built from that stream) must handle them. And a session-expiry middleware on an RPC shows up in the atom's error union, so an exhaustive `AsyncResult.builder(...).onErrorTag(...)` chain stops compiling until you add the case, which is the point.
 
 `AtomHttpApi` also accepts per-call `sseOptions` (native SSE decode options; they are part of the query's family key) and dispatches endpoints of a `topLevel` group on the client root while you still address them by group identifier.
 
@@ -994,7 +994,7 @@ One small Todos feature ties the central primitives together: a service-backed r
 
 ```ts
 import { Clock, Context, Effect, Layer, Schema } from "effect"
-import { AsyncResult, Atom } from "effect/unstable/reactivity"
+import { AsyncResult, Atom } from "effect/reactivity"
 
 interface Todo { id: number; text: string; done: boolean }
 
@@ -1102,7 +1102,7 @@ This uses the same test Layers and Effect-aware runner covered in [Testing & Dev
 ```ts
 import { expect, it } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import { AtomRegistry, Atom } from "effect/unstable/reactivity"
+import { AtomRegistry, Atom } from "effect/reactivity"
 import { runtime, TodoApi, todosAtom } from "./atoms.ts"
 
 const TodoApiTest = Layer.succeed(TodoApi, TodoApi.of({

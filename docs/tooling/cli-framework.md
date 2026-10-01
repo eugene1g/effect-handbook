@@ -1,18 +1,18 @@
 # CLI Framework
 
-The CLI modules define parsers, help, completions, prompts, and command handlers as typed values that compose with ordinary Effects and Layers. Import the barrel with `import { Argument, Command, Flag, Prompt } from "effect/unstable/cli"`, or use the module paths shown in each section.
+The CLI modules define parsers, help, completions, prompts, and command handlers as typed values that compose with ordinary Effects and Layers. Import the barrel with `import { Argument, Command, Flag, Prompt } from "effect/cli"`, or use the module paths shown in each section.
 
-> **Warning:** The framework lives under `effect/unstable/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/70_cli) provides a compact runnable companion.
+> **Warning:** The framework lives under `effect/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/70_cli) provides a compact runnable companion.
 
 ## CliConfig
 
-`effect/unstable/cli/CliConfig` — unstable
+`effect/cli/CliConfig` — unstable
 
 A fiber-scoped `Context.Reference` controlling runner-wide CLI behavior. Its service contains the ordered list of built-in global flags installed by `Command.run`; the default is `GlobalFlag.BuiltIns`. Earlier action flags have precedence.
 
 ```ts
 import { Effect } from "effect"
-import { CliConfig, Command, GlobalFlag } from "effect/unstable/cli"
+import { CliConfig, Command, GlobalFlag } from "effect/cli"
 
 const app = Command.make("comp", {}, () => Effect.void)
 
@@ -32,7 +32,7 @@ const program = Command.run(app, { version: "1.0.0" }).pipe(
 
 ## Command
 
-`effect/unstable/cli/Command` — unstable
+`effect/cli/Command` — unstable
 
 A `Command<Name, Input, ContextInput, E, R>` is both a typed description of how to parse a command's flags and arguments and an Effect that yields its parsed input when run. Subcommands can `yield* parentCommand` inside their handlers to read the parent's typed config without prop-drilling.
 
@@ -43,7 +43,7 @@ Flags declared with `Command.withSharedFlags` are visible to every subcommand ha
 ```ts
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Console, Effect } from "effect"
-import { Argument, Command, Flag } from "effect/unstable/cli"
+import { Argument, Command, Flag } from "effect/cli"
 
 // Reusable flag — share it across commands
 const outputFormat = Flag.Literals("format", ["table", "json", "csv"]).pipe(
@@ -171,7 +171,7 @@ comp.pipe(
 import { NodeServices } from "@effect/platform-node"
 import { assert, it } from "@effect/vitest"
 import { Console, Effect, Result } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Command, Flag } from "effect/cli"
 import { TestConsole } from "effect/testing"
 
 const grant = Command.make(
@@ -209,7 +209,7 @@ it.effect("a bad value fails with ShowHelp carrying the structured cause", () =>
 
 ```ts
 import { Effect, FileSystem, Layer, Path, Stdio, Terminal } from "effect"
-import { ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcessSpawner } from "effect/process"
 
 export const CliTestEnvironment = Layer.mergeAll(
   FileSystem.layerNoop({}), // operations you do not supply fail as NotFound (or die); `exists` answers false
@@ -233,19 +233,19 @@ export const CliTestEnvironment = Layer.mergeAll(
 | --- | --- |
 | parsing, defaults, fallbacks, handler wiring, and the typed failure for bad input | that the packaged binary starts, reads real `argv`, and exits with the right status — launch the built artifact once for that (see [Testing an Effect Application](../deep-dives/testing-an-effect-application#the-built-artifact-lane)) |
 
-Assert on the structured error, not on the rendered help text: since `rc.113` help tables are aligned by terminal display width (wide, emoji, combining, and zero-width graphemes), so exact column spacing is a formatter detail. Pass `{ renderErrors: false }` when the embedding host owns error rendering; help documents are still printed.
+Assert on the structured error, not on the rendered help text: help tables are aligned by terminal display width (wide, emoji, combining, and zero-width graphemes), so exact column spacing is a formatter detail. Pass `{ renderErrors: false }` when the embedding host owns error rendering; help documents are still printed.
 
 Use when you need a type-safe CLI application with subcommands, help generation, and shell completions.
 
 ## Flag
 
-`effect/unstable/cli/Flag` — unstable
+`effect/cli/Flag` — unstable
 
-A `Flag<A>` is a typed parser for named CLI options (`--verbose`, `--shares 1000`). Flags are composable: chain `Flag.withDefault` to make optional, `Flag.optional` to get `Option<A>`, `Flag.withFallbackConfig` to satisfy from an environment variable when absent. Boolean flags: `--dry-run` alone means `true`; `--no-dry-run` negates it. Since `rc.110` an **omitted** boolean flag is no longer an implicit `false`: like every other flag it fails with `CliError.MissingOption` unless you add `Flag.withDefault(false)`, `Flag.optional`, or a config/prompt fallback. That makes absence uniform across flag types and lets a fallback chain decide it — but it also means a boolean flag copied from pre-`rc.110` code turns into a required option. The built-in global flags add their own `false` default.
+A `Flag<A>` is a typed parser for named CLI options (`--verbose`, `--shares 1000`). Flags are composable: chain `Flag.withDefault` to make optional, `Flag.optional` to get `Option<A>`, `Flag.withFallbackConfig` to satisfy from an environment variable when absent. Boolean flags: `--dry-run` alone means `true`; `--no-dry-run` negates it. An **omitted** boolean flag is not an implicit `false`: like every other flag it fails with `CliError.MissingOption` unless you add `Flag.withDefault(false)`, `Flag.optional`, or a config/prompt fallback. That makes absence uniform across flag types and lets a fallback chain decide it. The built-in global flags add their own `false` default.
 
 ```ts
 import { Config } from "effect"
-import { Flag, Prompt } from "effect/unstable/cli"
+import { Flag, Prompt } from "effect/cli"
 
 // Boolean: --dry-run / --no-dry-run
 const dryRun = Flag.Boolean("dry-run").pipe(
@@ -300,7 +300,7 @@ Key APIs: Flag.String, Flag.Boolean, Flag.Int, Flag.Finite, Flag.Date, Flag.Lite
 
 ```ts
 import { Schema } from "effect"
-import { Flag } from "effect/unstable/cli"
+import { Flag } from "effect/cli"
 
 // Validate or transform the parsed string with any Schema: bad input is a parse error,
 // so the handler only ever sees a valid value.
@@ -328,25 +328,26 @@ const optionalPlanSource = Flag.File("plan-file").pipe(
 const _ = [approver, planSource, planSourceTagged, optionalPlanSource]
 ```
 
-| Situation | Behavior in `rc.116` |
+| Situation | Behavior |
 | --- | --- |
-| Neither flag of an `orElse` chain is given | the chain fails with `MissingOption` naming the *last* alternative; wrap it in `Flag.optional` (supported since `rc.113`) or `Flag.withDefault` to make absence legal |
-| A `KeyValuePair` value contains `=` | only the first `=` splits: `--label note=a=b` yields `{ note: "a=b" }` (since `rc.113`) |
-| A value begins with `-`, such as a negative number | write it inline: `--delta=-5`. The spaced form `--delta -5` reads `-5` as another flag and fails with `UnrecognizedOption` |
+| Neither flag of an `orElse` chain is given | the chain fails with `MissingOption` naming the *last* alternative; wrap it in `Flag.optional` or `Flag.withDefault` to make absence legal |
+| A `KeyValuePair` value contains `=` | only the first `=` splits: `--label note=a=b` yields `{ note: "a=b" }` |
+| A value begins with `-` and parses as a number (`-3`, `-3.70`, `-2e5`) | parses as a value either way: `--delta -5` and `--delta=-5` both set `delta` to `-5` |
+| A value begins with `-` but is not numeric, such as a string flag value of `-x` | write it inline: `--label=-x`. The spaced form `--label -x` reads `-x` as another flag and fails with `UnrecognizedOption` |
 | A boolean flag is omitted | `MissingOption`, unless the flag has a default, is optional, or has a fallback |
 
 Use when you need named `--` options for type-safe command configuration.
 
 ## Argument
 
-`effect/unstable/cli/Argument` — unstable
+`effect/cli/Argument` — unstable
 
 Positional command-line arguments — values without a `--name` prefix. `Argument<A>` is structurally identical to `Flag<A>` with nearly the same constructor surface; the distinction is named vs positional.
 
 Arguments resolve in declaration order. `Argument.variadic` collects all remaining positionals into an array. Only one variadic argument is allowed per command, and it must be last.
 
 ```ts
-import { Argument } from "effect/unstable/cli"
+import { Argument } from "effect/cli"
 
 // Required positional: the employee ID to look up
 const employeeArg = Argument.String("employee-id").pipe(
@@ -375,10 +376,10 @@ const reviewAction = Argument.Literals("action", ["start", "close", "reopen"])
 
 > **Tip:** Options can appear before or after positional arguments: both `comp grant e-42 --shares 1000` and `comp grant --shares 1000 e-42` are accepted.
 
-Variadic bounds and defaults interact. `Argument.variadic` accepts zero or more values, so omission already parses — to `[]` — and a `withDefault` placed after it never applies. Require at least one value, and the default becomes reachable (omission was mishandled before `rc.113`):
+Variadic bounds and defaults interact. `Argument.variadic` accepts zero or more values, so omission already parses — to `[]` — and a `withDefault` placed after it never applies. Require at least one value, and the default becomes reachable:
 
 ```ts
-import { Argument } from "effect/unstable/cli"
+import { Argument } from "effect/cli"
 
 // Omitted -> [] (the default below is dead code)
 const anyIds = Argument.String("employee-id").pipe(
@@ -402,7 +403,7 @@ Use when the natural invocation uses positional subjects (file paths, resource I
 
 ## Param
 
-`effect/unstable/cli/Param` — unstable
+`effect/cli/Param` — unstable
 
 The shared machinery powering both `Flag` and `Argument`. A `Param<Kind, A>` carries a `Kind` type tag (`"flag"` or `"argument"`) determining tokenisation. All combinators (`withDefault`, `optional`, `map`, `mapEffect`, `filter`, `withFallbackConfig`, `withFallbackPrompt`, `withSchema`) are implemented once in `Param` and re-exported by both `Flag` and `Argument` (`variadic` is on `Argument` only).
 
@@ -420,7 +421,7 @@ Use when building abstractions over the CLI library — custom combinators that 
 
 ## Primitive
 
-`effect/unstable/cli/Primitive` — unstable
+`effect/cli/Primitive` — unstable
 
 Leaf-level value parsers converting raw CLI strings into typed TypeScript values. Each `Flag.*` and `Argument.*` constructor wraps a `Primitive`. A `Primitive<A>` is essentially `(rawString: string) => Effect<A>` with a display name; the framework derives shell completion types from `_tag`.
 
@@ -440,13 +441,13 @@ Leaf-level value parsers converting raw CLI strings into typed TypeScript values
 
 - **Primitive.FileText / FileParse / FileSchema** — Reads a file at the given path and returns its text, parsed INI/JSON/TOML/YAML, or Schema-decoded value. `FileParse()` infers from `.ini`, `.json`, `.toml`, `.yaml`, or `.yml`; `{ format }` overrides detection.
 
-- **Primitive.KeyValuePair** — Parses `KEY=VALUE` pairs; multiple appearances merge into `Record<string, string>`. Only the first `=` separates key from value, so values may themselves contain `=` (since `rc.113`).
+- **Primitive.KeyValuePair** — Parses `KEY=VALUE` pairs; multiple appearances merge into `Record<string, string>`. Only the first `=` separates key from value, so values may themselves contain `=`.
 
 Use when inspecting what type a flag or argument represents (e.g. documentation generation or custom completion logic) — `_tag` is the canonical discriminant.
 
 ## Prompt
 
-`effect/unstable/cli/Prompt` — unstable
+`effect/cli/Prompt` — unstable
 
 Interactive terminal prompts. A `Prompt<A>` is an Effect that runs a TUI render loop and yields a typed value on confirmation. Prompts compose with `Effect.gen`, chain with `Prompt.flatMap`, and collect with `Prompt.all`.
 
@@ -454,7 +455,7 @@ Each prompt has three phases: render (write ANSI), process (receive keypress, re
 
 ```ts
 import { Effect } from "effect"
-import { Flag, Prompt } from "effect/unstable/cli"
+import { Flag, Prompt } from "effect/cli"
 
 // Text input — for capturing an employee's new title on promotion
 const titlePrompt = Prompt.String({ message: "New job title: " })
@@ -526,9 +527,9 @@ Prompt symbols and colors come from one `Prompt.Theme` — a `Context.Reference`
 
 ```ts
 import { Effect } from "effect"
-import { Prompt } from "effect/unstable/cli"
+import { Prompt } from "effect/cli"
 
-// A message-less Select shows only the choices (rc.114). AutoComplete still requires one.
+// A message-less Select shows only the choices. AutoComplete still requires one.
 const cyclePrompt = Prompt.Select({
   choices: [
     { title: "FY27 merit cycle", value: "fy27" },
@@ -562,15 +563,13 @@ const themedWizard = wizard.pipe(Effect.provideService(Prompt.Theme, asciiTheme)
 
 Theme fields: `prefix`, `pointer`, `pointerSmall`, `ellipsis`, `tick`, `arrowUp`, `arrowDown`, `checkboxOn`, `checkboxOff`, `descriptionSeparator`, `passwordMask`, `toggleSeparator`, and the colors `primaryColor`, `mutedColor`, `successColor`, `errorColor`, `submittedColor`. Setting a symbol to the empty string removes both the symbol and its adjacent spacing.
 
-> **Note:** The theme replaced the short-lived per-prompt prefix options and `Prompt.platformFigures` in `rc.112`; code written against `rc.110`–`rc.111` prompt prefixes moves to `theme: { prefix }` or a provided `Prompt.Theme`.
-
-Behavior fixes in the `rc.109`–`rc.115` range that change what users see: `Prompt.Select` and `Prompt.MultiSelect` without a `message` show only the choices and, on submit, a tick followed by the selected titles (`rc.114`); `Prompt.Date` no longer carries typed digits into the next field on Tab, including when navigation wraps (`rc.113`); and `Prompt.AutoComplete` and `Prompt.File` no longer swallow `j` and `k` while a filter query is being typed (`rc.112`).
+Notable current prompt behavior: `Prompt.Select` and `Prompt.MultiSelect` without a `message` show only the choices and, on submit, a tick followed by the selected titles; `Prompt.Date` does not carry typed digits into the next field on Tab, including when navigation wraps; and `Prompt.AutoComplete` and `Prompt.File` do not swallow `j` and `k` while a filter query is being typed.
 
 Use when you want wizard-style interactive CLIs or need to prompt for a required value absent from the environment.
 
 ## HelpDoc
 
-`effect/unstable/cli/HelpDoc` — unstable
+`effect/cli/HelpDoc` — unstable
 
 The intermediate data structure for a command's help page. Captures description, usage line, flag/argument docs, global flag docs, subcommand listing, and examples — before any string formatting. Rendering is delegated to `CliOutput.Formatter`.
 
@@ -578,7 +577,7 @@ The intermediate data structure for a command's help page. Captures description,
 
 ```ts
 import { Context, Option as O } from "effect"
-import type { HelpDoc } from "effect/unstable/cli"
+import type { HelpDoc } from "effect/cli"
 
 // HelpDoc is plain data — construct it manually for testing or tooling.
 // Note: subcommands is ReadonlyArray<HelpDoc.SubcommandGroupDoc>, not a flat list.
@@ -621,13 +620,13 @@ const grantCommandHelp: HelpDoc.HelpDoc = {
 }
 ```
 
-The default formatter aligns the flag, argument, and subcommand tables by terminal *display* width rather than string length (since `rc.113`), so wide characters, emoji, combining marks, and zero-width graphemes in names or descriptions no longer skew the columns. A custom formatter that pads with `String.prototype.padEnd` does not get that for free; test on the `HelpDoc` data rather than on padded output.
+The default formatter aligns the flag, argument, and subcommand tables by terminal *display* width rather than string length, so wide characters, emoji, combining marks, and zero-width graphemes in names or descriptions do not skew the columns. A custom formatter that pads with `String.prototype.padEnd` does not get that for free; test on the `HelpDoc` data rather than on padded output.
 
 Use when implementing a custom `CliOutput.Formatter`, generating Markdown documentation from the CLI tree, or building tooling requiring structured access to the help model.
 
 ## Completions
 
-`effect/unstable/cli/Completions` — unstable
+`effect/cli/Completions` — unstable
 
 Shell completion script generator. Given a `CommandDescriptor`, `Completions.generate` returns a static completion script string for Bash, Zsh, or Fish.
 
@@ -643,7 +642,7 @@ comp --completions fish > ~/.config/fish/completions/comp.fish
 To generate completions programmatically (e.g. in a build script or test):
 
 ```ts
-import { Completions } from "effect/unstable/cli"
+import { Completions } from "effect/cli"
 
 const descriptor: Completions.CommandDescriptor = {
   name: "comp",
@@ -716,21 +715,21 @@ const fishScript = Completions.generate("comp", "fish", descriptor)
 
 What the built-in `--completions` flag derives for you — and what a hand-written `CommandDescriptor` must therefore reproduce:
 
-| Behavior | Since | Detail |
-| --- | --- | --- |
-| Subcommand aliases complete like the canonical name | `rc.113` | the generated descriptor lists an aliased subcommand a second time under its alias, with the same flags and nested commands |
-| Shared flags reach every descendant | `rc.113` | flags declared with `Command.withSharedFlags` are included in each descendant's flag list |
-| Choice values survive quoting | `rc.112` | values containing quotes, spaces, word-break characters, Unicode, or shell metacharacters are escaped for Bash (including Bash 3.2, without associative arrays), Zsh, and Fish |
-| Positional arguments and subcommands coexist in Zsh | `rc.110` | a command that has both completes correctly |
-| `--completions sh` | — | accepted as an alias for `bash` |
+| Behavior | Detail |
+| --- | --- |
+| Subcommand aliases complete like the canonical name | the generated descriptor lists an aliased subcommand a second time under its alias, with the same flags and nested commands |
+| Shared flags reach every descendant | flags declared with `Command.withSharedFlags` are included in each descendant's flag list |
+| Choice values survive quoting | values containing quotes, spaces, word-break characters, Unicode, or shell metacharacters are escaped for Bash (including Bash 3.2, without associative arrays), Zsh, and Fish |
+| Positional arguments and subcommands coexist in Zsh | a command that has both completes correctly |
+| `--completions sh` | accepted as an alias for `bash` |
 
-Regenerate installed completion scripts after upgrading across these releases; an old script keeps the old behavior.
+Regenerate installed completion scripts after upgrading Effect; a script generated against an older command tree does not reflect flags or subcommands added since.
 
 Use when you need programmatic completion script access. For normal CLIs, `GlobalFlag.Completions` handles it automatically.
 
 ## GlobalFlag
 
-`effect/unstable/cli/GlobalFlag` — unstable
+`effect/cli/GlobalFlag` — unstable
 
 Built-in and user-defined flags that intercept parsing before the normal handler runs. A global flag is either an `Action` (runs a side-effect and exits) or a `Setting` (provides a context service to the handler). Built-ins: `Help`, `Version`, `Wizard`, `Completions`, `LogLevel`.
 
@@ -740,7 +739,7 @@ Constructors: `GlobalFlag.Action({ flag, run })` for action flags; curried `Glob
 
 ```ts
 import { Effect } from "effect"
-import { Command, Flag, GlobalFlag } from "effect/unstable/cli"
+import { Command, Flag, GlobalFlag } from "effect/cli"
 
 // --- Custom action flag: print the license and exit ---
 const licenseFlag = GlobalFlag.Action({
@@ -795,8 +794,8 @@ const grantWithGlobals = grantCmd.pipe(
 
 `--wizard` prompts for each parameter of the selected command, prints the equivalent command line, and asks whether to run it. Two details matter for what it prints:
 
-- **Secrets are masked in the rendered command.** A `Flag.Redacted` parameter is collected with `Prompt.Password`, and the printed command shows `<redacted>` in place of the value while the real value is passed to the run (since `rc.112`).
-- **Values that look like flags are written inline.** A collected value beginning with `-` — a negative number, for example — is emitted as `--delta=-5` rather than `--delta -5`, so the lexer cannot mistake it for a flag or for the `--` delimiter (since `rc.113`).
+- **Secrets are masked in the rendered command.** A `Flag.Redacted` parameter is collected with `Prompt.Password`, and the printed command shows `<redacted>` in place of the value while the real value is passed to the run.
+- **Values that look like flags are written inline.** A collected value beginning with `-` is emitted as `--delta=-5` rather than `--delta -5`, so the lexer cannot mistake it for a flag or for the `--` delimiter.
 
 `--help` and `--version` print through the `Console` service and **succeed**; they are not failures. A parent command invoked without a subcommand fails with `ShowHelp` and an empty `errors` list, which maps to exit code `0`.
 
@@ -804,7 +803,7 @@ Use when you need a flag that short-circuits command dispatch or provides contex
 
 ## CliError
 
-`effect/unstable/cli/CliError` — unstable
+`effect/cli/CliError` — unstable
 
 The typed error union for the CLI parser. `CliError.CliError` is what `Command.run` may fail with — a discriminated union covering every parser and runner failure mode. `NodeRuntime.runMain` handles these automatically (the runner has already printed them; the exit code comes from the error); match on `_tag` when embedding a CLI in a larger Effect application or writing integration tests.
 
@@ -824,7 +823,7 @@ The typed error union for the CLI parser. `CliError.CliError` is what `Command.r
 
 ```ts
 import { Effect } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Command, Flag } from "effect/cli"
 import { NodeServices } from "@effect/platform-node"
 
 const grant = Command.make(
@@ -864,7 +863,7 @@ Use when embedding a CLI runner in a larger Effect program and needing to distin
 
 ## CliOutput
 
-`effect/unstable/cli/CliOutput` — unstable
+`effect/cli/CliOutput` — unstable
 
 The formatting service for CLI output — help pages, error messages, version strings. `CliOutput.Formatter` is a `Context.Reference` service with a `defaultFormatter`; override with `CliOutput.layer(myFormatter)` to customise all CLI output.
 
@@ -872,7 +871,7 @@ The formatting service for CLI output — help pages, error messages, version st
 
 ```ts
 import { Effect } from "effect"
-import { CliOutput } from "effect/unstable/cli"
+import { CliOutput } from "effect/cli"
 
 // Build a plain-text (no-colour) formatter — useful in CI pipelines
 const plainFormatter = CliOutput.defaultFormatter({ colors: false })

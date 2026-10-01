@@ -1,14 +1,14 @@
 import { Context, Effect, Layer, Schema } from "effect"
-import { HttpClient } from "effect/unstable/http"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
-import { RpcClient } from "effect/unstable/rpc"
+import { HttpClient } from "effect/http"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
+import { RpcClient } from "effect/rpc"
 import {
   AsyncResult,
   Atom,
   AtomHttpApi,
   AtomRegistry,
   Hydration
-} from "effect/unstable/reactivity"
+} from "effect/reactivity"
 import type { ReactNode } from "react"
 
 interface FixtureEmployee {

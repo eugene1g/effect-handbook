@@ -2,9 +2,9 @@
 
 The `R` in `Effect<A, E, R>` is a typed set of required services. **Context** holds those services, **Layer** is the recipe for constructing them (with dependencies and lifecycles), and the runtime blocks execution until every requirement is satisfied.
 
-> **Official examples:** Effect's release-matched [`ai-docs` service examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/01_effect/03_services) cover `Context.Service`, `Context.Reference`, Layer composition, and dynamically constructed Layers.
+> **Official examples:** Effect's release-matched [`ai-docs` service examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/01_effect/03_services) cover `Context.Service`, `Context.Reference`, Layer composition, and dynamically constructed Layers.
 
-> **Official guides:** [Managing Services](https://effect.website/docs/v4/requirements-management/services). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Managing Services](https://effect.website/docs/v4/requirements-management/services). These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
 
 ## Context
 
@@ -290,7 +290,7 @@ const main = Layer.launch(CompPlanningServer.pipe(Layer.provide(AppLayer)))
 
 Use when assembling a dependency graph or tying acquisition/release to a service's lifetime.
 
-Official guides: [Managing Layers](https://effect.website/docs/v4/requirements-management/layers) (it names the dependency-free Layer `layerWithoutDependencies`; this handbook and the `rc.116` examples use `layerNoDeps`), [Layer Memoization](https://effect.website/docs/v4/requirements-management/layer-memoization) (its "providing locally" section describes only the sibling case; nested reuse and `{ local: true }` are covered below).
+Official guides: [Managing Layers](https://effect.website/docs/v4/requirements-management/layers) (it names the dependency-free Layer `layerWithoutDependencies`; the actual property is `layerNoDeps`), [Layer Memoization](https://effect.website/docs/v4/requirements-management/layer-memoization) (its "providing locally" section describes only the sibling case; nested reuse and `{ local: true }` are covered below).
 
 ### Resourceful services
 
@@ -335,14 +335,14 @@ class PayrollGateway extends Context.Service<PayrollGateway, {
 ```
 
 - **`Layer.succeed` packages a finished value, so it cannot express teardown.** Anything that must be closed needs `Layer.effect` with a scoped constructor.
-- **There is no `Layer.scoped` in `rc.116`.** `Layer.effect` already handles a `Scope` requirement.
+- **There is no `Layer.scoped`.** `Layer.effect` already handles a `Scope` requirement.
 - **Match the resource's lifetime to the Layer's owner.** Building the client or repository stack inside a request handler closes correctly on every request and still turns a traffic spike into a connection spike. App-lifetime resources belong in the application graph; per-key resources belong in a [`LayerMap`](#layermap).
 
 ### What is shared, and what is rebuilt
 
 A **memo map** records each layer value it has built and hands the same result to every later request for that value. Entries are reference-counted: when the last scope using one closes, the entry is removed and the layer's finalizers run. "Is this pool shared?" therefore means "do both requests reach the same memo map, with the same layer value, while the first build is still alive?"
 
-Every `Effect.provide(layer)` builds with a memo map **forked from the fiber's current one** — the map installed by an enclosing layer build — or with a new map when there is none. A fork reads its parent's entries and writes only to itself. The following counts were measured on `rc.116` with an acquisition counter:
+Every `Effect.provide(layer)` builds with a memo map **forked from the fiber's current one** — the map installed by an enclosing layer build — or with a new map when there is none. A fork reads its parent's entries and writes only to itself. The following counts were measured with an acquisition counter:
 
 | Situation | Builds of `PoolLive` | Why |
 | --- | --- | --- |
@@ -383,6 +383,7 @@ const isolated = Effect.provide(poolId, PayrollPoolLive, { local: true })
 
 - **Provide the application graph once, at the edge** (or build one [`ManagedRuntime`](core-runtime-execution#managedruntime)). "Build once, share, release at shutdown" comes from a single enclosing build, not from repeating `Effect.provide(sameLayer)` next to each use. A per-request or per-handler `Effect.provide(DbLive)` opens a pool per request.
 - **Sharing is the resource-safety default.** Without it every dependent service would open its own client and register its own finalizer: a connection storm under load and more to unwind on failure.
+- **A build that is interrupted still completes its memo-map entry.** Every requester already waiting on that layer value — including the one that triggered the build — receives the same interrupted `Exit` instead of hanging, and the shared entry is released once the owning scope closes.
 - **`{ local: true }` and `Layer.fresh` are for required isolation** — per-tenant, per-test, or per-transaction resources. Never reach for them to silence a type error; they duplicate pools, caches, and subscriptions.
 - **Test build-frequency claims.** Count acquisitions and assert `1` for a shared node and `n` only where isolation is intended. When you write "built once", name the scope and the memo map that make it true.
 
@@ -484,7 +485,7 @@ Use when you need dynamic, per-key dependency graphs — multi-tenant apps, per-
 | `contextEffect(key)` | The same entry as a scoped `Context` value, for manual wiring. |
 | `contextEffectOption(key)` | Retains the entry **only if it is already cached** and returns `Option.none()` otherwise — no build is started, and an in-flight build is awaited. Use it for "flush this tenant's resources if they exist" paths. |
 | `invalidate(key)` | Drops the entry; current borrowers keep their context until their scopes close. |
-| `preloadKeys` / `preload: true` (`layers` form) | Builds those entries while the `LayerMap` layer itself is built, so a lookup failure also appears in the service layer's error type and fails startup; `get`, `contextEffect`, and `invalidate` keep the lookup error type as well. |
+| `preloadKeys` / `preload: true` (`layers` form) | Builds those entries while the `LayerMap` layer itself is built, so a lookup failure also appears in the service layer's error type and fails startup; `get`, `contextEffect`, and `invalidate` keep the lookup error type as well. A key whose resolved `idleTimeToLive` is zero is skipped — including when no TTL was specified at all — so give preloaded keys an explicit, non-zero `idleTimeToLive` or they are built lazily on first use instead. |
 
 All keys of one `LayerMap` build against a single memo map forked from the one that built the `LayerMap`, so a dependency layer value that several keys share — and anything the enclosing application build already constructed — is built once, not per key.
 

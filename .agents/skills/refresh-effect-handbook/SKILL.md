@@ -97,7 +97,7 @@ The report separates concise-agent coverage from complete-site coverage so a dee
 Review at least:
 
 - every stable namespace exported by `effect`;
-- every `effect/unstable/*` family and namespace export;
+- every `effect/<area>` family front door (the explicit `./<area>` entries in the package `exports` map, such as `./http`, `./http-api`, `./testing`) and its namespace exports — since `effect@4.0.0` stability is declared per API with `@stability unstable` / `@stability experimental` JSDoc tags rather than by an `unstable/` path segment, so also inventory those tags;
 - nested public modules and package export maps;
 - every public `effect` and `@effect/*` package;
 - platform, SQL, AI, Atom, OpenTelemetry, testing, docgen/doctest, generators, and adapters;
@@ -187,7 +187,7 @@ Apply source-grounded corrections to `docs/**`, `handbook.ts`, and validation/bu
    Preserve intentionally historical migration references. Current-version text in navigation, footers, install snippets, and source links must not drift from `docs/index.md`.
 9. Update `handbookRelease`, capability `since.availableBy` metadata, recipe install commands, `validation/target.json`, the tracked validation package/lockfile, deep-dive summaries, and capability import groups together. Add retrieval cases for important new selection decisions and keep multi-primitive cases marked `match: "all"`.
 10. When the refresh drew on reference material beyond the upstream source, keep that material out of the repository, don't name it in the handbook, and express its ideas in the handbook's own words rather than reusing its phrasing.
-11. Regenerate and verify the catalog, example inventory and validation plan, per-page Markdown, focused bundles, `llms.txt`, concise aggregate, and standalone HTML through the normal build; never hand-edit any of them. The public inventory declares required checks but does not embed transient pass/fail evidence; ignored `.validation/generated/**` is the evidence-bearing output.
+11. Regenerate and verify the catalog, example inventory and validation plan, per-page Markdown twins, module index, focused bundles, `llms.txt`, `llms-full.txt`, `robots.txt`, concise aggregate, and standalone HTML through the normal build; never hand-edit any of them. Module sections are indexed from their label line (`` `effect/<area>/<Module>` — stable|unstable ``) directly under the heading, so keep that line first in every module section. The public inventory declares required checks but does not embed transient pass/fail evidence; ignored `.validation/generated/**` is the evidence-bearing output.
 
 ## 9. Run deterministic completion gates
 
@@ -230,7 +230,7 @@ Report:
 - baseline and target versions, tags, commits, and publication dates;
 - changelog/PR range reviewed;
 - canonical pages and deep dives reviewed;
-- stable/unstable module and public-package coverage totals;
+- root-barrel module, `effect/<area>` module, `@stability` tag, and public-package coverage totals;
 - fence totals by `compile` / `contextual` / `run` / `pseudocode` / `invalid`, named fixtures used, strict TypeScript and Effect results, doctests, expected-negative checks, and runtime probes;
 - root and non-root VitePress/browser results;
 - generated artifact path and hash;

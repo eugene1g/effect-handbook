@@ -1,5 +1,5 @@
 import { Context, Schema } from "effect"
-import { HttpApiMiddleware, HttpApiSecurity } from "effect/unstable/httpapi"
+import { HttpApiMiddleware, HttpApiSecurity } from "effect/http-api"
 import type { Employee } from "./http-domain.ts"
 
 export class CurrentUser extends Context.Service<CurrentUser, Employee>()(

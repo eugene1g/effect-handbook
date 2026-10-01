@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
 
 export class CompRecord extends Schema.Class<CompRecord>("CompRecord")({ employeeId: Schema.Int }) {}
 const getComp = HttpApiEndpoint.get("getComp", "/employees/:id", { params: { id: Schema.FiniteFromString }, success: CompRecord })

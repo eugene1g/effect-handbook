@@ -4,9 +4,9 @@ Effect treats failure as a typed value, not an exception. `Option` models absenc
 
 `Option<A>`, `Result<A, E>`, and `Effect<A, E, R>`'s `E` channel are the same idea at increasing power levels. Learn to move between them fluently.
 
-> **Official examples:** Effect's release-matched [`ai-docs` error-handling examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/01_effect/04_errors) cover tagged errors, `catchTag`/`catchTags`, and reason-based errors.
+> **Official examples:** Effect's release-matched [`ai-docs` error-handling examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/01_effect/04_errors) cover tagged errors, `catchTag`/`catchTags`, and reason-based errors.
 
-> **Official guides:** [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors), [Two Types of Errors](https://effect.website/docs/v4/error-management/two-error-types). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors), [Two Types of Errors](https://effect.website/docs/v4/error-management/two-error-types). These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
 
 ## Designing the error model
 
@@ -244,7 +244,7 @@ const employeeIds = ["e-1", "e-2", "e-3"]
 // Runs every check. Succeeds with Array<number>, or fails with NonEmptyArray<BandViolation>.
 const allOrEveryViolation = Effect.validate(employeeIds, checkRaise, { concurrency: 4 })
 
-// Runs every check and never fails: [violations, approvedAmounts].
+// Runs every check and never fails: [approvedAmounts, violations].
 const split = Effect.partition(employeeIds, checkRaise, { concurrency: 4 })
 
 // One Result per member, in the shape of the input.
@@ -255,7 +255,7 @@ const perMember = Effect.all(employeeIds.map(checkRaise), { mode: "result" })
 | --- | --- | --- |
 | Stop the batch at the first problem | `Effect.all` / `Effect.forEach` (default) | fails with the first `E`; when sequential, later elements never start |
 | Every problem at once, or else every value | `Effect.validate(items, f, { concurrency?, discard? })` | `Array<B>`, or fails with `NonEmptyArray<E>` (successes are dropped) |
-| Act on both sides | `Effect.partition(items, f, { concurrency? })` | never fails: `[excluded: Array<E>, satisfying: Array<B>]` |
+| Act on both sides | `Effect.partition(items, f, { concurrency? })` | never fails: `[passes: Array<B>, fails: Array<E>]` |
 | Per-member outcome in the input's shape | `Effect.all(effects, { mode: "result" })` | a `Result` per member |
 
 A defect in any element still fails the whole call. **Accumulate as data rather than as several `Fail` reasons in one `Cause`**, because typed handlers inspect only the first `Fail` reason (see below).
@@ -273,7 +273,7 @@ declare const fromSnapshot: Effect.Effect<number, "NoSnapshot">
 const bandMidpoint = Effect.firstSuccessOf([fromHris, fromReplica, fromSnapshot])
 ```
 
-- **`Effect.orElseSucceed(() => value)` replaces every typed failure.** Since rc.116 the function receives the error (`(error) => ...`), matching `Stream.orElseSucceed`, so the fallback can depend on it; a zero-argument function still works. If only "not found" should default, narrow with `catchTag` first and keep the rest typed.
+- **`Effect.orElseSucceed(() => value)` replaces every typed failure.** The function receives the error (`(error) => ...`), matching `Stream.orElseSucceed`, so the fallback can depend on it; a zero-argument function still works. If only "not found" should default, narrow with `catchTag` first and keep the rest typed.
 - **`Effect.firstSuccessOf(effects)`** tries different effects in order; an empty iterable is a defect. When the *same* effect should run under different provided services, use [`ExecutionPlan`](core-runtime-execution#executionplan) instead.
 - **`Effect.option` discards the error value**, so use it only when every typed failure of that effect genuinely means "absent"; otherwise use `Effect.result`. Both leave defects and interruption as fiber failures.
 - **`Effect.ignore` discards typed failures only** — a defect or interruption still fails the fiber. `Effect.ignoreCause` also discards defects and interruption and can therefore hide bugs; reserve it for best-effort cleanup. Both accept `{ log: true | severity, message }` to log the `Cause` while ignoring it.
@@ -452,6 +452,8 @@ const headroomPercent = Option.gen(function*() {
 
 `Option.gen` evaluates eagerly, so keep its body pure; reach for `Effect.gen` plus `Effect.fromOption` when a step has side effects.
 
+`Option.partitionMap(self, f)` applies a `Result`-returning function and splits the outcome: `[passes: Option<C>, fails: Option<B>]`, successes before failures — the same successes-first convention as `Effect.partition` above.
+
 ### Fallbacks and boundary exits
 
 ```ts
@@ -483,7 +485,7 @@ positiveRaise(4) // Option.some(4)
 
 `Option.makeEquivalence` and `Option.makeOrder` lift an `Equivalence` or `Order` for `A` to `Option<A>`, so optional fields can take part in sorting and de-duplication. `None` orders before every `Some`; `Order.flip` reverses the whole order, which puts missing values last and present values in descending order.
 
-Official guides: [Option](https://effect.website/docs/v4/data-types/option) (its statement that an `Option` can be yielded directly inside `Effect.gen` does not hold on `rc.116`; see [Moving between Option, Result, and Effect](#moving-between-option-result-and-effect)), [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types) (Schema) for nullable and optional wire shapes that decode to `Option`.
+Official guides: [Option](https://effect.website/docs/v4/data-types/option) (its statement that an `Option` can be yielded directly inside `Effect.gen` does not hold for the tagged `4.0.0` source; see [Moving between Option, Result, and Effect](#moving-between-option-result-and-effect)), [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types) (Schema) for nullable and optional wire shapes that decode to `Option`.
 
 ## Result
 
@@ -596,11 +598,11 @@ const loadManagerId = Effect.fn("loadManagerId")(function*(employeeId: string) {
 }) // Effect<string, NoSuchEmployee | NoManager>
 ```
 
-> **Warning:** On `rc.116`, `Option` and `Result` are **not** yieldable inside `Effect.gen`, and neither is a subtype of `Effect`. `yield* someOption` is rejected by TypeScript at the `Effect.gen` call, and if the types are bypassed the fiber dies with `Fiber.runLoop: Not a valid effect: some(1)`. Convert with `Effect.fromOption` / `Effect.fromResult` (also before passing one to `Effect.all`), or match on it. `Option.gen` and `Result.gen` do yield their own type. The official Option and Result guides, and upstream `migration/yieldable.md`, say otherwise; the tagged release wins.
+> **Warning:** `Option` and `Result` are **not** yieldable inside `Effect.gen`, and neither is a subtype of `Effect`. `yield* someOption` is rejected by TypeScript at the `Effect.gen` call, and if the types are bypassed the fiber dies with `Fiber.runLoop: Not a valid effect: some(1)`. Convert with `Effect.fromOption` / `Effect.fromResult` (also before passing one to `Effect.all`), or match on it. `Option.gen` and `Result.gen` do yield their own type. The official Option and Result guides, and upstream `migration/yieldable.md`, say otherwise; the tagged source wins.
 
 Pulling a value out early with `Option.getOrThrow`, or re-throwing `result.failure`, reintroduces exactly the hidden branch these types removed. For the three-way choice itself, see [Option vs Result vs Effect](../reference/choosing-effect-primitives#option-vs-result-vs-effect).
 
-Official guide: [Result](https://effect.website/docs/v4/data-types/result) (the same `rc.116` caveat applies to its claim that a `Result` can be yielded inside `Effect.gen`).
+Official guide: [Result](https://effect.website/docs/v4/data-types/result) (the same caveat applies to its claim that a `Result` can be yielded inside `Effect.gen`).
 
 ## Filter
 

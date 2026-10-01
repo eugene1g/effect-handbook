@@ -1,6 +1,6 @@
 # Anatomy of a Real Effect Application
 
-This guide turns Effect's core primitives into one application shape. It targets `effect@4.0.0-rc.116`: domain values are Schemas, expected failures are tagged errors, behavior lives behind services, Layers own construction and cleanup, and the runtime is called only at an application edge.
+This guide turns Effect's core primitives into one application shape. It targets `effect@4.0.0`: domain values are Schemas, expected failures are tagged errors, behavior lives behind services, Layers own construction and cleanup, and the runtime is called only at an application edge.
 
 Use the concise references when you need the complete API surface: [Core Runtime & Execution](../foundations/core-runtime-execution), [Services, Context & Layers](../foundations/services-context-layers), [Configuration & Secrets](../foundations/configuration-secrets), [Errors, Option & Result](../foundations/errors-option-result), [Schema](../data/schema), [Observability](../operations/observability), and [Testing & Dev Tooling](../tooling/testing-dev-tooling).
 
@@ -311,9 +311,9 @@ There is **one composition root per executable or host instance** — the HTTP s
 
 A higher-level use case composes an existing use case through its service; it does not reach through to that use case's repository. Keep feature graphs open — a feature Layer may still require `SqlClient` — and close them only here. A universal `layers.ts` that exports every Layer, or a global service locator, erases exactly the ownership this section is about.
 
-**“Built once” is a claim about a specific build, so name it.** Sharing happens inside one build: every `Effect.provide` that is not nested in another build starts its own, so two sibling `program.pipe(Effect.provide(AppLive))` calls acquire `AppLive` twice, while a `provide` nested inside a live build of the same Layer value — including an effect run through a `ManagedRuntime` made from it — reuses the live instance. Provide the application Layer once at the root, and prove the claim with an acquisition counter rather than by reading the code. `Layer.fresh` and `Effect.provide(layer, { local: true })` exist for deliberate isolation; neither is a fix for a type error, because both duplicate pools, caches, and subscriptions.
+**“Built once” is a claim about a fiber's lineage, so name it.** Every `Effect.provide` forks a child memo map from whatever memo map is already in the ambient fiber context, or starts a fresh one if there is none. That makes sharing broader than “nested builds only”: `program.pipe(Effect.provide(AppLive), Effect.provide(AppLive))` now builds `AppLive` once, because the second `provide` inherits the memo map the first one just added to context, and a `provide` nested inside a live build of the same Layer value — including an effect run through a `ManagedRuntime` made from it — reuses the live instance for the same reason. What still builds twice is two invocations with no shared lineage — two separate `Effect.runPromise` calls, or two fibers forked before either one's `provide` has run. Provide the application Layer once at the root regardless, and prove sharing with an acquisition counter rather than by reading the code. `Layer.fresh(layer)` rebuilds that one layer fresh everywhere it is referenced, and `Effect.provide(layer, { local: true })` builds an entire `provide` call against an isolated local memo map; neither is a fix for a type error, because both duplicate pools, caches, and subscriptions.
 
-Official guides: [Managing Layers](https://effect.website/docs/v4/requirements-management/layers), [Layer Memoization](https://effect.website/docs/v4/requirements-management/layer-memoization) (it says local provides are simply not memoized and does not cover the nested-reuse case or the `local` option). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+Official guide: [Layer Memoization](https://effect.website/docs/v4/requirements-management/layer-memoization). Memoization is keyed on Layer object identity and shared across chained and nested `Effect.provide` calls via the ambient memo map; `Layer.fresh` and `{ local: true }` are the deliberate opt-outs.
 
 ## Choose the correct runtime edge
 
@@ -393,7 +393,7 @@ On abort, the Promise returned by `runPromise` rejects, which is why this handle
 
 ### A Web-standard handler
 
-For serverless and edge hosts, prefer the HTTP adapter's layer-backed Web handler. Retain and call its `dispose` function; it owns the constructed Layer graph. The detailed choices live in [HTTP Server](../interfaces/http-server#httpeffect).
+For serverless and edge hosts, prefer the HTTP adapter's layer-backed Web handler. Retain and call its `dispose` function; it owns the constructed Layer graph. An `HttpRouter`-based entrypoint builds its own router inside a layer memo map forked just for that entrypoint, so a shared stateful service — a connection pool, a cache — must be provided outside the entrypoint and passed in, not assembled inside it; otherwise each entrypoint silently gets its own instance. The detailed choices live in [HTTP Server](../interfaces/http-server#httpeffect).
 
 ## A runnable vertical slice
 
@@ -519,14 +519,14 @@ Most production surprises in an Effect application are a policy with two owners:
 - Name and reuse shared Layer values; use `Layer.fresh` only when a second instance is intentional.
 - Hide implementation dependencies with `Layer.provide`; expose only capabilities callers need.
 - Read config and unwrap secrets at the concrete integration boundary, not in domain logic.
-- Add spans with `Effect.fn("qualified.name")`, and log/measure once at the boundary that owns an operation.
+- Add spans with `Effect.fn("qualified.name")`, and log/measure once at the boundary that owns an operation. Reach for the untraced `Effect.fnUntraced` only inside a hot loop or library-internal helper where the span itself would dominate the cost.
 - Run the runtime only at an entrypoint, framework adapter, or test edge.
 - Use one long-lived `ManagedRuntime` per external host integration and always dispose it.
 - Forward the host's `AbortSignal` into every runner call, and Effect's signal into every Promise adapter.
 - Prefer host `runMain` for Effect-native processes so signals interrupt the root and close scopes.
 - Give every acquired handle its own `acquireRelease`, and decide up front what a failing release means.
 - Keep one composition root per executable; provide the application Layer once and count acquisitions to prove sharing.
-- Quarantine platform packages and leaf `effect/unstable/*` imports behind small application-owned services, so an upstream rename touches one file and tests provide a fake instead of patching globals. Framework-level unstable modules such as `HttpApi` or `SqlClient` are used directly and managed by pinning and re-auditing.
+- Quarantine platform packages and leaf `effect/<area>` imports behind small application-owned services, so an upstream rename touches one file and tests provide a fake instead of patching globals. Framework-level unstable modules such as `HttpApi` or `SqlClient` are used directly and managed by pinning and re-auditing.
 - Build a fresh test Layer for isolated tests; use shared Layer test blocks only deliberately.
 - Coming from a Promise codebase? [Adopting Effect in an Existing TypeScript Codebase](adopting-effect-in-an-existing-codebase) is the path to this shape; the [Review Checklists](../reference/review-checklists) restate it as verifiable statements.
 

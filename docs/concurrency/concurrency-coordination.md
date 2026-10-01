@@ -2,7 +2,7 @@
 
 Effect's coordination primitives let fibers share permits, queues, broadcasts, pooled resources, and replaceable scoped values without abandoning typed errors or structured concurrency. Start with `Semaphore`, `Queue`, or `PubSub`; use the partitioned, reference-counted, and scoped variants when ownership or lifecycle becomes the harder part.
 
-> **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
 
 Fork variants and fiber ownership live in [Core Runtime & Execution](../foundations/core-runtime-execution#fiber); stream-level buffering and backpressure live in [Streaming & Channels](./streaming-channels#stream). This page owns what happens *between* fibers: who waits, who is told "no", and what is lost.
 
@@ -150,15 +150,15 @@ const program = Effect.gen(function*() {
 | Operator | Waits? | Returns |
 | --- | --- | --- |
 | `Queue.take(q)` | Until one value is available | `A`; fails with the queue's terminal error (`Cause.Done` after `end`) |
-| `Queue.takeBetween(q, min, max)` | Only when fewer than `min` are buffered | At most `max` values; with `min` of `1` it is the "batch whatever is ready" operator |
-| `Queue.takeN(q, n)` | As `takeBetween(q, n, n)` | `n` values when that many are already buffered (see the warning below) |
+| `Queue.takeBetween(q, min, max)` | Until `min` are buffered | At most `max` values; with `min` of `1` it is the "batch whatever is ready" operator |
+| `Queue.takeN(q, n)` | As `takeBetween(q, n, n)` | `n` values once that many are buffered — fewer only while the queue is closing (see the note below) |
 | `Queue.takeAll(q)` | Until at least one is available | A non-empty array of everything buffered (`takeBetween(q, 1, Infinity)`) |
 | `Queue.poll(q)` | Never | `Option<A>`; `None` when empty or finished |
 | `Queue.clear(q)` | Never | Everything buffered, possibly `[]` — the non-waiting drain |
 | `Queue.peek(q)` | Until one value is available | The head, without removing it |
 | `Queue.collect(q)` | Until the queue ends | Every value until `Cause.Done`; a queue failure fails the effect |
 
-> **Warning:** In `rc.116` a `min` above `1` is honored only when that many values are already buffered. If `takeBetween` / `takeN` has to wait, it resumes on the next arrival and returns what is buffered then, which can be fewer than `min`; and on a queue that has already ended with fewer than `min` values left, it never completes. **Batch consumers of a queue that can end should use `takeBetween(q, 1, max)` or `takeAll` and check the length**, never rely on `takeN` for an exact batch.
+> **Note:** `takeBetween` / `takeN` stay suspended on an open queue until the full `min` is buffered — they never resume early with a partial batch. Once `Queue.end` / `Queue.fail` puts the queue into its closing state, a pending batch take drains whatever remains even if that is fewer than `min`, so a batch consumer of a queue that is winding down still completes instead of hanging. After the queue finishes draining, the next take fails with the terminal error (`Cause.Done` after `end`, or the typed failure after `fail`). **Batch consumers of a queue that can end should still check the returned array's length** rather than assuming it is always `min`..`max`, because the final batch before the terminal error can be short.
 
 `Queue.size(q)` and `Queue.isFull(q)` are snapshots for metrics and tests, not coordination: another fiber can change the answer before you act on it. After `Queue.end`, `size` keeps reporting the buffered values until consumers drain them.
 
@@ -280,7 +280,7 @@ const offerOrCount = <A>(queue: Queue.Enqueue<A>, value: A) =>
 Decide three things when you create a queue: who owns it and its worker fibers, who signals the end, and whether shutdown drains or discards.
 
 - **A producer failure must not strand consumers.** A consumer blocked in `take` learns nothing from a producer fiber that died. Propagate a terminal signal: `Queue.end` for normal completion, `Queue.fail(q, error)` for a typed failure (both let buffered values drain first), or wrap the producer with `Queue.into(q)`, which ends the queue on success and fails it with the producer's cause otherwise.
-- **`Queue.shutdown` discards the buffer and interrupts every fiber parked on `offer`, `take`, or `Queue.await`.** Reserve it for abandoning work. The full termination table is in [Structured Concurrency Through a Bounded Worker](../deep-dives/structured-concurrency-through-a-bounded-worker).
+- **`Queue.shutdown` discards the buffer and interrupts every fiber parked on `offer`, `take`, or `Queue.await`.** Reserve it for abandoning work. It returns `true` if this call did the shutting down, `false` if the queue was already shut down or had already completed via `end`/`fail` — useful for "am I the one who closed it?" cleanup races. `Queue.shutdownUnsafe` is the synchronous variant for callback contexts that cannot run an Effect. The full termination table is in [Structured Concurrency Through a Bounded Worker](../deep-dives/structured-concurrency-through-a-bounded-worker).
 - **Test with capacity `1`.** Large buffers hide deadlocks and ordering bugs that a one-slot queue exposes immediately. Also interrupt a blocked `offer` and a blocked `take` and assert the next value still reaches a live consumer.
 - **An in-memory queue is lost with the process.** Work that must survive a restart belongs in [PersistedQueue](../tooling/persistence#persistedqueue) or an outbox table.
 
@@ -313,7 +313,7 @@ Smells worth a second look in review: `Queue.unbounded` chosen because a test hu
 
 Use for producer-consumer decoupling with back-pressure inside a single process: batch pipelines, worker pools, actor-style mailboxes, rate-limited ingestion.
 
-Official guides: [Queue](https://effect.website/docs/v4/concurrency/queue) (its `takeAll` description and `takeUpTo` heading do not match `rc.116` — use the table above — and it predates the `Queue<A, E>` completion protocol); the callback constructor in [Creating Streams](https://effect.website/docs/v4/stream/creating) drives the same `offerUnsafe` / `endUnsafe` / `failCauseUnsafe` API.
+Official guides: [Queue](https://effect.website/docs/v4/concurrency/queue) (its `takeAll` description and `takeUpTo` heading do not match the tagged `4.0.0` source — use the table above — and it predates the `Queue<A, E>` completion protocol); the callback constructor in [Creating Streams](https://effect.website/docs/v4/stream/creating) drives the same `offerUnsafe` / `endUnsafe` / `failCauseUnsafe` API.
 
 ## PubSub
 
@@ -381,7 +381,7 @@ Name the delivery you need before choosing; most "missing event" and "duplicated
 | A consumer joins late | It takes whatever is still buffered | It sees only later messages, plus the last `replay` messages if configured |
 | Nobody is listening | Values wait in the buffer | `publish` returns `true` and the message is discarded (only a replay buffer keeps it) |
 | One consumer is slow | The others keep taking | The slowest subscriber fills the shared buffer and triggers the overflow strategy for everyone |
-| How it ends | `end` / `fail` let consumers drain, then takers see `Cause.Done` or the error | Only `shutdown`: pending takes are interrupted; there is no typed completion signal |
+| How it ends | `end` / `fail` let consumers drain, then takers see `Cause.Done` or the error | `PubSub.end(pubsub, finalValue)` is sticky: every current subscriber gets its buffered messages then `finalValue`, every future subscriber gets any replay then `finalValue`, and later publishes return `false`. It is a value of type `A`, not a typed completion signal — `take`/`takeAll`/`takeBetween` deliver it, but non-suspending `takeUpTo` does not. `PubSub.shutdown` instead interrupts every pending/future take with no final message |
 | Durability | In memory; gone on restart | In memory; gone on restart — not an event log |
 
 A message is retained until every current subscriber has taken it, which is why one lagging subscriber is enough to fill a `bounded` PubSub.
@@ -420,7 +420,7 @@ const program = Effect.scoped(Effect.gen(function*() {
 }))
 ```
 
-`PubSub.publishAll(bus, events)` publishes a batch. `PubSub.capacity(bus)` is a plain number, while `PubSub.size(bus)` is an effect that reports messages still held for at least one subscriber. `PubSub.shutdown` interrupts every pending `take`; observe it with `PubSub.isShutdown` or `PubSub.awaitShutdown`.
+`PubSub.publishAll(bus, events)` publishes a batch. `PubSub.capacity(bus)` is a plain number, while `PubSub.size(bus)` is an effect that reports messages still held for at least one subscriber. `PubSub.shutdown` interrupts every pending `take`; observe it with `PubSub.isShutdown` or `PubSub.awaitShutdown`. `PubSub.isPubSub(u)` narrows an unknown value. A `capacity` of `Infinity` on `bounded`/`dropping`/`sliding` behaves like `PubSub.unbounded` — it never pushes back.
 
 ### Proving a subscription did not leak
 
@@ -447,7 +447,7 @@ it.effect("a closed subscription retains nothing", () =>
 
 Use for one-to-many event fan-out within a process where multiple independent consumers should each see every message.
 
-Official guide: [PubSub](https://effect.website/docs/v4/concurrency/pubsub) (its prose calls the subscription a `Dequeue`; in `rc.116` it is a `PubSub.Subscription` read with `PubSub.take`, and the guide omits the `{ capacity, replay }` constructor form).
+Official guide: [PubSub](https://effect.website/docs/v4/concurrency/pubsub) (its prose calls the subscription a `Dequeue`; the tagged `4.0.0` source returns a `PubSub.Subscription` read with `PubSub.take`, and the guide omits the `{ capacity, replay }` constructor form).
 
 ## Pool
 
@@ -568,7 +568,7 @@ const makeQuery = Effect.gen(function*() {
 })
 ```
 
-`pool.config`, `pool.state`, and `Pool.PoolItem` exist for custom `Pool.Strategy` implementations. Their fields changed during the release candidates (the pool now tracks a usage counter and a linked list of available items), so application code should not read them.
+`pool.config`, `pool.state`, and `Pool.PoolItem` exist for custom `Pool.Strategy` implementations — the pool tracks a usage counter and a linked list of available items internally. Treat these fields as implementation detail; application code should not read them.
 
 Use when expensive resource acquisition (connections, client handles, API sessions) must be amortized across many fibers with automatic lifecycle management.
 
@@ -613,7 +613,7 @@ const program = Effect.scoped(
 )
 ```
 
-**Omitting `idleTimeToLive` is not the same as `0`.** With the option omitted, the scope that releases the last borrow runs the finalizer and waits for it, so "disconnected" is logged before that scope finishes closing. Any finite duration, including `0` or `Duration.zero`, instead schedules the release on a forked fiber that the closing scope does not wait for; an infinite duration keeps the idle resource until invalidation or until the `RcRef`'s own scope closes. Before rc.116 a literal `0` behaved like an omitted option; it now behaves like `Duration.zero`.
+**Omitting `idleTimeToLive` is not the same as `0`.** With the option omitted, the scope that releases the last borrow runs the finalizer and waits for it, so "disconnected" is logged before that scope finishes closing. Any finite duration, including `0` or `Duration.zero`, instead schedules the release on a forked fiber that the closing scope does not wait for; an infinite duration keeps the idle resource until invalidation or until the `RcRef`'s own scope closes.
 
 `RcRef.invalidate(ref)` forces the next `get` to acquire a fresh resource. Existing borrows are unaffected and keep their already-acquired value until their scope closes.
 
@@ -716,7 +716,7 @@ const program = Effect.scoped(
 )
 ```
 
-The `set` operation is uninterruptible by default. If replacement acquisition fails, its fresh scope is closed and the old value remains current. During a successful swap the newly acquired resource and the still-current old resource can both be live briefly while the old scope closes; readers continue to see the old value until the final assignment. This is atomic visibility, not zero-overlap resource lifetime.
+The `set` operation is uninterruptible by default. If replacement acquisition fails, its fresh scope is closed and the old value remains current. During a successful swap the newly acquired resource and the still-current old resource can both be live briefly while the old scope closes; readers continue to see the old value until the final assignment. This is atomic visibility, not zero-overlap resource lifetime. If the `ScopedRef`'s own owning scope closes while `make`, `fromAcquire`, or `set` is still acquiring the replacement, that call finishes by interrupting the fiber instead of publishing a value into an already-closed ref.
 
 `ScopedRef.make(() => value)` for a plain initial constant. `ScopedRef.fromAcquire(effect)` when the initial value requires resource acquisition. Both constructors require a `Scope` in the environment — wrap with `Effect.scoped` or run inside a scoped layer.
 

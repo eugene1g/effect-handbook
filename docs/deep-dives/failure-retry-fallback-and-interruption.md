@@ -1,6 +1,6 @@
 # Failure, Retry, Fallback, and Interruption
 
-Reliable Effect code does not ask only “did it throw?” It distinguishes an expected domain failure from a defect, an interruption, a timeout, an exhausted retry policy, and a failed alternative implementation. This guide follows one operation through those choices against `effect@4.0.0-rc.116`.
+Reliable Effect code does not ask only “did it throw?” It distinguishes an expected domain failure from a defect, an interruption, a timeout, an exhausted retry policy, and a failed alternative implementation. This guide follows one operation through those choices against `effect@4.0.0`.
 
 Use [Core Runtime & Execution](../foundations/core-runtime-execution) for `Effect`, `Exit`, `Cause`, and `ExecutionPlan`; [Errors, Option & Result](../foundations/errors-option-result) for the full recovery surface; [Scheduling & Time](../concurrency/scheduling-time) for Schedule semantics; [Observability](../operations/observability) for telemetry; and [Testing & Dev Tooling](../tooling/testing-dev-tooling) for virtual time.
 
@@ -317,7 +317,7 @@ const bandMidpoint = Effect.retryOrElse(
 ) // Effect<number, never>
 ```
 
-Official guides: [Retrying](https://effect.website/docs/v4/error-management/retrying), [Scheduling Examples](https://effect.website/docs/v4/scheduling/examples).
+Official guides: [Retrying](https://effect.website/docs/v4/error-management/retrying), [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook).
 
 ## Bound waiting and preserve cancellation
 
@@ -391,7 +391,7 @@ Official guide: [Timing Out](https://effect.website/docs/v4/error-management/tim
 
 ## Inspect the full Cause without flattening it
 
-Concurrent Effects can fail together, and finalizers can fail while another operation is already failing. `Cause` keeps every one of those reasons — typed failures, defects, and interruptions — instead of forcing them into one exception. In `rc.116` a `Cause<E>` is a **flat** `reasons` array of `Fail`, `Die`, and `Interrupt` values; there are no sequential or parallel nodes to walk. `Cause.combine(left, right)` concatenates two causes and drops reasons that are equal by value.
+Concurrent Effects can fail together, and finalizers can fail while another operation is already failing. `Cause` keeps every one of those reasons — typed failures, defects, and interruptions — instead of forcing them into one exception. A `Cause<E>` is a **flat** `reasons` array of `Fail`, `Die`, and `Interrupt` values; there are no sequential or parallel nodes to walk. `Cause.combine(left, right)` concatenates two causes and drops reasons that are equal by value.
 
 Use `Effect.exit` when code needs to inspect how an Effect ended without failing. Use `Cause.pretty` for diagnostics; `hasFails` / `hasDies` / `hasInterrupts` for whole-cause questions; `findError` (a `Result`) or `findErrorOption` (an `Option`) for the first typed failure, and `findDefect` for the first defect; and the `is*Reason` guards when looping over `cause.reasons`. `Cause.squash` is a last-mile bridge to an exception-shaped API; it collapses the list to a single value, so do not use it as the application's internal error model.
 
@@ -497,7 +497,7 @@ Practical rules:
 - **Where a mixed `Cause` is possible and the other reasons matter, recover through `catchCause` with an explicit guard** (or `sandbox`), and re-fail with the unchanged cause otherwise. Around plain domain logic with no fallible finalizers, ordinary `catchTag` is still the right tool.
 - **`tapError`, `tapCause`, and `tapDefect` lose nothing**: they re-raise the original `Cause` after a successful observer.
 - **Never use `orDie` as union cleanup**; it discards the defect you would most want to see.
-- **`Effect.sandbox` has no `unsandbox` counterpart in `rc.116`** (a stale doc comment still names one); restore the ordinary error model with `Effect.catch((cause) => Effect.failCause(cause))`.
+- **`Effect.sandbox` has no `unsandbox` counterpart** (a stale doc comment still names one); restore the ordinary error model with `Effect.catch((cause) => Effect.failCause(cause))`.
 - **Multiple domain errors are better modeled as data** — `Effect.validate` or `Effect.partition` — than as several `Fail` reasons, because typed handlers see only the first.
 
 [Core Runtime & Execution](../foundations/core-runtime-execution#cause) documents the `Cause` API itself.
@@ -609,7 +609,7 @@ console.log(events)
 
 `attempts` is per step. `onEvent` receives ordered start/success/failure events and cannot change the operation's result if the observer itself fails. A Stream execution plan may restart the stream after it already emitted elements; set `preventFallbackOnPartialStream: true` when mixing elements from two providers would violate the protocol.
 
-Use ordinary `catchTag` when the fallback is a different value or business path. Use `ExecutionPlan` when the computation stays the same and the provided implementation changes. Between the two sit the value-level fallbacks: `Effect.firstSuccessOf([a, b, c])` tries *different effects* in order and fails with the last error, `Effect.retryOrElse` degrades after a policy is exhausted, and `Effect.orElseSucceed` replaces every typed failure with a value computed from the error (the function receives it since rc.116) — narrow with `catchTag` first if only one variant should default. All of them act on typed failures only; see [Fallback values and ignoring failures](../foundations/errors-option-result#fallback-values-and-ignoring-failures).
+Use ordinary `catchTag` when the fallback is a different value or business path. Use `ExecutionPlan` when the computation stays the same and the provided implementation changes. Between the two sit the value-level fallbacks: `Effect.firstSuccessOf([a, b, c])` tries *different effects* in order and fails with the last error, `Effect.retryOrElse` degrades after a policy is exhausted, and `Effect.orElseSucceed` replaces every typed failure with a value computed from the error — narrow with `catchTag` first if only one variant should default. All of them act on typed failures only; see [Fallback values and ignoring failures](../foundations/errors-option-result#fallback-values-and-ignoring-failures).
 
 Official guide: [Fallback](https://effect.website/docs/v4/error-management/fallback).
 

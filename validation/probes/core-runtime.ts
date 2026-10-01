@@ -26,13 +26,13 @@ import {
   ScopedRef,
   Stream
 } from "effect"
-import { McpProtocol } from "effect/unstable/ai"
-import { Arbitrary } from "effect/unstable/arbitrary"
-import { CliConfig, GlobalFlag } from "effect/unstable/cli"
-import { Ini, SchemaBinary, Toml, Yaml } from "effect/unstable/encoding"
-import { HttpClient, HttpClientResponse } from "effect/unstable/http"
-import { KeyValueStore } from "effect/unstable/persistence"
-import { Rpc, RpcClient, RpcGroup, RpcSerialization } from "effect/unstable/rpc"
+import { McpProtocol } from "effect/ai"
+import { Arbitrary } from "effect"
+import { CliConfig, GlobalFlag } from "effect/cli"
+import { Ini, SchemaBinary, Toml, Yaml } from "effect/encoding"
+import { HttpClient, HttpClientResponse } from "effect/http"
+import { KeyValueStore } from "effect/persistence"
+import { Rpc, RpcClient, RpcGroup, RpcSerialization } from "effect/rpc"
 
 const checks: Array<string> = []
 const checked = (name: string) => checks.push(name)
@@ -143,7 +143,7 @@ assert.equal(ByteSize.fromInput(-1)._tag, "None")
 assert.equal(ByteSize.divide(probeUpload, 0)._tag, "None")
 checked("ByteSize exact units, binary-default formatting, and partial parsing/arithmetic")
 
-// rc.116: Stream.partition yields [passes, fails]; Effect.orElseSucceed receives the error; Stream.scan seeds lazily.
+// 4.0.0: Stream.partition yields [passes, fails]; Effect.orElseSucceed receives the error; Stream.scan seeds lazily.
 const [evens, odds] = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
   const [passes, fails] = yield* Stream.partition(
     Stream.make(1, 2, 3, 4),
@@ -438,7 +438,7 @@ assert.equal(rpcResult.failure.reason.message, "Received empty HTTP response fro
 checked("RpcClientError can occur after sending a request and receiving an HTTP response")
 
 console.log(JSON.stringify({
-  effect: "4.0.0-rc.116",
+  effect: "4.0.0",
   nodeNativeTypeScript: true,
   checks
 }, null, 2))

@@ -1,6 +1,6 @@
 // deep-dives/building-a-production-ai-capability.md:47-90
 import { Context, Effect, Schema } from "effect"
-import { AiError, Tool, Toolkit } from "effect/unstable/ai"
+import { AiError, Tool, Toolkit } from "effect/ai"
 
 const PolicyExcerpt = Schema.Struct({
   policyId: Schema.String,

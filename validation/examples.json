@@ -24,13 +24,6 @@
       "fixture": "base"
     },
     {
-      "id": "data.encoding.base64-hex",
-      "source": "docs/data/functional-toolkit.md",
-      "sha256": "5594ae31b8908160007647229392252ba18161271652ac27d491dedaf9d0374b",
-      "disposition": "contextual",
-      "fixture": "base"
-    },
-    {
       "id": "application.repository-service",
       "source": "docs/deep-dives/anatomy-of-a-real-effect-application.md",
       "sha256": "b57f82f8ff4471ae7c4303cdb89f9f42740fff29082bd6e64f1d3f93d0629e5e",
@@ -68,7 +61,7 @@
     {
       "id": "ai.provider-neutral-service",
       "source": "docs/deep-dives/building-a-production-ai-capability.md",
-      "sha256": "e094aca6bd1de90991dd0b4e7819c9f8c5849ea04813cbfe4db1a04533d69b94",
+      "sha256": "0a3b1195633233303656ac001d5a0fc98f730f953d0335231bf483ec145ec34f",
       "disposition": "contextual",
       "fixture": "ai"
     },
@@ -96,70 +89,70 @@
     {
       "id": "reactivity.service-mutations-queries",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "8f0006eafdeb04465f053e0b1fb00b67eb7464407e881573e7b102324f099bce",
+      "sha256": "53a497c5c183db783e5a98bc452c0ef13edb77fef8a6bebca275ecb2f15504fc",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.atom-action",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "350f5f83824b604fca2fa3830b2100eab22470bbf10976e057081def8432934c",
+      "sha256": "9f9dbbb69c464e47aa98a89d987ee71e1823504c5720df005077c2f2014f7ee0",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.atom-family",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "de59d1442992ed046d4b27ed3a24493e477b669233349d116a4b4654cf32bed4",
+      "sha256": "4b917f471930791935dcfd63f6c92d5cadfffcb363ceef8e595c5869fae72952",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.atom-combinators",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "0b588e0ed80db3bd228502226a09025f84b86eb665d4a4b933b35bb18869a18d",
+      "sha256": "0f80bb45e97ec4b9d05142563a76690535110e29454553d4c938abb953bab6af",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.atom-invalidation-wiring",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "5c91a8cc982ef452c3e34104fb9b1af5d2ac87e884b2110662644088a12c3097",
+      "sha256": "8d396b59440f8b3f1732d939a0be470737bea21e2fe20999083894353dd17232",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.row-invalidation",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "424820e5ad3c7b98a58723eb843e897516e9950ec75930719963e2fdec6828ea",
+      "sha256": "a9b1bfdacfb19bc779245c5d5a9174195b7b0febb784d6c2bda57b4209199489",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.ssr-hydration",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "701312807054068f9981ef07ccc71a8a4ead7932ae7ee0c547b10dda848d30b5",
+      "sha256": "d921133a3e7118fdf76c0612049af885b9ec2e052c8184fa9d74e25a4cdead07",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.react-suspense-mutations",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "cbcc2823d651f233ef5b3150d3644d0b617b7c1a3cb772c2de99cd5ad188179d",
+      "sha256": "41720292515b06b43105a998af564331c73b47e9811614a15feabccd4cb9b989",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.react-scoped-hydration",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "b97c09132e38bc9ad8515c9bf285ddf4cc001858d4ad3395ad1cccfeac0e1af6",
+      "sha256": "3cfd003df16503ec3cf603bc8e7ac279267c8b16e90bd914c3b3135f11ddc5c3",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.transport-http-rpc-atoms",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "77fd872a11da7d2880188cc2410d6f8120c1a2c4754fc304a71f7acbe6426e89",
+      "sha256": "76ce988ae205f143d66437027e28dbf7c7df48448ba88c69afb083e8b9c03573",
       "disposition": "contextual",
       "fixture": "reactivity-transport"
     },
@@ -173,7 +166,7 @@
     {
       "id": "reactivity.registry-testing",
       "source": "docs/deep-dives/reactivity-from-atoms-to-mastery.md",
-      "sha256": "133ede23dab11d0992f0b03c75bb967db6e1dccc6a27f86d19fae88af4fc0fd1",
+      "sha256": "3f5257ddca37cd1ee97f136be31773c26f3b8a8607df1e6373b0fcdc811bc654",
       "disposition": "contextual",
       "fixture": "reactivity-app"
     },
@@ -194,7 +187,7 @@
     {
       "id": "schema.derived-tooling",
       "source": "docs/deep-dives/schema-from-external-input-to-domain-and-back.md",
-      "sha256": "843954bd80e46eccd2201c9090486aa0bb90a2cb4d7a8ede8abe6ffbb82f0618",
+      "sha256": "8bcc765a817c5d8999e495dc75432a65aa2995e825e07b14bcebd80493377615",
       "disposition": "contextual",
       "fixture": "schema"
     },
@@ -208,7 +201,7 @@
     {
       "id": "streaming.batched-ingestion",
       "source": "docs/deep-dives/streaming-ingestion-without-accidental-buffering.md",
-      "sha256": "3aeed0050308d6476f3547c4c725b7340c13df7f9a4bfae0a027a743a19482b8",
+      "sha256": "796704c099ff86b52077d9dcb269d6a7779c8e8a908ca5e2daf6f2c57905d9a0",
       "disposition": "contextual",
       "fixture": "streaming"
     },
@@ -222,7 +215,7 @@
     {
       "id": "streaming.http-source",
       "source": "docs/deep-dives/streaming-ingestion-without-accidental-buffering.md",
-      "sha256": "c01085ba3c30dbef452ecb0807faa28c8c35b0e7be00faf5b0821ae231e44b4d",
+      "sha256": "5616e7a7a687680b6c777eefbbeb10b386c168a2d1a0c5131a5fb7d5d879c435",
       "disposition": "contextual",
       "fixture": "streaming"
     },
@@ -334,35 +327,35 @@
     {
       "id": "httpapi.endpoint-contract",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "2bc5099ca5aa925bc32aff93170f4ddf8267d96e159b2de4a0841e30f2d60198",
+      "sha256": "6d1badc1f479304200a67fd9bca3d0a9672c5c6de1cec0e28ee2a8c3ce45855c",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "httpapi.group-contract",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "3199ec374fa9305b1fd1fcc2a215f2d6f5550929f23136447e799c7d358b053b",
+      "sha256": "bd9c7fb0ae2a37718c5a64c5d6b8997cd77ad3e5c66405fdee7f791b61aedad5",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "httpapi.application-contract",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "7d760ed52f4b59aeec5c1947437abdaa413cda6480b4ec6362a3b40019e55bd9",
+      "sha256": "5b6c9c3124065224218bb42b9726342cedab691fccbc078ee712825d9c87a009",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "httpapi.response-schema",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "9adff0117296dfe140312f418e75b511d6bb46a1f7cae2cf91a00d7ace683a98",
+      "sha256": "cf841ae635272f23fca7a944257c6b85769fe78f497b2957a49bafa446782f42",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "httpapi.authorization-contract",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "b76ac2fa6930c9738e6b0bcc92046c245c5565b98f3d0e25c5b281fb3bf1b06b",
+      "sha256": "67c9342d266c71784bf45aa793193e8ee10f4ebc20dde13d441aae5e73a5151d",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
@@ -376,70 +369,70 @@
     {
       "id": "httpapi.group-handlers",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "edfaf0c2f734406664db1647c9d6dc64f3489f46c9920df6bb61b67563668553",
+      "sha256": "a80c1e54f53583f1d7af138cd62febebdad7cc53bb827c93822036f926027b59",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "httpapi.server-layer",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "c7af32cdd7c39fa7cf18a0c74f5c294a41de3fc06b936bb9e5d40c516aba0d7c",
+      "sha256": "10e21324c8614ee377719f6d727d6b4928c2cb2be16cf8399a111cb328b28114",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "httpapi.typed-client",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "258afc5aa23405145e36c10fc00a30220f2eab49eb9480f5b15f1819c777f135",
+      "sha256": "f683763854ff5ca2819616b32cff36b958c662c5061fedb2af9fca46615b17ed",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "httpapi.openapi-document",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "dc96beb0ad6f42bef0042c282290bef773f41a73d05e03adff7eb56017b8118b",
+      "sha256": "ae764380a3245084198faa968db046ee662a2b1bd36de0a3034e5ad5aa12877f",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "httpapi.swagger-route",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "7c50af42157afec30fd758c77d78bab4202d99cb866f590571d054c355be59de",
+      "sha256": "1c46adec0df8808651aea3d8e6dec611b2bf2a6d140013a2a589bd64aff1c594",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "httpapi.scalar-route",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "3403252b2f66f57ec8968104f62b863b95e7392fc59864ddb1465980a16de9c8",
+      "sha256": "e82d7b990dd90e2d03e689ed6d2ff6f5ae43557ff7c432ad5fe5b028e720e62d",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "httpapi.in-process-test",
       "source": "docs/interfaces/http-api.md",
-      "sha256": "df92df085dfe9295f7163363e22179ad0a0eb15a2333583a45cf0086e388ca0d",
+      "sha256": "3412ce81779cb914cf9018573122f0b096682e0283d980b7d20a1c4dcfe91dd2",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "rpc.server-http-route",
       "source": "docs/interfaces/rpc.md",
-      "sha256": "7d5d963cfce596dd26f02a060517a9528040cd43ae784a61ae84a445c071afa6",
+      "sha256": "321037fc472f7503f9e46ff61893b6c70b1e998c1e9e0a0a19408f249b8a49bb",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "rpc.typed-client",
       "source": "docs/interfaces/rpc.md",
-      "sha256": "3cde978dde7adccefbe0c3d01dd8887601120548e606e0be7f7c1577ed23e969",
+      "sha256": "0e2080cb37388e5327ef8f285cbc4ce5f44e39ec610297eaaf55831182c46664",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
     {
       "id": "rpc.client-error-recovery",
       "source": "docs/interfaces/rpc.md",
-      "sha256": "2a73a3ec99a6b4aa294a834476cef2cb252091c26b305c652334fb9ea9ce1427",
+      "sha256": "414da3edc6f71f4c4446a11296bfbc239183c2647c4fc09d9ca971020749da7e",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
@@ -453,7 +446,7 @@
     {
       "id": "rpc.in-process-test",
       "source": "docs/interfaces/rpc.md",
-      "sha256": "f33d2b1458bdd5b6fb08591338838c1973f5401e55df3c222d0d19f44a9f29cd",
+      "sha256": "07e24b4513a021a1eee1e2f266f19b6125fc2210c14c685f5420b1176b6b7b66",
       "disposition": "contextual",
       "fixture": "http-rpc"
     },
@@ -495,14 +488,14 @@
     {
       "id": "observability.otlp-layer",
       "source": "docs/operations/observability.md",
-      "sha256": "12036a61ded54097e852e27a28952a7e2859d10e2d7fe1339e838356501147c4",
+      "sha256": "22c3f504422d429d47d3cf0d3ac75b28a26547b6227ac274f14e3625dbf720b3",
       "disposition": "contextual",
       "fixture": "base"
     },
     {
       "id": "observability.devtools-layer",
       "source": "docs/operations/observability.md",
-      "sha256": "f0580f7a9f19d2611e603eedd67789f021edfbaa0e655a0121a4609f3ea8e1a0",
+      "sha256": "3c9d60c1854ffead1cb77364ab092069a6b73cb00e28d10e4e17a81259f4cc12",
       "disposition": "contextual",
       "fixture": "base"
     },
@@ -523,49 +516,49 @@
     {
       "id": "reactivity.atom.core-kinds",
       "source": "docs/systems/reactivity-atom.md",
-      "sha256": "027fd2b519fb4d5f44b8a43bb3c454218cfa61ba8aaba8da7529ff378b43db40",
+      "sha256": "ed1295559ef80702181921f448fa1427d057076daa39634148fd68dc3311afb2",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.atom.runtime-service",
       "source": "docs/systems/reactivity-atom.md",
-      "sha256": "497f350badd02bd3d77c06ab702b78fc0332969fcc98df607fbf83783dfd8321",
+      "sha256": "a9f8e8da85604b6821d92eef6ac7c6ae28ee3bc8a10610739e014941025412c0",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.async-result-matching",
       "source": "docs/systems/reactivity-atom.md",
-      "sha256": "941362e9392cc7c7db6938ea39aef9dcd21b81c3e37e3824ba7eda7aaabe13ed",
+      "sha256": "54383f403089703e9b0e0b1956d166f475c1701f00b7182b775e0f05bcf7708a",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.atom-rpc-client",
       "source": "docs/systems/reactivity-atom.md",
-      "sha256": "e58e5f6934df50177ae7f30144b85916dec581b454b5d45c21d4574437ab4d20",
+      "sha256": "5dd3610c600297db0d717011548a4ca9067472d6a03dd5413dd5ff36299e97c3",
       "disposition": "contextual",
       "fixture": "reactivity-transport"
     },
     {
       "id": "reactivity.hydration-round-trip",
       "source": "docs/systems/reactivity-atom.md",
-      "sha256": "1e2db086d940662c7e87f2f8f2db2fa612eb626dddfded5e030a26ddeb2b3cfd",
+      "sha256": "72a185221a670520f7e257ada425f79e52966c2f70522129bb03a1258267d514",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.mutation-invalidation",
       "source": "docs/systems/reactivity-atom.md",
-      "sha256": "3fa6dc6e407fe2e907a1b4daff6d818f913ea804bdfd6ad08ad0f9d200fc65ab",
+      "sha256": "98ca6d85c6412ea0469af92bdda2dd5c9f9341045d906084db08d7a409f7bb5a",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
     {
       "id": "reactivity.react-summary-card",
       "source": "docs/systems/reactivity-atom.md",
-      "sha256": "7306cef5d95f2bea7f21ae706567edef3de5751a32412e264252db2e73a8041e",
+      "sha256": "5255f5ed21bdcbf2383844a9993cd8224762a006401db54f7e7e8b70a16aed0d",
       "disposition": "contextual",
       "fixture": "reactivity-core"
     },
@@ -635,35 +628,35 @@
     {
       "id": "eventlog.compensation-event-contract",
       "source": "docs/deep-dives/durability-and-distribution-ladder.md",
-      "sha256": "4a349ce28b9e59cac62363f5351c86101db4b3c41bcef68828238b26b7b51ede",
+      "sha256": "96ba5305b3701bf028d4fcbb8de743bc57028e3bc576e3730d0de289a6c57ced",
       "disposition": "pseudocode",
       "reason": "Shows the portable event contract only; handlers, journal, identity, storage, and synchronization Layers are intentionally omitted."
     },
     {
       "id": "cluster.employee-entity-contract",
       "source": "docs/deep-dives/durability-and-distribution-ladder.md",
-      "sha256": "5dbab1d7af50b8d927ee6c9ab795c3c9e210cb7e7f944b9b38ef9f4dc4daaf37",
+      "sha256": "c561a9565b54ba3801bf01b2e5a27bed6895b67bdb9cee8b710dbb45eb7774f4",
       "disposition": "pseudocode",
       "reason": "Shows the entity RPC contract and persistence annotation only; handlers and cluster runtime Layers are intentionally omitted."
     },
     {
       "id": "ai.approval-gated-tool",
       "source": "docs/deep-dives/building-a-production-ai-capability.md",
-      "sha256": "b693e51251d2f3dd81b88426561eba1e83a02ed84e346aed2c3758e2b64bc694",
+      "sha256": "a1c812c5311d0bf240bf32012e91110d71065c36be83b67bfc3dce2436e17629",
       "disposition": "pseudocode",
       "reason": "Shows approval metadata on the tool contract only; the authorized handler and persisted approval response are intentionally omitted."
     },
     {
       "id": "service-live-test-layers",
       "source": "docs/recipes/service-and-layers.md",
-      "sha256": "6dda990062e30f5ff3842137eed9a6101f111bba8788abc0e3fe8b17f7d1c9d3",
+      "sha256": "8d1f3607bb193cdd1073e47f6a76196ba88c1e9c3f962fedb96f8693b37ed3cd",
       "disposition": "run",
       "runtime": "service-live-test-layers"
     },
     {
       "id": "schema-httpapi-sql",
       "source": "docs/recipes/schema-httpapi-sql-boundary.md",
-      "sha256": "081b70e42dde9eafe4566defe5345a57c9783efa89263cf401a113baade821ad",
+      "sha256": "a6083f24adfa9d7a0f73259100eafd188aa83a7e2cb0db22f5b932b189bb3bfe",
       "disposition": "run",
       "runtime": "schema-httpapi-sql"
     },
@@ -684,7 +677,7 @@
     {
       "id": "transactional-outbox",
       "source": "docs/recipes/transactional-write-with-outbox.md",
-      "sha256": "d8381d643174873cd331db6f8af4c3f3b08adf90548871dac3c5716ca8145029",
+      "sha256": "b5de5caf9239bf90c856f2d1802dc9e0b4d5a7c56491c351a9ef90168e70e577",
       "disposition": "run",
       "runtime": "transactional-outbox"
     },
@@ -698,7 +691,7 @@
     {
       "id": "production-observability",
       "source": "docs/recipes/production-observability.md",
-      "sha256": "2a5a7162db1095cc8bb44564bd33752058ef5f982cb8a0dbf7c766d3a444df69",
+      "sha256": "d75cd33161f5c80c439ae28781f0b42fc17a4c4a27f5d389eaabaea6e2d60823",
       "disposition": "run",
       "runtime": "production-observability"
     },

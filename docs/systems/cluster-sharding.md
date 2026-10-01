@@ -4,15 +4,15 @@ Effect Cluster provides *entities*: stateful, addressable actors keyed by id, di
 
 > **Note:** The spine: **Entity** defines an addressable actor and its RPC protocol. **Sharding** routes every message. **Runner**/**Runners** host shards and talk to each other. **MessageStorage** makes delivery durable. **Singleton**, **Snowflake**, **EntityProxy**, **ClusterCron**, **ShardingConfig** hang off those four. Define entities, merge their layers, provide a cluster layer.
 
-> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/80_cluster) defines and runs a distributed entity.
+> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/80_cluster) defines and runs a distributed entity.
 
-> **Warning:** The entire cluster surface lives under `effect/unstable/cluster`. APIs may shift between minor versions. Pin your version and re-check signatures when you upgrade. Transport entrypoints (`NodeClusterSocket`, `NodeClusterHttp`) come from `@effect/platform-node`; `@effect/platform-bun` and `@effect/platform-deno` ship the matching `BunCluster*` / `DenoCluster*` modules.
+> **Warning:** The entire cluster surface lives under `effect/cluster`. APIs may shift between minor versions. Pin your version and re-check signatures when you upgrade. Transport entrypoints (`NodeClusterSocket`, `NodeClusterHttp`) come from `@effect/platform-node`; `@effect/platform-bun` and `@effect/platform-deno` ship the matching `BunCluster*` / `DenoCluster*` modules.
 
-> **Upgrade warning — runner wire format:** From `rc.113` the socket and HTTP/WebSocket runner transports serialize runner-to-runner traffic with `SchemaBinary` by default (`serialization: "binary"`). Earlier releases defaulted to MessagePack, which no longer exists, so **an `rc.108`-era runner and an `rc.113`+ runner cannot talk to each other with default settings**. `"ndjson"` is the only serialization both generations offer. For a rolling upgrade, first pin every runner and client-only node to `serialization: "ndjson"` on the old release, roll the new release out with the same pin, and only then move the whole fleet to `"binary"` in a further stop-and-start. Rehearse the mixed-version pair in staging before relying on it — these are unstable APIs — or simply stop the cluster and start it on the new release. See [Transport options](#transport-options).
+> **Note:** The socket and HTTP/WebSocket runner transports serialize runner-to-runner traffic with `SchemaBinary` by default (`serialization: "binary"`); `"ndjson"` (newline-delimited JSON) is the interoperable alternative when you need a text wire format. Every runner **and** every client-only node of one cluster must agree on this setting. See [Transport options](#transport-options).
 
 ## Entity
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 An `Entity` gives a stable *type name* and an *RPC protocol* to a family of values addressed by id. `Entity.make("Department", [RecordRaise, GetBudget])` declares a kind called Department, keyed by string id, with those RPCs. The cluster picks a shard for each id and routes requests to the owning runner.
 
@@ -22,8 +22,8 @@ Define the protocol with `Rpc.make`, register handlers with `entity.toLayer(...)
 
 ```ts
 import { BigDecimal, Effect, Ref, Schema } from "effect"
-import { ClusterSchema, Entity } from "effect/unstable/cluster"
-import { Rpc } from "effect/unstable/rpc"
+import { ClusterSchema, Entity } from "effect/cluster"
+import { Rpc } from "effect/rpc"
 
 // 1. Define the protocol — two RPCs, each a plain Rpc.make. A department owns
 //    its slice of the merit budget; you draw it down by recording raises.
@@ -89,7 +89,7 @@ const program = Effect.gen(function*() {
 
 ## Sharding
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The routing brain of the cluster; every entity client implicitly depends on it. `Sharding` decides which shard owns a given entity id, tracks shards belonging to the local runner, sends each message to a local handler or across the wire to the owning runner. Also registers entities and singletons, mints runner-local snowflake ids, and polls durable storage for persisted work.
 
@@ -98,8 +98,8 @@ The routing brain of the cluster; every entity client implicitly depends on it. 
 ```ts
 import { Layer } from "effect"
 import { NodeClusterSocket } from "@effect/platform-node"
-import type { SqlClient } from "effect/unstable/sql"
-import { Sharding } from "effect/unstable/cluster"
+import type { SqlClient } from "effect/sql"
+import { Sharding } from "effect/cluster"
 
 declare const SqlClientLayer: Layer.Layer<SqlClient.SqlClient>
 
@@ -118,6 +118,8 @@ const RunnerProgram = DepartmentLayer.pipe(Layer.provide(ClusterLayer))
 ```
 
 Service interface: `registerEntity` and `registerSingleton` (called under the hood by `Entity.toLayer` / `Singleton.make`), `makeClient` (called by `entity.client`), `getShardId`, `hasShardId`, `getSnowflake`, `isShutdown`, `getRegistrationEvents` (stream of registration events — handy to await startup), `pollStorage` to force a durable read.
+
+A local send that is waiting for an entity type to register is bounded: once the shared runner-registration deadline elapses, it fails with an `Entity type ... not registered` defect instead of waiting forever, and a send to a still-unregistered dynamic entity type fails immediately once that deadline has passed.
 
 > **Tip:** A process whose `ShardingConfig.runnerAddress` is `None` joins as a *client*: it can send messages but hosts no shards. Use the `layerClientOnly` variants on transport modules.
 
@@ -138,12 +140,13 @@ Service interface: `registerEntity` and `registerSingleton` (called under the ho
 ```ts
 import { Layer } from "effect"
 import { NodeClusterSocket } from "@effect/platform-node"
-import type { SqlClient } from "effect/unstable/sql"
+import type { SqlClient } from "effect/sql"
 
 declare const SqlClientLayer: Layer.Layer<SqlClient.SqlClient>
 
-// Pinned for a rolling upgrade from a release whose default was different.
-const UpgradeSafeCluster = NodeClusterSocket.layer({
+// Pin to "ndjson" when a deployment needs a text wire format instead of the
+// binary default — every runner and client-only node must agree.
+const TextWireCluster = NodeClusterSocket.layer({
   serialization: "ndjson",
   serializationMaxBufferSize: 8 * 1024 * 1024,
   shardingConfig: { maxResidentEntities: 5_000 }
@@ -154,7 +157,7 @@ For what the serialization layers do on the wire, see [RPC](../interfaces/rpc).
 
 ### Rebalance and shutdown behavior
 
-- **Shard assignment comes from `HashRing`** (the stable `effect/HashRing` module): one ring per shard group, each runner added with its `weight`. `HashRing.getShards` was fixed in `rc.113` so an eligible runner sitting at the first ring position is no longer skipped once other runners have reached their allocation quota.
+- **Shard assignment comes from `HashRing`** (the stable `effect/HashRing` module): one ring per shard group, each runner added with its `weight`. An eligible runner sitting at the first ring position is not skipped once other runners have reached their allocation quota.
 - **A persisted call never fails just because ownership is moving.** The caller keeps waiting on message storage; only a shutdown of the caller's own runner ends the wait, and it does so by interruption (see [EntityProxy](#entityproxy)).
 - **Teardown bookkeeping is bounded.** Whether an interrupt is "transient" is decided from live teardown state — entity, shard, singleton, entity type, or node shutdown — rather than from a growing set of fiber ids, so mass passivation does not leak memory.
 - **Process death skips finalizers.** Entity finalizers and `Entity.keepAlive` scopes run on graceful passivation and shutdown only; recovery after a kill relies on runner health checks, shard-lock release or expiry (`shardLockExpiration` defaults to 35 seconds), and redelivery of persisted messages — never on cleanup code having run.
@@ -163,7 +166,7 @@ For what the serialization layers do on the wire, see [RPC](../interfaces/rpc).
 
 ## Singleton
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Run an effect on exactly one node in the cluster, regardless of cluster size. `Singleton.make(name, effect)` returns a `Layer` that registers a background effect with Sharding. The runner owning the singleton's shard starts it; if ownership moves (node dies, rebalance) the fiber is interrupted on the old node and restarted on the new owner.
 
@@ -171,7 +174,7 @@ Run an effect on exactly one node in the cluster, regardless of cluster size. `S
 
 ```ts
 import { Effect, Schedule } from "effect"
-import { Singleton } from "effect/unstable/cluster"
+import { Singleton } from "effect/cluster"
 
 // This loop runs on exactly one runner cluster-wide. It is the single source of
 // truth for whether comp is frozen; if that runner dies, another picks it up.
@@ -192,14 +195,14 @@ const CompFreezeCoordinator = Singleton.make(
 
 ## Runner
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Metadata describing one process that can host shards. A `Runner` is a `Schema.Class` bundling a `RunnerAddress`, the shard `groups` it participates in, and a relative `weight` used when distributing shards.
 
 **Mental model.** A row in the cluster's membership table. Each runner's address is added to its groups' hash rings with `weight` as its slice size — a higher weight earns proportionally more shards. Structurally compared and hashed by address + weight; serializes to/from JSON for exchange between nodes.
 
 ```ts
-import { Runner, RunnerAddress } from "effect/unstable/cluster"
+import { Runner, RunnerAddress } from "effect/cluster"
 
 // A runner that hosts the "default" and "merit-cycle" groups, weighted 2x so it
 // carries twice as many shards during the busy review season.
@@ -214,7 +217,7 @@ const self = Runner.make({
 
 ## Runners
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The node-to-node communication service. Where `Sharding` *decides* where a message goes, `Runners` *delivers* it. Can ping a runner, send a request or control envelope to a remote runner, notify a runner that work is waiting, and mark a runner address unavailable. Persisted notifications recover replies from storage; discarded volatile messages complete after delivery instead of waiting for an entity reply.
 
@@ -226,7 +229,7 @@ The node-to-node communication service. Where `Sharding` *decides* where a messa
 
 ## MessageStorage
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The durability boundary. `MessageStorage` is the pluggable backend that makes mailboxes *recoverable*. Saves requests, control envelopes, and replies; finds unprocessed messages for shards a runner owns; deduplicates requests by primary key; tracks reply handlers waiting on responses. Upgrades delivery from best-effort to **at-least-once that survives a crash**.
 
@@ -240,13 +243,15 @@ The save path returns a `SaveResult` tagged enum — `Success` or `Duplicate` (c
 
 **Reads are bounded and claim only what they return.** `unprocessedMessages(shardIds, { limit?, addresses? })` reads at most `limit` messages (the runner passes `ShardingConfig.unprocessedMessageBatchSize`) and can be restricted to specific entity addresses. Only the returned messages are claimed; everything else stays eligible for a later poll, which is what lets a runner at its residency cap keep serving resident entities without starving the rest. The in-memory driver applies the same ten-minute claim window as SQL, and `resetAddress` / `resetAddresses` / `resetShards` make claimed messages eligible again immediately.
 
-**Custom backends.** `MessageStorage.makeEncoded(encoded)` lifts an `Encoded` driver (strings and bytes) into the typed service. The driver contract has a batched `resetAddresses(addresses)` — the single-address `Encoded.resetAddress` was removed in `rc.109`, so a hand-written driver must implement the batched form. `SqlMessageStorage.makeEncoded({ prefix? })` returns the SQL `Encoded` driver on its own when you want to wrap or compose it.
+**Custom backends.** `MessageStorage.makeEncoded(encoded)` lifts an `Encoded` driver (strings and bytes) into the typed service. The driver contract's reset operation is the batched `resetAddresses(addresses)`, so a hand-written driver must implement that form. `SqlMessageStorage.makeEncoded({ prefix? })` returns the SQL `Encoded` driver on its own when you want to wrap or compose it.
+
+**Without `MessageStorage` (`noop`/`layerNoop`), completed request ids are not retained.** Redelivering a request id that already completed re-runs it instead of failing with `AlreadyProcessingMessage` — that dedup guarantee needs real storage.
 
 **Reach for it when** you mark RPCs `Persisted`. Pick `SqlMessageStorage` in production, `layerMemory` in tests.
 
 ## Snowflake
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Distributed unique ids. A `Snowflake` is a branded `bigint` packed from a millisecond timestamp, a 10-bit machine id, and a 12-bit per-machine sequence. Globally unique *and* roughly time-sortable without a central coordinator.
 
@@ -254,7 +259,7 @@ Distributed unique ids. A `Snowflake` is a branded `bigint` packed from a millis
 
 ```ts
 import { Effect } from "effect"
-import { Snowflake } from "effect/unstable/cluster"
+import { Snowflake } from "effect/cluster"
 
 const program = Effect.gen(function*() {
   const gen = yield* Snowflake.makeGenerator
@@ -276,7 +281,7 @@ Schemas: `SnowflakeFromBigInt` (branded bigint) and `SnowflakeFromString` (decod
 
 ## EntityProxy
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 A bridge that exposes a clustered entity to the outside world as a normal RPC service or HTTP API. `EntityProxy.toRpcGroup(entity)` derives an `RpcGroup`; `EntityProxy.toHttpApiGroup(name, entity)` derives an `HttpApiGroup`. Each entity RPC becomes a public operation whose payload gains an `entityId`, plus a fire-and-forget `...Discard` variant.
 
@@ -296,8 +301,8 @@ Volatile sends have no storage to fall back on, so they still fail fast: `Entity
 
 ```ts
 import { Layer, Schema } from "effect"
-import { ClusterSchema, Entity, EntityProxy, EntityProxyServer } from "effect/unstable/cluster"
-import { Rpc, RpcServer } from "effect/unstable/rpc"
+import { ClusterSchema, Entity, EntityProxy, EntityProxyServer } from "effect/cluster"
+import { Rpc, RpcServer } from "effect/rpc"
 
 const Department = Entity.make("Department", [
   Rpc.make("RecordRaise", {
@@ -324,7 +329,7 @@ const ServerLayer = RpcServer.layer(DepartmentRpcs).pipe(
 
 ## ClusterCron
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Distributed scheduled jobs. `ClusterCron.make` turns a `Cron.Cron` schedule into a `Layer` that coordinates one recurring job *across the whole cluster* rather than independently on every node.
 
@@ -332,7 +337,7 @@ Distributed scheduled jobs. `ClusterCron.make` turns a `Cron.Cron` schedule into
 
 ```ts
 import { Cron, Effect } from "effect"
-import { ClusterCron } from "effect/unstable/cluster"
+import { ClusterCron } from "effect/cluster"
 
 // Kick off the quarterly merit-review cycle at 09:00 on the first day of Jan,
 // Apr, Jul, and Oct — coordinated cluster-wide and delivered durably.
@@ -350,14 +355,14 @@ const QuarterlyReviewKickoff = ClusterCron.make({
 
 ## ShardingConfig
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The configuration service for how *this* runner participates: its address, which shard groups it joins, how many shards per group, lock timing, mailbox and passivation limits, poll intervals, and health-check cadence.
 
-**Mental model.** One config object per process, provided as a layer. Most important field: `runnerAddress` — `Some` means "I host shards"; `None` means client-only node. Other fields tune behavior: `shardsPerGroup` (granularity of distribution), `entityMaxIdleTime` (default passivation), `entityMailboxCapacity`, `*Interval` timings, and shard-lock settings for SQL-coordinated ownership.
+**Mental model.** One config object per process, provided as a layer. Most important field: `runnerAddress` — `Some` means "I host shards"; `None` means client-only node. `runnerListenAddress` is the local bind address, defaulting to `runnerAddress`; from the environment it resolves to `None` unless `listenHost` is set, even when `listenPort` is valid — supply `listenHost` to configure a distinct listen address. Other fields tune behavior: `shardsPerGroup` (granularity of distribution), `entityMaxIdleTime` (default passivation), `entityMailboxCapacity`, `*Interval` timings, and shard-lock settings for SQL-coordinated ownership.
 
 ```ts
-import { ShardingConfig } from "effect/unstable/cluster"
+import { ShardingConfig } from "effect/cluster"
 
 // Programmatic config — sensible for tests / explicit setups.
 const ConfigLayer = ShardingConfig.layer({
@@ -393,8 +398,8 @@ Every limit below is per runner. Environment names are the constant-case form of
 ```ts
 import { Layer } from "effect"
 import { NodeClusterSocket, NodeRuntime } from "@effect/platform-node"
-import type { SqlClient } from "effect/unstable/sql"
-import { Sharding } from "effect/unstable/cluster"
+import type { SqlClient } from "effect/sql"
+import { Sharding } from "effect/cluster"
 
 declare const SqlClientLayer: Layer.Layer<SqlClient.SqlClient>
 declare const DepartmentLayer: Layer.Layer<never, never, Sharding.Sharding>
@@ -413,43 +418,43 @@ Layer.launch(AppLayer).pipe(NodeRuntime.runMain)
 
 ## EntityAddress
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The full routing target for one entity instance: `entityType` + `entityId` + `shardId`, bundled as a `Schema.Class`. Used by messages, persisted envelopes, and entity managers. Read the current one inside a handler via `Entity.CurrentAddress`.
 
 ## EntityId
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 A branded `string` — the routing key sharding hashes to pick a shard. `EntityId.make("dept-eng")` brands a raw string. The "which instance" half of an address.
 
 ## EntityType
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 A branded `string` naming a *family* of entities (e.g., the "Department" in `Entity.make("Department", ...)`). Distinguishes one kind of actor from another before any id is considered.
 
 ## RunnerAddress
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 A `host` + `port` `Schema.Class` identifying how to reach a runner, with structural equality, hashing, and a stable primary key. `RunnerAddress.make("10.0.0.4", 34431)`.
 
 ## ShardId
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The address of a shard inside a group: a string `group` + numeric `id`, rendered as `group:id` at storage/routing boundaries. Entity ids hash into these; runners own sets of them.
 
 ## SingletonAddress
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The runtime address of a registered singleton: its `name` paired with the `ShardId` chosen from that name and shard group. Used in registration events and local fiber tracking.
 
 ## MachineId
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 A branded integer marking the machine component of a runner — the middle bits of a Snowflake. Keeps the value distinct from a plain `number` in APIs.
 
@@ -457,51 +462,51 @@ A branded integer marking the machine component of a runner — the middle bits 
 
 ## RunnerServer
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Server side of the runner protocol: receives ping/notify/request/stream/envelope messages from other runners and forwards them into local `Sharding`. `layer` is the full server; `layerClientOnly` for nodes that send but do not serve.
 
-From `rc.116`, a **volatile** (non-`Persisted`) request that is interruptible is bound to the calling runner's connection: when that caller disconnects, the entity handler is interrupted and its mailbox slot is released, instead of running on for nobody. Persisted requests and `Uninterruptible` RPCs are unaffected and still run to completion, so a caller that reconnects must not assume a volatile call it lost was abandoned before its side effects.
+A **volatile** (non-`Persisted`) request that is interruptible is bound to the calling runner's connection: when that caller disconnects, the entity handler is interrupted and its mailbox slot is released, instead of running on for nobody. Persisted requests and `Uninterruptible` RPCs are unaffected and still run to completion, so a caller that reconnects must not assume a volatile call it lost was abandoned before its side effects.
 
 ## RunnerHealth
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Decides whether a runner should be treated as alive, so Sharding knows when to move its shards. `layerNoop` (always alive), `layerPing` (heartbeat-based), and `layerK8s` (reads pod readiness).
 
 ## SingleRunner
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 A single-process cluster layer: `Sharding` + no-op runner comms + no-op health + SQL message storage + env config, with SQL or in-memory runner storage. For embedded or small single-node deployments that still want durable entities. Requires a `SqlClient`.
 
 ## SocketRunner
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Runs runner RPCs over a raw socket transport on a provided `SocketServer`. `layer` serves and provides clients; `layerClientOnly` dials without hosting shards. The engine under `NodeClusterSocket`.
 
 ## HttpRunner
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Connects runner RPCs to HTTP and WebSocket transports — client protocol layers for dialing runner addresses, effects to serve handlers, and route layers for an `HttpRouter`. The engine under `NodeClusterHttp`. Client URLs are built from the runner address plus the configured path, inserting a `/` only when the path lacks one, so a slash-prefixed path such as `/cluster/rpc` is used as written (earlier builds produced a doubled slash).
 
 ## TestRunner
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The smallest useful cluster runtime for tests: `Sharding` over in-memory message + runner storage, no-op transport, always-healthy checks. Exercise entity registration, routing, and mailbox persistence with no RPC servers or database — just provide `TestRunner.layer`.
 
 ## K8sHttpClient
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 A thin HTTP client for the in-cluster Kubernetes API, using the mounted service-account token. Backs the K8s-aware health check and pod helpers (list pods, create pod) for runners that manage their own infrastructure.
 
 ## K8sTypes
 
-`effect/unstable/cluster/K8sTypes` — unstable (new in `rc.109`)
+`effect/cluster/K8sTypes` — unstable
 
 Type-only Kubernetes declarations used by the cluster helpers: the transitive closure of `Pod` (spec, containers, volumes, affinity, status, metadata), vendored from `kubernetes-types` 1.30 so the `kubernetes-types` dependency could be dropped. `K8sHttpClient.makeCreatePod` takes a `K8sTypes.Pod`. It carries no runtime code and is not a general Kubernetes client model — import it when you construct a pod spec for the cluster helpers, not as a substitute for a full Kubernetes SDK.
 
@@ -509,23 +514,23 @@ Type-only Kubernetes declarations used by the cluster helpers: the transitive cl
 
 ## SqlMessageStorage
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The production `MessageStorage`: encodes envelopes and reply chunks into SQL tables, redelivers unprocessed messages after restart, deduplicates by primary key, and replays reply chunks until acknowledged. Ships migrations and an optional table prefix (`layerWith({ prefix })`; default `cluster`). Provide via `layer` with any `@effect/sql-*` client; the layer also requires a `Crypto` service, which the platform cluster entrypoints supply. `makeEncoded({ prefix? })` exposes the SQL `MessageStorage.Encoded` driver by itself for custom storage composition. Changing the prefix after deployment points the runtime at a different set of tables, including the migration history.
 
 ## SqlRunnerStorage
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 SQL-backed runner registration and shard-ownership: records runners, health flags, machine ids, and shard locks so multiple processes coordinate who owns each shard. Uses advisory locks on Postgres/MySQL when enabled.
 
-> **Upgrade warning:** PostgreSQL advisory shard locks are namespaced by the `SqlRunnerStorage` table prefix. When upgrading a deployment that used unnamespaced lock keys, stop the whole cluster before rollout; mixing lock schemes can allow split ownership.
+> **Note:** PostgreSQL advisory shard locks are namespaced by the `SqlRunnerStorage` table prefix. Changing the prefix on a running deployment points lock keys at a different namespace; stop the whole cluster before rolling out such a change, since mixing lock schemes can allow split ownership.
 
-> **Note:** Advisory locks live on a reserved connection. From `rc.113`, while lock storage is unhealthy the liveness probe runs on the shared pool instead of that reserved connection, so a hung reserved connection can no longer stall shard-lock recovery, and failed probes are logged as warnings instead of being swallowed. Locks are leases, not fencing: a paused former owner can still issue a write after takeover, so protect external writes with idempotency keys or a version check in the sink.
+> **Note:** Advisory locks live on a reserved connection. While lock storage is unhealthy, the liveness probe runs on the shared pool instead of that reserved connection, so a hung reserved connection cannot stall shard-lock recovery, and failed probes are logged as warnings instead of being swallowed. With `shardLockDisableAdvisory` (row-based locks instead of advisory locks), acquisition, refresh, and bulk release all take their row locks in a consistent order to avoid lock-order deadlocks. Locks are leases, not fencing: a paused former owner can still issue a write after takeover, so protect external writes with idempotency keys or a version check in the sink.
 
 ## RunnerStorage
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The typed service contract for runner registration and shard-lock state (which runners exist, their machine ids, which locks they hold). `layerMemory` for single-process/tests; `SqlRunnerStorage` implements it for real clusters.
 
@@ -533,15 +538,15 @@ The typed service contract for runner registration and shard-lock state (which r
 
 ## ClusterSchema
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
-Annotations that add cluster behavior to RPCs and entities without touching payload/result schemas: `Persisted` (durable delivery), `WithTransaction`, `Uninterruptible` (`true`, `"client"`, or `"server"`), `ShardGroup` (route ids to a group), `ClientTracingEnabled`, and `Dynamic` (compute server-side annotations from the decoded request). Attach with `.annotate` / `.annotateRpcs`. A `WithTransaction` value computed through `Dynamic` is kept when the entity re-runs a request, after a handler defect or after an interrupt that a server-uninterruptible persisted request ignores (fixed in `rc.116`; earlier releases fell back to the RPC's static annotation there).
+Annotations that add cluster behavior to RPCs and entities without touching payload/result schemas: `Persisted` (durable delivery), `WithTransaction`, `Uninterruptible` (`true`, `"client"`, or `"server"`), `ShardGroup` (route ids to a group), `ClientTracingEnabled`, and `Dynamic` (compute server-side annotations from the decoded request). Attach with `.annotate` / `.annotateRpcs`. A `WithTransaction` value computed through `Dynamic` is kept when the entity re-runs a request, after a handler defect or after an interrupt that a server-uninterruptible persisted request ignores.
 
 `ClusterSchema.Abandon` is different: it is not something you attach. It marks the *interruption* a runner raises when it abandons a persisted request that must continue under another owner (shutdown, shard loss). `ClusterWorkflowEngine` recognizes that mark and treats the interrupt as an abandoned run attempt — see [Workflows & Durable Execution](workflows-durable-execution#abandoned-run-attempts). Application code should let such an interrupt propagate rather than catching it.
 
 ## ClusterError
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Structured, schema-backed failures of the cluster runtime: `EntityNotAssignedToRunner`, `MailboxFull`, `AlreadyProcessingMessage`, `PersistenceError`, `MalformedMessage`, `RunnerUnavailable`, `RunnerNotRegistered`. Catch with `Effect.catchTag`.
 
@@ -554,13 +559,13 @@ Structured, schema-backed failures of the cluster runtime: `EntityNotAssignedToR
 
 ## ClusterMetrics
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Standard gauges the runtime updates while running: active `entities`, `singletons`, registered `runners`, `runnersHealthy`, and acquired `shards`. Wire to a metrics exporter for cluster visibility.
 
 ## ShardingRegistrationEvent
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Events emitted by `Sharding.getRegistrationEvents` when the local runner registers an entity (`EntityRegistered`) or singleton (`SingletonRegistered`). Await at startup to confirm entities and singletons are live, or assert on them in tests.
 
@@ -568,25 +573,25 @@ Events emitted by `Sharding.getRegistrationEvents` when the local runner registe
 
 ## Envelope
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The transport envelopes entities exchange: a `Request` wraps a decoded payload with target address, RPC tag, request id, headers, and tracing context; `AckChunk` acknowledges streamed reply chunks; `Interrupt` cancels an in-flight request. Includes JSON codecs and storage primary-key helpers.
 
 ## Message
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The message shapes moved through the cluster, in `Incoming` and `Outgoing` variants (request, envelope, interrupt). Carries entity requests and control messages between callers, storage, transports, and handlers, with serialize/deserialize helpers matched to RPC schemas.
 
 ## Reply
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Values produced by clustered RPC execution: a final `WithExit` carrying the RPC `Exit`, or a streaming `Chunk` carrying a non-empty batch of successes. `ReplyWithContext` carries encoding services; serialization helpers move replies through storage or transport.
 
 ## DeliverAt
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 A protocol for message payloads that carry their own scheduled delivery time. Implement the `DeliverAt.symbol` method to return a target `DateTime`, and durable storage will hold the message until then. The mechanism behind ClusterCron's timed runs.
 
@@ -594,25 +599,25 @@ A protocol for message payloads that carry their own scheduled delivery time. Im
 
 ## EntityProxyServer
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 The handler side of EntityProxy: `layerRpcHandlers(entity)` and `layerHttpApi(api, name, entity)` implement the derived RPC/HTTP operations by reading `entityId`, calling the entity client, and forwarding the payload — including the discard variants. Both layers require `Sharding` plus the entity RPCs' server-side **and client-side** schema services (`Rpc.ServicesServer` and `Rpc.ServicesClient`), because the proxy decodes the public request and then re-encodes it as an entity client. If a payload or result schema needs a service to encode or decode, provide it to the proxy layer too.
 
 ## EntityResource
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Keeps a long-lived resource alive across routine entity restarts, tied to an entity address. `make({ acquire, idleTimeToLive })` wraps it with a close scope that survives passivation; `makeK8sPod` manages a pod. Pairs with `Entity.keepAlive`.
 
 ## ClusterWorkflowEngine
 
-`effect/unstable/cluster` — unstable
+`effect/cluster` — unstable
 
 Runs durable `Workflow` executions on top of cluster sharding and message storage. Adapts `WorkflowEngine` so executions, activities, deferred completions, resumes, interrupts, and durable clock wakeups all become persisted cluster entity messages — durable, distributed orchestration for multi-step workflows. Provide its `layer` to back a workflow runtime with the cluster.
 
 - **Its entities passivate after a fixed ten seconds.** Workflow and durable-clock entities ignore `entityMaxIdleTime`: a completed or suspended execution releases its residency slot quickly and is rebuilt from storage when its next message arrives. Do not keep process-local state in a workflow body and expect it to survive a suspension.
 - **A transient interrupt is an abandoned attempt, not a failure.** When the owning runner shuts down or loses the shard, the run stops with nothing persisted, without compensation and without resuming a parent, and replays on the next owner.
-- **Deferred completions survive a handover.** From `rc.116` a `DurableDeferred` completion that reaches a new owner before its first local run of the execution is retained for that run, and the wake-up waits until the current run's reply is persisted, so a completion racing a shard move is no longer lost. See [DurableDeferred](workflows-durable-execution#durabledeferred).
+- **Deferred completions survive a handover.** A `DurableDeferred` completion that reaches a new owner before its first local run of the execution is retained for that run, and the wake-up waits until the current run's reply is persisted, so a completion racing a shard move is not lost. See [DurableDeferred](workflows-durable-execution#durabledeferred).
 - **Residency applies to workflows too.** Each running execution occupies an entity slot, so size `maxResidentEntities` for the number of executions a runner may have active at once.
 
 > **Tip:** Use cluster entities when work is naturally addressed to a sharded identity and needs single-runner ownership. For the workflow definition, activity, retry, and durable-clock model that `ClusterWorkflowEngine` distributes, continue with [Workflows & Durable Execution](workflows-durable-execution).

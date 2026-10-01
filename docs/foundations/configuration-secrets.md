@@ -2,13 +2,13 @@
 
 `Config` is an `Effect`, validated by `Schema`, read from a swappable provider. Three-part model: **Config** describes what you need and its shape. **ConfigProvider** decides where values come from. **Redacted**/**Redactable** prevent sensitive values from appearing in logs.
 
-> **Official guides:** [Configuration](https://effect.website/docs/v4/configuration). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Configuration](https://effect.website/docs/v4/configuration). These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
 
 ## Config
 
 `effect/Config` — stable
 
-`Config<T>` extends `Effect<T, ConfigError>` — read config by `yield*`-ing inside `Effect.gen`; missing/invalid values become a typed `ConfigError`. Convenience constructors (`Config.String`, `Config.Number`, `Config.Finite`, `Config.NonEmptyString`, `Config.Boolean`, `Config.Redacted`, `Config.LogLevel`, and the rest of the [built-in table](#built-in-constructors)) read a single key. Combinators (`Config.all`, `Config.nested`, `Config.withDefault`, `Config.map`, `Config.mapEffect`, `Config.option`) build structured config. `Config.schema(schema, path)` derives loading from the schema's encoded `StringTree`; opaque `Any`, `Unknown`, or JSON-shaped schemas must first be given a concrete string-tree boundary such as `Schema.fromJsonString(Schema.Json)`.
+`Config<T>` extends `Effect<T, ConfigError>` — read config by `yield*`-ing inside `Effect.gen`; missing/invalid values become a typed `ConfigError`. Convenience constructors (`Config.String`, `Config.Number`, `Config.Finite`, `Config.NonEmptyString`, `Config.Boolean`, `Config.Redacted`, `Config.LogLevel`, and the rest of the [built-in table](#built-in-constructors)) read a single key. Combinators (`Config.all`, `Config.nested`, `Config.withDefault`, `Config.map`, `Config.mapEffect`, `Config.flatMap`, `Config.option`) build structured config. `Config.schema(schema, path)` derives loading from the schema's encoded `StringTree`; opaque `Any`, `Unknown`, or JSON-shaped schemas must first be given a concrete string-tree boundary such as `Schema.fromJsonString(Schema.Json)`.
 
 Absence is structural, not merely falsy. A missing representation is decoded as `undefined` before `withDefault` or `option` decides what to do; a successfully decoded `undefined` or explicit empty structure is still a present value. A completely absent `Config.all` group may use an outer default/option, but a partially supplied group is an error. For schema unions, `Config.schema` materializes each encoded `StringTree` member independently rather than guessing one mixed shape.
 
@@ -35,7 +35,7 @@ Use for anything sourced from the environment — API endpoints, feature flags, 
 
 ### Built-in constructors
 
-Every constructor takes an optional key name and is a shortcut for `Config.schema(someSchema, name)`. **Prefer these over hand-written parsers**: each setting then carries its unit and its bounds in the config definition. The accept/reject column was probed on `rc.116`.
+Every constructor takes an optional key name and is a shortcut for `Config.schema(someSchema, name)`. **Prefer these over hand-written parsers**: each setting then carries its unit and its bounds in the config definition. The accept/reject column was probed directly against the schemas each constructor uses.
 
 | Constructor | Yields | Accepts / rejects |
 | --- | --- | --- |
@@ -150,6 +150,8 @@ const portWithLegacyKey = Config.Port("PORT").pipe(
 
 `Config.orElse(() => Config.succeed(3000))` would turn `PORT=eighty` into `3000` and hide a broken deployment. Blank is absent, but whitespace is not: `PORT=" "` is a present, malformed value. An explicit `false` or `0` is a present value too and survives `withDefault`.
 
+`Config.flatMap(self, f)` reads one key to decide how to read the next: `ConfigEnv.pipe(Config.flatMap((env) => env === "dev" ? DevHostConfig : ProdHostConfig))` picks a different, stricter sub-`Config` once the environment tag itself has been validated. `Config.fail(sourceOrSchemaError)` builds a `Config<never>` that always fails with the given `SourceError`/`SchemaError` — reach for it inside `Config.orElse` to re-raise a specific, informative error instead of silently falling through to an unrelated key.
+
 ## ConfigProvider
 
 `effect/ConfigProvider` — stable
@@ -187,7 +189,7 @@ Note: `ConfigProvider.fromDotEnv()` returns an `Effect<ConfigProvider, PlatformE
 
 Use when config must come from somewhere other than env vars, or to inject a fixed in-memory provider in tests.
 
-Also available: `ConfigProvider.fromDotEnvContents(text, { expandVariables? })` parses `.env` text that is already in memory (no `FileSystem`; `${VAR}` expansion is off unless requested, and `rc.116` preserves replacement-pattern tokens such as `$&` inside expanded values). Without an `{ env }` option, `fromEnv()` merges `process.env` with `import.meta.env` when the bundler defines it.
+Also available: `ConfigProvider.fromDotEnvContents(text, { expandVariables? })` parses `.env` text that is already in memory (no `FileSystem`; `${VAR}` expansion is off unless requested, and expansion preserves replacement-pattern tokens such as `$&` inside expanded values rather than re-interpreting them). Without an `{ env }` option, `fromEnv()` merges `process.env` with `import.meta.env` when the bundler defines it.
 
 ### Resolving one Config against an explicit provider
 
@@ -405,7 +407,7 @@ A secret in a decoded payload — a login body, a webhook signing key, a stored 
 | `Schema.RedactedFromValue(inner, options?)` | The raw value; decodes it with `inner`, then wraps it. | **The plaintext**, unless `{ disallowEncode: true }`. |
 | `Schema.Redacted(inner, options?)` | A value that is already `Redacted`; decodes its contents with `inner` and rewraps the result. | A `Redacted` of the `inner`-encoded contents — but its JSON codec (`Schema.toCodecJson`) writes **the plaintext**, unless `{ disallowJsonEncode: true }`. |
 
-The two option names really are different. Both schemas also accept `label`. Since `rc.116`, `Schema.Redacted` keeps what `inner` transforms: `Schema.Redacted(Schema.NumberFromString)` decodes `Redacted.make("42")` to a `Redacted<number>` holding `42` and encodes it back to a `Redacted<string>`, preserving the label (earlier releases validated the contents but returned the original `Redacted` unchanged).
+The two option names really are different. Both schemas also accept `label`. `Schema.Redacted` keeps what `inner` transforms: `Schema.Redacted(Schema.NumberFromString)` decodes `Redacted.make("42")` to a `Redacted<number>` holding `42` and encodes it back to a `Redacted<string>`, preserving the label.
 
 ```ts
 import { Config, Redacted, Schema } from "effect"
@@ -428,7 +430,7 @@ const BadgePin = Config.schema(Schema.RedactedFromValue(Schema.FiniteFromString)
 
 > **Warning:** Without `disallowEncode` / `disallowJsonEncode`, any response, persistence, or RPC codec derived from the same schema writes the secret back out in clear text. Set the option on every schema whose encoded side leaves the process, or keep secrets out of encodable models entirely.
 
-Official guides: [Redacted](https://effect.website/docs/v4/data-types/redacted) (its headings say `unsafeWipe` and `getEquivalence`; the `rc.116` names are `Redacted.wipeUnsafe` and `Redacted.makeEquivalence`), [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types) (Schema; see its Redacted section, which does not mention that `RedactedFromValue` spells the option `disallowEncode`).
+Official guides: [Redacted](https://effect.website/docs/v4/data-types/redacted) (its headings say `unsafeWipe` and `getEquivalence`; the actual names are `Redacted.wipeUnsafe` and `Redacted.makeEquivalence`), [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types) (Schema; see its Redacted section, which does not mention that `RedactedFromValue` spells the option `disallowEncode`).
 
 ## Redactable
 

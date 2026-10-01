@@ -2,7 +2,7 @@
 
 Use this page three ways: in a **design review**, read a section before code exists and treat every "not decided yet" as an open design question; in a **code review**, answer each question from the diff alone; as a **coding-agent self-check**, run the relevant sections over generated code before proposing it. Every question is phrased so that **yes** is the safe answer — a "no" or "cannot tell from the diff" is a finding, and the link leads to the section that owns the rule and its evidence.
 
-The items describe Effect `4.0.0-rc.116`. They are deliberately short; the owning pages carry the reasoning, the probed behavior, and the examples. For symptoms rather than rules, start from [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns); for choosing between primitives, from [Choosing Effect Primitives](choosing-effect-primitives).
+The items describe Effect `4.0.0`. They are deliberately short; the owning pages carry the reasoning, the probed behavior, and the examples. For symptoms rather than rules, start from [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns); for choosing between primitives, from [Choosing Effect Primitives](choosing-effect-primitives).
 
 ## Effect construction and running
 
@@ -132,7 +132,7 @@ The items describe Effect `4.0.0-rc.116`. They are deliberately short; the ownin
 - Is the whole atomic unit inside `withTransaction`, and does every failure leave the body so that recovery happens outside? [Transactions](../interfaces/sql#transactions)
 - Are external effects (email, webhook, HTTP export, model call) kept out of the transaction and delivered after commit from an intent row? [External effects after commit (outbox)](../interfaces/sql#external-effects-after-commit-outbox)
 - Does each repository expose one stable storage error, check which constraint fired before reporting a conflict, and leave defects alone? [Normalizing errors at a repository boundary](../interfaces/sql#normalizing-errors-at-a-repository-boundary)
-- Are rows decoded through a Schema that matches the driver's actual result types? [Upgrading @effect/sql-pg to the native client](../interfaces/sql#upgrading-effect-sql-pg-to-the-native-client)
+- Are rows decoded through a Schema that matches the driver's actual result types? [Upgrading @effect/sql-pg to the native client](../interfaces/sql#native-client-behavior-codecs-json-and-listen)
 - Are migrations append-only with increasing ids, compatible with the release still running, and free of long backfills at startup? [Operating migrations](../interfaces/sql#operating-migrations)
 - Is the pool sized from the database-wide budget, and is everything that *holds* a connection (transaction, stream, listener) bounded in time? [Pools, reservations, and streaming](../interfaces/sql#pools-reservations-and-streaming)
 - Is there a repository contract suite against a real database, rather than an identity `withTransaction` fake? [Verification levels](../interfaces/sql#verification-levels)
@@ -192,19 +192,27 @@ The items describe Effect `4.0.0-rc.116`. They are deliberately short; the ownin
 - Is ordering that matters expressed as a Layer dependency rather than as a convention between `Layer.mergeAll` peers? [One shutdown operation](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#one-shutdown-operation)
 - Does the sum of shutdown bounds fit inside the platform's grace period, and is the code free of `process.exit()`? [Signals, exit codes, and the time budget](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#signals-exit-codes-and-the-time-budget)
 - In a foreign host, is the host's `AbortSignal` forwarded to the runner, admission stopped before `dispose()`, and shutdown memoized? [A production-shaped bridge](../recipes/managed-runtime-integration#a-production-shaped-bridge)
-- Do platform and `effect/unstable/*` imports sit behind app-owned capabilities, imported by one module each? [Keep platform and unstable imports behind a capability](../interfaces/platform-runtime-hosts#keep-platform-and-unstable-imports-behind-a-capability)
+- Do platform and unstable `effect/<area>` imports sit behind app-owned capabilities, imported by one module each? [Keep platform and unstable imports behind a capability](../interfaces/platform-runtime-hosts#keep-platform-and-unstable-imports-behind-a-capability)
 - Does each cross-cutting policy — time, recurrence, configuration, capacity, execution, export, atomicity — have exactly one owning value? [One owner per policy](../deep-dives/anatomy-of-a-real-effect-application#one-owner-per-policy)
 - Do lifetime tests assert live state before close and terminal state after, including a failed startup? [Test the lifetime, not just the behavior](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#test-the-lifetime-not-just-the-behavior)
+
+## MCP servers
+
+- Does every server layer list the protocol revisions it accepts, with at most one stateless revision, and is the Streamable HTTP endpoint deployed with its `allowedOrigins`, content-type, and accept checks intact? [McpServer](../systems/ai-language-models#mcpserver)
+- Is the MCP endpoint an OAuth resource server — bearer token verified in router middleware, tenant and scopes taken from token claims only, per-tool scope checks in handlers, and no client token forwarded downstream? [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp)
+- Does each tool declare its failure schema, carry honest `Readonly` / `Destructive` / `Idempotent` annotations, use `Tool.Strict` where unexpected arguments must be rejected, and stay hidden from clients that cannot use it via `McpSchema.EnabledWhen`? [McpServer](../systems/ai-language-models#mcpserver)
+- Does every consequential tool confirm with the user — `McpServer.elicit` on session protocols, an `InputRequired` round trip on the stateless protocol — and is any `requestState` sealed with an HMAC, bound to the caller, and given a TTL before it is trusted on the way back? [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp)
+- Can a retried `tools/call` (a broken stream, a resumed round trip) run twice without a second side effect, and is an `ErrorReporter` wired so undeclared tool failures page someone? [McpServer](../systems/ai-language-models#mcpserver)
 
 ## Upgrading Effect versions
 
 - Are `effect` and every `@effect/*` package pinned to one exact version, with a single installed copy of `effect`? [Incompatible unstable package versions](../troubleshooting/troubleshooting-and-anti-patterns#incompatible-unstable-package-versions)
-- Was the delta table read for changes that alter bytes on the wire or on disk, and is there a coordinated rollout plan for them? [What changed from rc.108 to rc.116](../#what-changed-from-rc-108-to-rc-116)
+- Were the per-package changelogs read for changes that alter bytes on the wire or on disk, and is there a coordinated rollout plan for them? [Stability and support](../#stability-and-support)
 - Do both peers of every binary RPC, cluster, or EventLog link move to `SchemaBinary` together, with old journals accounted for? [SchemaBinary](../concurrency/streaming-channels#schemabinary)
 - Do all boolean CLI flags have `Flag.withDefault(false)`, `Flag.optional`, or a fallback? [Flag](../tooling/cli-framework#flag)
 - Were `Config`, `Flag`, and `Prompt` constructors renamed to PascalCase, and `Config.mapOrFail` to `Config.mapEffect`? [Built-in constructors](../foundations/configuration-secrets#built-in-constructors)
 - Were property tests moved to `Arbitrary.schema` and `{ arbitrary: { runs } }`, opaque filters replaced with constructive checks, and saved failures re-recorded? [Arbitrary](../tooling/testing-dev-tooling#arbitrary)
-- Were PostgreSQL row Schemas re-checked against the native client's result types, JSON parameters wrapped in `sql.json`, and multi-statement strings split? [Upgrading @effect/sql-pg to the native client](../interfaces/sql#upgrading-effect-sql-pg-to-the-native-client)
+- Were PostgreSQL row Schemas re-checked against the native client's result types, JSON parameters wrapped in `sql.json`, and multi-statement strings split? [Upgrading @effect/sql-pg to the native client](../interfaces/sql#native-client-behavior-codecs-json-and-listen)
 - Were JSON Schema consumers and snapshots checked against open-by-default output? [JsonSchema](../data/schema#jsonschema)
 - Is the code free of `yield*` on `Option`, `Result`, fibers, refs, and deferreds? [Moving between Option, Result, and Effect](../foundations/errors-option-result#moving-between-option-result-and-effect)
 - Were `PersistedQueue` retry options moved to `make`, and are dead-lettered items monitored? [PersistedQueue](../tooling/persistence#persistedqueue)

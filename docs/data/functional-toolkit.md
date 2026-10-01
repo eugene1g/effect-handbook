@@ -2,7 +2,7 @@
 
 Effect ships a full standard library — structural equality, comparators, branded types, pattern matching, optics, arbitrary-precision decimals, and more — all composable with each other and the rest of the ecosystem.
 
-> **Official guides:** [Pattern Matching](https://effect.website/docs/v4/code-style/pattern-matching), [Branded Types](https://effect.website/docs/v4/code-style/branded-types), [Equal](https://effect.website/docs/v4/trait/equal), [Hash](https://effect.website/docs/v4/trait/hash), [Equivalence](https://effect.website/docs/v4/behaviour/equivalence), [Order](https://effect.website/docs/v4/behaviour/order), [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal), [Dual APIs](https://effect.website/docs/v4/code-style/dual); each is linked again, with any `rc.116` caveat, in the section it belongs to. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Pattern Matching](https://effect.website/docs/v4/code-style/pattern-matching), [Branded Types](https://effect.website/docs/v4/code-style/branded-types), [Equal](https://effect.website/docs/v4/trait/equal), [Hash](https://effect.website/docs/v4/trait/hash), [Equivalence](https://effect.website/docs/v4/behaviour/equivalence), [Order](https://effect.website/docs/v4/behaviour/order), [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal), [Dual APIs](https://effect.website/docs/v4/code-style/dual); each is linked again, with any caveat, in the section it belongs to. These track Effect's `main` branch rather than this page's tagged 4.0.0 source, so where they differ, this page and the tagged source win.
 
 ## Match
 
@@ -76,7 +76,7 @@ Built-in predicates (usable at the top level or nested inside an object pattern)
 
 `Match.tag("Exceeds", "Meets", handler)` handles multiple tags in one arm. `Match.not(pattern, handler)` matches everything that does NOT match the pattern. `Match.tagStartsWith("Comp", handler)` useful for namespaced tags. `Match.withReturnType<R>()` pins the return type of every arm — **it must be the first step of the pipeline**; placed later, TypeScript does not enforce the return type correctly.
 
-**Matching on several arguments.** `Match.fn` (new in `rc.111`) builds a reusable matcher from a selector over the function's arguments; handlers receive the narrowed selected value first, then the original arguments:
+**Matching on several arguments.** `Match.fn` builds a reusable matcher from a selector over the function's arguments; handlers receive the narrowed selected value first, then the original arguments:
 
 ```ts
 import { Match } from "effect"
@@ -93,7 +93,7 @@ const meritNote = Match.fn((currency: string, rating: Rating) => rating).pipe(
 meritNote("USD", "meets") // "standard merit in USD"
 ```
 
-Since `rc.111`, the finalizers of a `Match.value(x)` pipeline (`orElse`, `option`, `result`, `exhaustive`) type-check even when the type of `x` contains a generic type parameter, which makes one-shot matching usable inside generic functions.
+The finalizers of a `Match.value(x)` pipeline (`orElse`, `option`, `result`, `exhaustive`) type-check even when the type of `x` contains a generic type parameter, which makes one-shot matching usable inside generic functions.
 
 ### Closing a matcher
 
@@ -305,6 +305,8 @@ Hash.random(someObj)                                  // stable random hash per 
 
 **Hash first, then equals.** `Equal.equals` and the hash collections compare hashes before anything else: different hashes prove inequality immediately, while equal hashes only mean "maybe" and trigger the full `[Equal.symbol]` comparison. Two rules follow. Equal values **must** hash equally, or lookups miss. And `[Hash.symbol]` may use a cheap, stable *subset* of the fields that `[Equal.symbol]` compares (hashing only the id is fine) but must never read a field that equality ignores. Hashes of objects are cached, which is one more reason to treat hashed values as immutable.
 
+**Hash values are not a stable wire format.** They are small numeric fingerprints for in-process bucketing, not cryptographic digests, and the mixing `Hash.combine` and the structural hashers use is an implementation detail that can change between Effect versions. Never persist a hash, send it across a process boundary, or compare one computed by an old build against one computed by a new build — recompute instead.
+
 Use when implementing `[Hash.symbol]()` on a custom class that also implements `Equal`.
 
 Official guide: [Hash](https://effect.website/docs/v4/trait/hash).
@@ -502,7 +504,7 @@ Failures surface as `Brand.BrandError`: a tagged, error-like value that wraps a 
 
 Use to prevent primitive confusion — mixing `EmployeeId` with `DepartmentId`, salary cents with share counts, validated with raw strings — without wrapper classes at runtime.
 
-Official guides: [Branded Types](https://effect.website/docs/v4/code-style/branded-types) (its illustrative `Brand` declaration uses a symbol key; `rc.116` brand keys are strings), [Schema branded types](https://effect.website/docs/v4/schema/advanced-usage).
+Official guides: [Branded Types](https://effect.website/docs/v4/code-style/branded-types) (its illustrative `Brand` declaration uses a symbol key; in 4.0.0 brand keys are strings), [Schema branded types](https://effect.website/docs/v4/schema/advanced-usage).
 
 ## Optic
 
@@ -579,7 +581,7 @@ const scaled = positiveHeadcounts.modifyAll((n) => Math.ceil(n * 1.1))(org)
 
 `notUndefined()` preserves optionality: called on an `Optional` it returns another `Optional`, while on a `Prism` it returns a `Prism`. Replacement through composed `Iso`/`Prism` optics writes without first reading the old focus, so setters do not unexpectedly fail merely because the getter cannot currently focus. Treat the optic as the public abstraction; its internal representation is not an API.
 
-**Standalone functions.** Every read and update is also exported as a dual function that takes the optic as an argument (added in `rc.111`), which reads better in a `pipe` and lets one helper accept any optic: `Optic.get` (needs a `Lens`), `Optic.getResult`, `Optic.replace`, `Optic.replaceResult`, `Optic.modify`, `Optic.set` (needs a `Prism`), `Optic.getAll`, and `Optic.modifyAll` (need a `Traversal`). Note the argument order: the standalone `Optic.replace(source, optic, value)` is data-first, while the method is `optic.replace(value, source)`.
+**Standalone functions.** Every read and update is also exported as a dual function that takes the optic as an argument, which reads better in a `pipe` and lets one helper accept any optic: `Optic.get` (needs a `Lens`), `Optic.getResult`, `Optic.replace`, `Optic.replaceResult`, `Optic.modify`, `Optic.set` (needs a `Prism`), `Optic.getAll`, and `Optic.modifyAll` (need a `Traversal`). Note the argument order: the standalone `Optic.replace(source, optic, value)` is data-first, while the method is `optic.replace(value, source)`.
 
 **Narrowing the focus.** `.pick([...])` and `.omit([...])` focus on a sub-struct, and `.optionalKey("k")` focuses on a key whose removal is expressed by writing `undefined`. Replacement through them is exact: an optional field left out of a `pick` / `omit` replacement is deleted from the source rather than kept, and `optionalKey` on a tuple index splices the element out.
 
@@ -720,13 +722,13 @@ const perShare = BigDecimal.divide(
 
 **Rounding modes** are lowercase kebab strings: `"ceil"`, `"floor"`, `"to-zero"`, `"from-zero"`, `"half-ceil"`, `"half-floor"`, `"half-to-zero"`, `"half-from-zero"` (default), `"half-even"` (banker's), `"half-odd"`. Use `BigDecimal.round(value, { scale, mode })`.
 
-**Order and Equivalence** are both exported — plug into `Array.sort` or collection APIs directly. Both compare by numeric value regardless of scale (`1.05` at scale 2 equals `1.050` at scale 3, under `BigDecimal.equals` and `Equal.equals` alike), and since `rc.113` they share a comparator that aligns ordinary scale differences cheaply and never materialises the zeros of a huge one.
+**Order and Equivalence** are both exported — plug into `Array.sort` or collection APIs directly. Both compare by numeric value regardless of scale (`1.05` at scale 2 equals `1.050` at scale 3, under `BigDecimal.equals` and `Equal.equals` alike), and they share a comparator that aligns ordinary scale differences cheaply and never materialises the zeros of a huge one.
 
 **Choosing a constructor.**
 
 | Source | Constructor | Notes |
 | --- | --- | --- |
-| Integer minor units (cents, basis points) | `BigDecimal.make(12_345n, 2)` | Exact; `value / 10^scale`. Since `rc.113` a scale that is not a safe integer throws `RangeError`; a negative scale is allowed and multiplies (`make(12n, -2)` is `1200`) |
+| Integer minor units (cents, basis points) | `BigDecimal.make(12_345n, 2)` | Exact; `value / 10^scale`. A scale that is not a safe integer throws `RangeError`; a negative scale is allowed and multiplies (`make(12n, -2)` is `1200`) |
 | Untrusted text | `BigDecimal.fromString(text)` | `Option<BigDecimal>`; `"12,5"` is `Option.none()` |
 | A literal you control | `BigDecimal.fromStringUnsafe("0.04")` | Throws on malformed input |
 | A `bigint` | `BigDecimal.fromBigInt(5000n)` | Scale 0 |
@@ -755,15 +757,15 @@ Key APIs: make / fromString / fromStringUnsafe / fromBigInt / fromNumber / fromN
 
 Use for any financial or compensation calculation where floating-point rounding is unacceptable.
 
-Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are stale names; `rc.116` uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
+Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are stale names; 4.0.0 uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
 
 ## ByteSize
 
-`effect/ByteSize` — stable (new in `rc.113`)
+`effect/ByteSize` — stable
 
 An exact, non-negative, integral byte count: a branded `bigint`, so a 9 EiB object store and a 12-byte header use the same type without precision loss. It replaced the ad-hoc `FileSystem.Size` / `FileSystem.MiB` helpers and is now the size vocabulary across the ecosystem — `FileSystem` `File.Info.size`, HTTP body limits, and `Config.ByteSize`.
 
-**Mental model.** Decimal units are powers of 1,000 (`kB`, `MB`, `GB`, …); binary units are powers of 1,024 (`KiB`, `MiB`, `GiB`, …). The two families have separate constructors so "10 MB" never silently means 10 MiB. A value is always a whole number of bytes. Two doors lead in, and since rc.116 they differ: `ByteSize.Input` (what `fromInput`, `Stream.limitBytes`, and other size options accept) takes a `ByteSize`, a `bigint`, a `number` checked at runtime, or a string literal that is a whole number followed by a unit (`"64 KiB"`, `"64KiB"`, `"10 megabytes"`), and a malformed or fractional literal such as `"1.5 KiB"` is a compile error. Text from outside the program goes through `ByteSize.fromString` (an `Option`) or `fromStringUnsafe` (throws), which also accept decimal fractions and surrounding whitespace: `"1.5 KiB"` parses to 1,536 bytes, but `"1.5 B"` is rejected because it is not a whole byte.
+**Mental model.** Decimal units are powers of 1,000 (`kB`, `MB`, `GB`, …); binary units are powers of 1,024 (`KiB`, `MiB`, `GiB`, …). The two families have separate constructors so "10 MB" never silently means 10 MiB. A value is always a whole number of bytes. Two doors lead in, and they differ: `ByteSize.Input` (what `fromInput`, `Stream.limitBytes`, and other size options accept) takes a `ByteSize`, a `bigint`, a `number` checked at runtime, or a string literal that is a whole number followed by a unit (`"64 KiB"`, `"64KiB"`, `"10 megabytes"`), and a malformed or fractional literal such as `"1.5 KiB"` is a compile error. Text from outside the program goes through `ByteSize.fromString` (an `Option`) or `fromStringUnsafe` (throws), which also accept decimal fractions and surrounding whitespace: `"1.5 KiB"` parses to 1,536 bytes, but `"1.5 B"` is rejected because it is not a whole byte.
 
 ```ts
 import { ByteSize, Config, Option } from "effect"
@@ -947,7 +949,7 @@ pipe(120_000, applyMerit(0.04))       // 124_800
 
 Use for `pipe` or `flow` (everyday use), or when building dual-mode utility functions for your own library.
 
-Official guides: [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it states that `Option` and `Result` can be yielded inside `Effect.gen`; on `rc.116` they cannot — convert with `Effect.fromOption` / `Effect.fromResult`), [Dual APIs](https://effect.website/docs/v4/code-style/dual).
+Official guides: [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it states that `Option` and `Result` can be yielded inside `Effect.gen`; in 4.0.0 they cannot — convert with `Effect.fromOption` / `Effect.fromResult`), [Dual APIs](https://effect.website/docs/v4/code-style/dual).
 
 ## Number
 
@@ -1094,39 +1096,72 @@ UndefinedOr.match(managerId, {
 })
 ```
 
-## Encoding
+## Base64
 
-`effect/Encoding` — stable
+`effect/encoding/Base64` — stable
 
-Base64 and hex codecs — encoding always succeeds; decoding returns `Result<Uint8Array, EncodingError>`. Works on both `Uint8Array` and strings. URL-safe base64 variants included.
+Text codecs live under `effect/encoding`, one module per format. Each format module has the same shape: `encode` accepts a `Uint8Array` or a string and always succeeds; `decode` returns `Result<Uint8Array, EncodingError>`; `decodeString` decodes and then interprets the bytes as UTF-8, returning `Result<string, EncodingError>`. There is no catch-all `Encoding` namespace — import the format you need.
 
 ```ts
-import { Encoding, Result } from "effect"
+import { Result } from "effect"
+import { Base64 } from "effect/encoding"
 
-// Encode an employee JWT payload for transmission
-const encoded = Encoding.encodeBase64("emp-001:merit-2025")   // base64 string
-const decoded = Encoding.decodeBase64String(encoded)           // Result<string, EncodingError>
+// Encode an employee token payload for transmission
+const encoded = Base64.encode("emp-001:merit-2025")  // base64 string
+const decoded = Base64.decodeString(encoded)         // Result<string, EncodingError>
 
 if (Result.isSuccess(decoded)) {
   console.log(decoded.success)  // "emp-001:merit-2025"
 }
 
-// Hex encoding for audit log checksums
-Encoding.encodeHex(new Uint8Array([0xde, 0xad, 0xbe, 0xef]))  // "deadbeef"
-Encoding.decodeHex("deadbeef")  // Result<Uint8Array, EncodingError>
-
-// URL-safe variants
-Encoding.encodeBase64Url(someBytes)
-Encoding.decodeBase64Url(someStr)
+const bytes = Base64.decode(encoded)                 // Result<Uint8Array, EncodingError>
 ```
 
-`Encoding.randomHex(length)` (added in `rc.110`) returns a random lowercase hex string for identifiers such as trace and span ids. It draws from `Math.random()`, so it is **not cryptographically secure** — never use it for tokens, secrets, or anything an attacker must not guess. `length` is not validated: it is rounded *down* to a multiple of 8, so `randomHex(10)` has 8 characters and `randomHex(3)` is the empty string.
+## Base64Url
+
+`effect/encoding/Base64Url` — stable
+
+The URL- and filename-safe alphabet (`-` and `_` instead of `+` and `/`, no padding), with the same `encode` / `decode` / `decodeString` trio. Use it for values that travel in query strings, cookies, or path segments.
 
 ```ts
-import { Encoding } from "effect"
+import { Base64Url } from "effect/encoding"
 
-const correlationId = Encoding.randomHex(16) // e.g. "d515b35eeabef8b9"
-const traceLikeId = Encoding.randomHex(32)   // 32 lowercase hex characters
+const token = Base64Url.encode(new Uint8Array([0xfb, 0xff, 0xbf]))  // "-_-_"
+const back = Base64Url.decode(token)                                 // Result<Uint8Array, EncodingError>
+```
+
+## Hex
+
+`effect/encoding/Hex` — stable
+
+Lowercase hexadecimal with the same trio, plus `Hex.random(length)`, which returns a random lowercase hex string for identifiers such as correlation ids. `random` draws from `Math.random()`, so it is **not cryptographically secure** — never use it for tokens, secrets, or anything an attacker must not guess; for those, take bytes from the platform [`Crypto`](../interfaces/platform-runtime-hosts#crypto) service and pass them to `Hex.encode`. `length` is not validated: it is rounded *down* to a multiple of 8, so `Hex.random(10)` has 8 characters and `Hex.random(3)` is the empty string.
+
+```ts
+import { Hex } from "effect/encoding"
+
+// Hex encoding for audit-log checksums
+Hex.encode(new Uint8Array([0xde, 0xad, 0xbe, 0xef]))  // "deadbeef"
+Hex.decode("deadbeef")                                 // Result<Uint8Array, EncodingError>
+
+const correlationId = Hex.random(16)  // e.g. "d515b35eeabef8b9"
+const traceLikeId = Hex.random(32)    // 32 lowercase hex characters
+```
+
+## EncodingError
+
+`effect/encoding/EncodingError` — stable
+
+The single failure type shared by the format modules: a `Data.TaggedError` with `_tag: "EncodingError"`, a `kind` (`"Decode"` or `"Encode"`), the `module` that failed (`"Base64"`, `"Hex"`, …), the offending `input`, and a human-readable `message`. `EncodingError.isEncodingError` narrows an `unknown` value. Because every `decode` returns a `Result`, you handle it with the [`Result`](../foundations/errors-option-result#result) combinators rather than with `Effect.catch`.
+
+```ts
+import { Result } from "effect"
+import { Base64, EncodingError } from "effect/encoding"
+
+const parsed = Base64.decodeString("not base64!")
+if (Result.isFailure(parsed)) {
+  const error: EncodingError.EncodingError = parsed.failure
+  console.log(error.kind, error.module, error.message)  // "Decode" "Base64" "Length must be a multiple of 4, but is 11"
+}
 ```
 
 ## Inspectable

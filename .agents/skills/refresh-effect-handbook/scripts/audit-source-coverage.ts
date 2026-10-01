@@ -28,22 +28,26 @@ const siteHeadings = headingCounts(siteCorpus)
 const conciseSections = h2Sections(conciseCorpus)
 const siteSections = h2Sections(siteCorpus)
 
+// Since effect@4.0.0 the subsystem families live at `effect/<area>` (for example `effect/http`,
+// `effect/http-api`, `effect/testing`); stability is declared per API with `@stability` tags
+// rather than by an `unstable/` path segment. Every explicit `./<area>` export whose target is a
+// barrel `index.ts` is an area front door.
 const stable = await namespaceExports(path.join(effectSource, "index.ts"), "effect")
-const unstable = []
+const area = []
 const effectPackage = JSON.parse(await readFile(path.join(effectRoot, "packages/effect/package.json"), "utf8"))
-const unstableFamilies = Object.entries(effectPackage.exports ?? {})
-  .filter(([specifier, target]) => /^\.\/unstable\/[^/*]+$/.test(specifier) && typeof target === "string")
+const areaFamilies = Object.entries(effectPackage.exports ?? {})
+  .filter(([specifier, target]) => /^\.\/[a-z][a-z-]*$/.test(specifier) && typeof target === "string" && /\/index\.ts$/.test(target))
   .map(([specifier, target]) => ({
-    family: specifier.slice("./unstable/".length),
+    family: specifier.slice("./".length),
     index: path.join(effectRoot, "packages/effect", target)
   }))
   .sort((left, right) => left.family.localeCompare(right.family))
-if (unstableFamilies.length === 0) fail("effect package exports no explicit unstable family front doors")
-for (const { family, index } of unstableFamilies) {
-  unstable.push(...await namespaceExports(index, `effect/unstable/${family}`))
+if (areaFamilies.length === 0) fail("effect package exports no explicit area front doors (expected entries such as ./http pointing at an index.ts barrel)")
+for (const { family, index } of areaFamilies) {
+  area.push(...await namespaceExports(index, `effect/${family}`))
 }
 
-const targets = [...stable, ...unstable]
+const targets = [...stable, ...area]
 const expectedByName = countBy(targets, (target) => target.name)
 const missingConciseModules = []
 const missingSiteModules = []
@@ -89,8 +93,8 @@ const result = {
   conciseHeadings: [...conciseHeadings.values()].reduce((sum, count) => sum + count, 0),
   siteHeadings: [...siteHeadings.values()].reduce((sum, count) => sum + count, 0),
   stableModules: stable.length,
-  unstableModules: unstable.length,
-  unstableFamilies: new Set(unstable.map((target) => target.family)).size,
+  areaModules: area.length,
+  areaFamilies: new Set(area.map((target) => target.family)).size,
   publicPackages: packages.length,
   implementationFiles: sourceFiles.length,
   missingConciseModules,
@@ -115,8 +119,8 @@ if (jsonOutput) {
 
 console.log("Effect Handbook source coverage")
 console.log(`Concise / site pages: ${result.concisePages} / ${result.sitePages}`)
-console.log(`Stable modules: ${result.stableModules}`)
-console.log(`Unstable modules: ${result.unstableModules} in ${result.unstableFamilies} families`)
+console.log(`Root barrel modules: ${result.stableModules}`)
+console.log(`Area modules: ${result.areaModules} in ${result.areaFamilies} effect/<area> families`)
 console.log(`Public packages: ${result.publicPackages}`)
 console.log(`Effect version / commit: ${result.effectVersion ?? "unknown"} / ${result.effectCommit ?? "unavailable"}${result.effectDirty ? " (dirty)" : ""}`)
 console.log(`Implementation .ts files to inspect: ${result.implementationFiles}`)
@@ -201,7 +205,7 @@ function printCollisions(label, collisions) {
 
 async function namespaceExports(file, importRoot) {
   const source = await readFile(file, "utf8")
-  const family = importRoot.startsWith("effect/unstable/") ? importRoot.slice("effect/unstable/".length) : "stable"
+  const family = importRoot === "effect" ? "stable" : importRoot.slice("effect/".length)
   const exports = [...source.matchAll(/export\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+["']([^"']+)["']/g)].map((match) => ({
     name: match[1],
     import: `${importRoot}/${match[1]}`,
@@ -349,7 +353,7 @@ function bestAssignment(modules, sections, moduleIndex = 0, used = new Set()) {
 
 function sectionEvidenceScore(body, target) {
   if (containsToken(body, target.import)) return 100
-  if (target.family !== "stable" && containsToken(body, `effect/unstable/${target.family}`)) return 50
+  if (target.family !== "stable" && containsToken(body, `effect/${target.family}`)) return 50
   return 0
 }
 

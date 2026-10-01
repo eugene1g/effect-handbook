@@ -2,7 +2,7 @@
 
 Most incorrect Effect code uses a real primitive for the wrong job. Choose first by semantics—absence, failure, coordination, ownership, durability, or distribution—and only then by API convenience.
 
-The tables below describe Effect `4.0.0-rc.116`. “In-process” means that a restart loses the state unless the program explicitly writes it to a durable subsystem. `Scope` in the requirements column means that acquisition or borrowing is tied to structured cleanup. Every table ends with a **Details** line that names the section owning the full explanation; this page only decides. Official guide links track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+The tables below describe Effect `4.0.0`. “In-process” means that a restart loses the state unless the program explicitly writes it to a durable subsystem. `Scope` in the requirements column means that acquisition or borrowing is tied to structured cleanup. Every table ends with a **Details** line that names the section owning the full explanation; this page only decides. Official guide links track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
 
 ## Boundary rules before primitives
 
@@ -34,7 +34,7 @@ Choose the constructor by how the wrapped JavaScript reports failure and when it
 | A Promise that is not expected to reject | `Effect.promise((signal) => ...)` | a defect | the call touches a network, disk, or SDK; `Effect.promise(() => fetch(url))` moves every outage out of `E` |
 | A one-shot callback API | `Effect.callback<A, E>((resume, signal) => ...)` | whatever is passed to `resume`; only the first call counts | the source emits many values; use a `Queue` or `Stream.callback` |
 | Building the next effect is itself work | `Effect.suspend(() => effect)` | a defect if the thunk throws | a plain conditional inside `Effect.gen` already defers it |
-| An `Option`, `Result`, or nullable value | `Effect.fromOption`, `Effect.fromResult`, `Effect.fromNullishOr` | not applicable | you expected `yield*` to accept the `Option` or `Result` directly; it does not in `rc.116` |
+| An `Option`, `Result`, or nullable value | `Effect.fromOption`, `Effect.fromResult`, `Effect.fromNullishOr` | not applicable | you expected `yield*` to accept the `Option` or `Result` directly; it does not in `4.0.0` |
 
 Details: [Creating effects](../foundations/core-runtime-execution#1-creating-effects), [Cancellable adapters for promises and callbacks](../foundations/core-runtime-execution#8-cancellable-adapters-for-promises-and-callbacks).
 
@@ -270,11 +270,11 @@ Pull-based back-pressure bounds a pipeline only if every stage is bounded. Detai
 | `SchemaBinary` with `{ fingerprint: true }` | positional layout plus a layout hash | `Schema.SchemaError`; a mismatched layout is rejected | none: both peers must deploy the same schema together | smallest frames under lock-step deployment | peers are upgraded independently |
 | `Sse` — unstable | server-sent events text | a `Retry` failure carries the `retry:` directive | as JSON for the `data` payload | one-way server-to-browser push | bidirectional or binary traffic |
 
-`SchemaBinary` replaced MessagePack in `rc.113` and is the default for cluster runner transports and EventLog journals and remote messages, so that upgrade changes bytes on the wire and on disk. `maxFrameSize` is unset by default on the raw codec; set it for untrusted peers. Details: [SchemaBinary](../concurrency/streaming-channels#schemabinary), [Ndjson](../concurrency/streaming-channels#ndjson), [RpcSerialization](../interfaces/rpc#rpcserialization), [Serialization codecs](../data/schema#11-serialization-codecs).
+`SchemaBinary` is the default binary format for cluster runner transports and EventLog journals and remote messages, so switching a link or a journal to or from it changes bytes on the wire and on disk. `maxFrameSize` is unset by default on the raw codec; set it for untrusted peers. Details: [SchemaBinary](../concurrency/streaming-channels#schemabinary), [Ndjson](../concurrency/streaming-channels#ndjson), [RpcSerialization](../interfaces/rpc#rpcserialization), [Serialization codecs](../data/schema#11-serialization-codecs).
 
 ## HttpClient vs HttpRouter vs HttpApi vs RPC
 
-These modules are under unstable families in `rc.116`; pin all Effect packages to exactly the same release.
+These modules are `@stability unstable` in `4.0.0`; pin all Effect packages to exactly the same release.
 
 | Primitive | Error and requirements | Scope, lifetime, and backpressure | Durability and distribution | Choose it when | Avoid it when |
 | --- | --- | --- | --- | --- | --- |
@@ -296,7 +296,7 @@ Details: [Three failure classes](../interfaces/http-client#three-failure-classes
 
 Always bound and classify retry. A retry policy that accepts every error can turn authorization, validation, or schema failures into an outage amplifier. The options form `{ while }` with no `schedule` or `times` is a zero-delay loop. `Effect.timeout` before `retry` bounds each attempt; after it, the whole operation. Details: [Retry policy checklist](../concurrency/scheduling-time#retry-policy-checklist), [Shorthand options for retry and repeat](../concurrency/scheduling-time#shorthand-options-for-retry-and-repeat), [Where the timeout sits relative to retry](../deep-dives/failure-retry-fallback-and-interruption#where-the-timeout-sits-relative-to-retry), [Replay, versioning, and rollout](../systems/workflows-durable-execution#replay-versioning-and-rollout).
 
-Official guides: [Retrying](https://effect.website/docs/v4/error-management/retrying), [Introduction to scheduling](https://effect.website/docs/v4/scheduling/introduction) (it shows a three-parameter `Schedule` type; `rc.116` has four: output, input, error, and services).
+Official guides: [Retrying](https://effect.website/docs/v4/error-management/retrying), [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules), [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook).
 
 ## Persistence vs EventLog vs Workflow vs Cluster
 

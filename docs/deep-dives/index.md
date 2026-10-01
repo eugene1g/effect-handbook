@@ -15,6 +15,7 @@ Long-form guides build a working mental model across related Effect APIs. They c
 - [Streaming Ingestion Without Accidental Buffering](streaming-ingestion-without-accidental-buffering) — preserve bounded memory and backpressure from input framing through decoding, batching, writes, recovery, and shutdown.
 - [The Durability and Distribution Ladder](durability-and-distribution-ladder) — choose deliberately among Persistence, EventLog, Workflow, and Cluster as durability and distribution requirements increase.
 - [Building a Production AI Capability](building-a-production-ai-capability) — compose provider-neutral models, Schema-backed outputs and tools, resilience, telemetry, testing, and MCP exposure.
+- [Exposing an Effect Application over MCP](exposing-an-effect-application-over-mcp) — serve an existing Toolkit to AI clients over stdio and Streamable HTTP, choose protocol eras, shape the catalog, authorize as an OAuth resource server, run human-in-the-loop round trips, and test the server in-process.
 
 For quick lookup rather than a connected walkthrough, use the concise [handbook](../), [primitive chooser](../reference/choosing-effect-primitives), and topic reference pages.
 

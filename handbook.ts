@@ -30,6 +30,7 @@ const pageDescriptions = {
   "tooling/persistence.md": "Persistence services, backing stores, serialization, primary keys, and durable application state.",
   "tooling/testing-dev-tooling.md": "Effect testing, Vitest integration, generators, doctests, language tooling, and repository tools.",
   "reference/cheat-sheet-index.md": "A task-oriented Effect 4 cheat sheet and linked index into the concise handbook.",
+  "reference/agent-guide.md": "How a coding agent should read this handbook: which Markdown artifact to fetch for which task, the .md URL rule, catalog and example-inventory fields, citing sections, and a drop-in instructions block.",
   "reference/choosing-effect-primitives.md": "Contrastive decision tables for selecting Effect primitives by errors, services, lifetime, backpressure, durability, and distribution.",
   "troubleshooting/troubleshooting-and-anti-patterns.md": "Searchable symptoms, causes, fixes, and common Effect code-generation anti-patterns.",
   "reference/review-checklists.md": "Design-review and code-review checklists for Effect services, errors, lifetimes, concurrency, boundaries, persistence, observability, and tests.",
@@ -48,6 +49,7 @@ const pageDescriptions = {
   "deep-dives/streaming-ingestion-without-accidental-buffering.md": "End-to-end streaming ingestion with bounded memory, backpressure, batching, resource safety, and failure handling.",
   "deep-dives/durability-and-distribution-ladder.md": "A decision-oriented progression from persistence through event history, workflows, and clustered entities.",
   "deep-dives/building-a-production-ai-capability.md": "A production AI architecture using provider-neutral models, schemas, tools, telemetry, retries, and explicit MCP boundaries.",
+  "deep-dives/exposing-an-effect-application-over-mcp.md": "Serving an Effect application to AI clients over MCP: transports and protocol eras, catalog shaping, OAuth resource-server authorization, human-in-the-loop round trips, idempotency, and in-process tests.",
   "deep-dives/anatomy-of-a-real-effect-application.md": "A complete application composition from domain schemas and services through resources, observability, entrypoint, shutdown, and tests.",
   "deep-dives/schema-from-external-input-to-domain-and-back.md": "Schema boundaries from encoded input to domain types and back across HTTP, RPC, SQL, persistence, evolution, and tests.",
   "deep-dives/failure-retry-fallback-and-interruption.md": "A connected model of typed failure, defects, Cause, retry, fallback, interruption, and cleanup.",
@@ -57,6 +59,7 @@ const pageDescriptions = {
 }
 
 const pageRelated = Object.freeze({
+  "deep-dives/exposing-an-effect-application-over-mcp.md": ["systems/ai-language-models.md", "interfaces/http-server.md", "interfaces/rpc.md", "deep-dives/building-a-production-ai-capability.md"],
   "deep-dives/index.md": ["reference/choosing-effect-primitives.md", "reference/cheat-sheet-index.md"],
   "deep-dives/reactivity-from-atoms-to-mastery.md": ["systems/reactivity-atom.md", "data/schema.md", "interfaces/http-api.md", "tooling/testing-dev-tooling.md"],
   "deep-dives/anatomy-of-a-real-effect-application.md": ["foundations/core-runtime-execution.md", "foundations/services-context-layers.md", "foundations/configuration-secrets.md", "operations/observability.md"],
@@ -71,17 +74,19 @@ const pageRelated = Object.freeze({
   "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md": ["foundations/core-runtime-execution.md", "foundations/services-context-layers.md", "interfaces/platform-runtime-hosts.md", "recipes/graceful-entrypoint-and-shutdown.md", "recipes/request-cancellation-through-a-host.md"],
   "foundations/getting-started.md": ["foundations/core-runtime-execution.md", "tooling/testing-dev-tooling.md", "deep-dives/adopting-effect-in-an-existing-codebase.md"],
   "reference/review-checklists.md": ["reference/choosing-effect-primitives.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
+  "reference/agent-guide.md": ["index.md", "reference/cheat-sheet-index.md", "reference/choosing-effect-primitives.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
+  "reference/cheat-sheet-index.md": ["reference/agent-guide.md", "reference/choosing-effect-primitives.md"],
   "recipes/request-cancellation-through-a-host.md": ["recipes/managed-runtime-integration.md", "foundations/core-runtime-execution.md", "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md"],
   "recipes/transactional-write-with-outbox.md": ["interfaces/sql.md", "recipes/schema-httpapi-sql-boundary.md", "deep-dives/durability-and-distribution-ladder.md"]
 })
 
 export const handbookRelease = Object.freeze({
   package: "effect",
-  version: "4.0.0-rc.116",
-  tag: "effect@4.0.0-rc.116",
-  commit: "d62dd0d65252e5d3635538f0e41adc7c08aa9beb",
-  publishedAt: "2026-09-18T20:02:01.599Z",
-  auditedAt: "2026-09-19"
+  version: "4.0.0",
+  tag: "effect@4.0.0",
+  commit: "67ba4e46a11ccda0b6761578bfd22c04ae00167d",
+  publishedAt: "2026-10-01T03:11:28.537Z",
+  auditedAt: "2026-10-01"
 })
 
 export const handbookGroups = [
@@ -177,7 +182,8 @@ export const handbookGroups = [
       page("CLI Framework", "tooling/cli-framework.md"),
       page("Persistence", "tooling/persistence.md"),
       page("Testing & Dev Tooling", "tooling/testing-dev-tooling.md"),
-      page("Cheat Sheet & Index", "reference/cheat-sheet-index.md")
+      page("Cheat Sheet & Index", "reference/cheat-sheet-index.md"),
+      page("Using the Handbook from an Agent", "reference/agent-guide.md")
     ]
   }
 ]
@@ -199,7 +205,8 @@ export const deepDiveGroups = [
       page("Testing an Effect Application", "deep-dives/testing-an-effect-application.md"),
       page("Streaming Ingestion Without Accidental Buffering", "deep-dives/streaming-ingestion-without-accidental-buffering.md"),
       page("The Durability and Distribution Ladder", "deep-dives/durability-and-distribution-ladder.md"),
-      page("Building a Production AI Capability", "deep-dives/building-a-production-ai-capability.md")
+      page("Building a Production AI Capability", "deep-dives/building-a-production-ai-capability.md"),
+      page("Exposing an Effect Application over MCP", "deep-dives/exposing-an-effect-application-over-mcp.md")
     ]
   }
 ]
@@ -209,6 +216,7 @@ export const siteGroups = [...handbookGroups, ...deepDiveGroups]
 export const sitePages = siteGroups.flatMap((group) => group.items)
 
 export const deepDiveAgentSummaries = Object.freeze({
+  "deep-dives/exposing-an-effect-application-over-mcp.md": "Architecture: McpServer is an external boundary over an existing Toolkit, not the agent loop; one server declares its protocol eras and serves stateless and session clients alike; the catalog is shaped with annotations, Tool.Strict, and EnabledWhen; HttpRouter middleware makes the server an OAuth resource server that derives tenant and scopes from token claims; human approval uses elicit on session eras and an HMAC-sealed InputRequired round trip on the stateless era; retried calls are idempotent; the server is tested in-process through HttpRouter.toWebHandler.",
   "deep-dives/adopting-effect-in-an-existing-codebase.md": "Architecture: audit each function for hidden failure, dependency, lifetime, and cancellation behavior; pin current behavior with characterization tests; migrate leaf-first behind an unchanged external contract; keep exactly one seam where Promise meets Effect; make adapters cancellable before adding retry or timeout policy; take early test wins with provideService.",
   "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md": "Architecture: every resource and fiber has one named owner scope; startup is a transaction that either completes or releases what it acquired; readiness and draining are explicit states separate from liveness; one shutdown operation closes intake, drains, then releases in reverse order; callback bridges into host frameworks carry cancellation and never outlive their owner.",
   "deep-dives/reactivity-from-atoms-to-mastery.md": "Architecture: AtomRegistry owns the reactive graph and lifecycle; Atom.runtime supplies Effect services; Reactivity keys drive targeted invalidation; Hydration crosses the SSR boundary; framework bindings consume AsyncResult without hiding typed failures.",
@@ -243,7 +251,8 @@ export const agentBundles = [
     "recipes/managed-runtime-integration.md",
     "recipes/request-cancellation-through-a-host.md",
     "tooling/testing-dev-tooling.md",
-    "reference/cheat-sheet-index.md"
+    "reference/cheat-sheet-index.md",
+    "reference/agent-guide.md"
   ]),
   bundle("web", "Effect 4 Web & Service Boundaries", "effect-4-web.md", [
     "data/schema.md",

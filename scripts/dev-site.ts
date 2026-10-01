@@ -5,15 +5,20 @@ import process from "node:process"
 import { fileURLToPath } from "node:url"
 
 import { buildAgentHandbook } from "./build-agent-handbook.ts"
-import { buildLlmsIndex } from "./build-page-markdown.ts"
+import { buildPageMarkdownArtifacts } from "./build-page-markdown.ts"
 import { buildRetrievalArtifacts } from "./build-retrieval-artifacts.ts"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const publicDirectory = path.join(root, "public")
 const retrieval = await buildRetrievalArtifacts()
+const pageMarkdown = await buildPageMarkdownArtifacts()
+const aggregate = Buffer.from(await buildAgentHandbook())
+// Page twins are served by the dev middleware in `.vitepress/config.ts` so
+// they track edits live; only the root-level artifacts are staged here.
 const developmentArtifacts = [
-  { relativePath: "effect-4-handbook.md", contents: Buffer.from(await buildAgentHandbook()) },
-  { relativePath: "llms.txt", contents: Buffer.from(buildLlmsIndex()) },
+  { relativePath: "effect-4-handbook.md", contents: aggregate },
+  { relativePath: "llms-full.txt", contents: aggregate },
+  ...pageMarkdown.artifacts.filter((artifact) => artifact.kind === "index"),
   ...retrieval.artifacts
 ]
 

@@ -1,15 +1,15 @@
 # AI & Language Models
 
-`effect/unstable/ai` provides a provider-agnostic AI toolkit. Business logic depends on `LanguageModel.LanguageModel` from context; a concrete provider (OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint) is injected as a `Layer`. Schemas validate structured outputs and tool parameters, streaming is a `Stream`, errors are typed, and all calls are traced. Swapping providers requires changing a Layer, not application code. For fixed-answer judgments (a label, a rating on a scale, or a probability) there is a second, narrower service, [`DecisionModel`](#decisionmodel), with its own providers.
+`effect/ai` provides a provider-agnostic AI toolkit. Business logic depends on `LanguageModel.LanguageModel` from context; a concrete provider (OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint) is injected as a `Layer`. Schemas validate structured outputs and tool parameters, streaming is a `Stream`, errors are typed, and all calls are traced. Swapping providers requires changing a Layer, not application code. For fixed-answer judgments (a label, a rating on a scale, or a probability) there is a second, narrower service, [`DecisionModel`](#decisionmodel), with its own providers.
 
-> **Official companions:** The release-matched [AI examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/71_ai) cover language-model calls, tools, and stateful chat. The broader [AI documentation source tree](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src) and [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/LLMS.md) are the official executable corpus and coding-agent entry point.
+> **Official companions:** The release-matched [AI examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/71_ai) cover language-model calls, tools, and stateful chat. The broader [AI documentation source tree](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src) and [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0/LLMS.md) are the official executable corpus and coding-agent entry point.
 
 > **Note:** Every example below assumes a provider client Layer built from `Config`. Providers need an `HttpClient` — you choose which one (here `FetchHttpClient`):
 
 ```ts
 import { Config, Layer } from "effect"
 import { OpenAiClient } from "@effect/ai-openai"
-import { FetchHttpClient } from "effect/unstable/http"
+import { FetchHttpClient } from "effect/http"
 
 // Reads OPENAI_API_KEY from your ConfigProvider; the key is Redacted, so it
 // never leaks into logs. Provide an HttpClient for the provider to use.
@@ -20,7 +20,7 @@ const OpenAiClientLayer = OpenAiClient.layerConfig({
 
 ## LanguageModel
 
-`effect/unstable/ai/LanguageModel` — unstable
+`effect/ai/LanguageModel` — unstable
 
 A provider-agnostic service for generating text, schema-validated objects, and streaming with first-class tool calling. Write against `LanguageModel.LanguageModel`; supply a provider Layer via `Effect.provide`.
 
@@ -28,7 +28,7 @@ Three verbs: `generateText` returns a rich response (text, tool calls/results, f
 
 ```ts
 import { Effect, Schema } from "effect"
-import { LanguageModel } from "effect/unstable/ai"
+import { LanguageModel } from "effect/ai"
 import { OpenAiLanguageModel } from "@effect/ai-openai"
 
 // 1) Plain text. `generateText` returns text + usage + finishReason.
@@ -72,7 +72,7 @@ Streaming yields typed parts; filter for the deltas you need:
 
 ```ts
 import { Stream } from "effect"
-import { LanguageModel, type Response } from "effect/unstable/ai"
+import { LanguageModel, type Response } from "effect/ai"
 import { OpenAiLanguageModel } from "@effect/ai-openai"
 
 const summaryTokens = LanguageModel.streamText({
@@ -89,7 +89,7 @@ const summaryTokens = LanguageModel.streamText({
 
 ```ts
 import { Effect, ExecutionPlan } from "effect"
-import { LanguageModel } from "effect/unstable/ai"
+import { LanguageModel } from "effect/ai"
 import { OpenAiLanguageModel } from "@effect/ai-openai"
 import { AnthropicLanguageModel } from "@effect/ai-anthropic"
 
@@ -111,13 +111,13 @@ When the `toolkit` you pass carries handlers, `generateText`, `generateObject`, 
 | `concurrency` | `"unbounded"` | **Set a number whenever a handler touches a rate-limited or stateful dependency**, because one model turn may request many tool calls and they all start at once by default. |
 | `disableToolCallResolution` | `false` | **Pass `true` when the application must run its own gates (authorization, approval, idempotency claim) before any handler executes.** The tools are still advertised to the model; no handler runs. |
 
-With `disableToolCallResolution: true` the response carries tool calls whose `params` stay in their **encoded** form (they are still checked against the parameter schema's encoded side, so a malformed call fails with `InvalidOutputError`), no handler result is produced for them, and handler errors and handler services drop out of the call's error and requirement types. Dispatch a call yourself through the toolkit's `handle(name, encodedParams, toolCallId?, parseOptions?)`, which decodes the parameters, runs the handler, and returns a `Stream` of `{ result, encodedResult, isFailure, failureOrigin, preliminary }` values: preliminary results first, then the final one. The optional `SchemaAST.ParseOptions` (added in `rc.116`) tune the parameter decode; `{ onExcessProperty: "error" }` rejects arguments the schema does not declare. With `failureMode: "error"` a parameter failure fails the returned Effect and a handler failure fails the stream instead of producing a final value.
+With `disableToolCallResolution: true` the response carries tool calls whose `params` stay in their **encoded** form (they are still checked against the parameter schema's encoded side, so a malformed call fails with `InvalidOutputError`), no handler result is produced for them, and handler errors and handler services drop out of the call's error and requirement types. Dispatch a call yourself through the toolkit's `handle(name, encodedParams, toolCallId?, parseOptions?)`, which decodes the parameters, runs the handler, and returns a `Stream` of `{ result, encodedResult, isFailure, failureOrigin, preliminary }` values: preliminary results first, then the final one. The optional `SchemaAST.ParseOptions` tune the parameter decode; `{ onExcessProperty: "error" }` rejects arguments the schema does not declare. With `failureMode: "error"` a parameter failure fails the returned Effect and a handler failure fails the stream instead of producing a final value.
 
 Every failure is tagged with the phase that produced it, a `Tool.FailureOrigin`: `"parameters"` (arguments did not decode), `"handler"` (the handler failed), or `"result"` (the handler's output failed to validate or encode). A returned failure carries it as `failureOrigin`; a raised one carries it as the `Toolkit.FailureOrigin` annotation on its `Cause`, read with `Context.get(Cause.annotations(cause), Toolkit.FailureOrigin)`. Use it to tell "the model sent bad arguments" from "the tool broke" without parsing messages.
 
 ```ts
 import { Effect, Schema, Stream } from "effect"
-import { LanguageModel, Tool, Toolkit } from "effect/unstable/ai"
+import { LanguageModel, Tool, Toolkit } from "effect/ai"
 
 class RaiseGateDenied extends Schema.TaggedError<RaiseGateDenied>()("RaiseGateDenied", {
   toolCallId: Schema.String,
@@ -172,7 +172,7 @@ const proposeAndSubmit = Effect.fn("proposeAndSubmit")(function*(notes: string) 
 
 ## Chat
 
-`effect/unstable/ai/Chat` — unstable
+`effect/ai/Chat` — unstable
 
 A stateful conversation on top of `LanguageModel`. Owns a mutable history `Ref`; each turn automatically includes prior messages, and an agentic loop automatically appends tool results before the next turn.
 
@@ -180,7 +180,7 @@ Create with `Chat.empty`, `Chat.fromPrompt` (seed a system message), or `Chat.fr
 
 ```ts
 import { Effect, Ref } from "effect"
-import { Chat, Prompt } from "effect/unstable/ai"
+import { Chat, Prompt } from "effect/ai"
 import { OpenAiLanguageModel } from "@effect/ai-openai"
 
 // An HRBP assistant: a multi-turn helper for an HR business partner.
@@ -213,7 +213,7 @@ For an agent, loop until the model stops calling tools — `Chat` folds each too
 
 ```ts
 import { Effect, Schema } from "effect"
-import { Chat, Tool, Toolkit } from "effect/unstable/ai"
+import { Chat, Tool, Toolkit } from "effect/ai"
 
 class AgentTurnLimit extends Schema.TaggedError<AgentTurnLimit>()("AgentTurnLimit", {
   turns: Schema.Int
@@ -249,7 +249,7 @@ const runHrbpAgent = <Tools extends Record<string, Tool.Any>>(
 
 ## Tool
 
-`effect/unstable/ai/Tool` — unstable
+`effect/ai/Tool` — unstable
 
 A single typed function the model can call. Bundles a name, a description (shown to the model), a `parameters` `Schema` the model fills in, and a `success` `Schema` for the handler's result. Parameters are validated on the way in; results on the way out.
 
@@ -259,7 +259,7 @@ Call `.setNeedsApproval(true)` for a sensitive tool, or pass a function of `(par
 
 ```ts
 import { Effect, Schema } from "effect"
-import { Tool } from "effect/unstable/ai"
+import { Tool } from "effect/ai"
 
 const EmployeeId = Schema.String.pipe(Schema.brand("EmployeeId"))
 
@@ -299,17 +299,17 @@ A tool call ends in one of four shapes, and the encoded form of each is a **pers
 
 - **Declare `failure` when the model should see a domain error.** `Tool.make(name, { failure: BandNotFound, failureMode: "return" })` types the handler's error channel; `failureMode: "error"` keeps the same failure in the Effect error channel instead.
 - **`Tool.failureResultSchema(tool)` is `Schema.Union([AiError.AiError, tool.failureSchema, Tool.ExecutionFailure])`.** Use it, not the bare `failure` schema, when you decode stored failed results.
-- **The codec is selected by `isFailure`, never guessed from the value.** A tool with `success: Schema.Number` and `failure: Schema.NumberFromString` stores a failed `404` as `"404"`. Histories written before `rc.113` that encoded failures through the success schema need a migration.
+- **The codec is selected by `isFailure`, never guessed from the value.** A tool with `success: Schema.Number` and `failure: Schema.NumberFromString` stores a failed `404` as `"404"`.
 - **`Tool.FailureResult` and `Tool.Result` include `Tool.ExecutionFailure` in both failure modes**, so an exhaustive narrowing of a failed result has one more case. (`Response.ToolResultPart(...)` is typed as a `Schema.Codec` rather than a `Schema.decodeTo`; this only matters if you wrote that type out.)
 - **Parameter validation follows `failureMode` too.** A call whose arguments do not decode produces `ToolParameterValidationError` (`toolName` and `description` only — the rejected arguments are no longer attached as `toolParams`). Under `"error"` the generation fails with that `AiError`; under `"return"` the error goes back to the model as a failed tool result so it can correct the call. Either way the handler does not run.
 
-> **Note:** `Tool.dynamic(name, { parameters })` accepts a Schema **or** a raw JSON Schema for tools discovered at runtime (for example from an MCP server). After `tool.setParameters(schema)` the replacement schema is what gets advertised to the model. A tool annotated `.annotate(Tool.Strict, true)` needs an Effect Schema to be served over MCP: from `rc.116` `McpServer.toolkit` / `registerToolkit` dies at registration on a strict dynamic tool whose parameters are raw JSON Schema, because the server could not enforce strictness on it. Annotate intent with `Tool.Title`, `Tool.Readonly`, `Tool.Destructive`, `Tool.Idempotent`, and `Tool.OpenWorld`; `McpServer` forwards them as MCP tool hints.
+> **Note:** `Tool.dynamic(name, { parameters })` accepts a Schema **or** a raw JSON Schema for tools discovered at runtime (for example from an MCP server). After `tool.setParameters(schema)` the replacement schema is what gets advertised to the model. A tool annotated `.annotate(Tool.Strict, true)` needs an Effect Schema to be served over MCP: `McpServer.toolkit` / `registerToolkit` dies at registration on a strict dynamic tool whose parameters are raw JSON Schema, because the server could not enforce strictness on it. Annotate intent with `Tool.Title`, `Tool.Readonly`, `Tool.Destructive`, `Tool.Idempotent`, and `Tool.OpenWorld`; `McpServer` forwards them as MCP tool hints.
 
 **Reach for it when** the model needs to fetch data or call an API mid-generation. Define the contract here; group and implement with `Toolkit`.
 
 ## Toolkit
 
-`effect/unstable/ai/Toolkit` — unstable
+`effect/ai/Toolkit` — unstable
 
 A typed bundle of tools plus their handler implementations. `Toolkit.make(...tools)` groups any number of `Tool`s; `toolkit.toLayer(...)` produces a `Layer` satisfying every handler. The framework decodes parameters, invokes the right handler, validates the result, and feeds it back to the model automatically.
 
@@ -317,7 +317,7 @@ Handlers are plain Effects and can yield other services. `Toolkit.merge` combine
 
 ```ts
 import { Context, Effect, Layer, Schema } from "effect"
-import { AiError, LanguageModel, Tool, Toolkit } from "effect/unstable/ai"
+import { AiError, LanguageModel, Tool, Toolkit } from "effect/ai"
 import { OpenAiLanguageModel } from "@effect/ai-openai"
 
 // Kept self-contained here; a real module would reuse the Tool declared above.
@@ -376,14 +376,14 @@ Yielding a toolkit (`yield* CompToolkit`) resolves its handlers from context and
 
 ## Prompt
 
-`effect/unstable/ai/Prompt` — unstable
+`effect/ai/Prompt` — unstable
 
 The provider-neutral representation of conversation input: an ordered list of `Message`s (system/user/assistant), each composed of typed `Part`s (text, file, reasoning, tool-call, tool-result).
 
 `RawInput` means you can pass a plain string, an array of message objects, or a real `Prompt` — `Prompt.make` normalizes all three. Combinators: `Prompt.empty`, `concat` (append), `setSystem` (replace system message), `fromMessages`, and `fromResponseParts` (convert a model response into prompt history).
 
 ```ts
-import { Prompt } from "effect/unstable/ai"
+import { Prompt } from "effect/ai"
 
 // A string is the simplest prompt (becomes a single user message).
 const p0 = Prompt.make("Summarize this employee's review in one paragraph.")
@@ -401,7 +401,7 @@ const retargeted = Prompt.setSystem(combined, "You are a strict comp-policy revi
 
 ## Response
 
-`effect/unstable/ai/Response` — unstable
+`effect/ai/Response` — unstable
 
 The typed vocabulary of model output. A non-streaming call returns a `GenerateTextResponse` whose `content` is an array of `Part`s; streaming yields a sequence of `StreamPart`s. Convenience getters avoid manual part parsing.
 
@@ -409,7 +409,7 @@ Output is a tagged stream of parts: `text-start` / `text-delta` / `text-end`, `r
 
 ```ts
 import { Effect } from "effect"
-import { LanguageModel, type Response } from "effect/unstable/ai"
+import { LanguageModel, type Response } from "effect/ai"
 
 const inspect = Effect.gen(function*() {
   const res = yield* LanguageModel.generateText({ prompt: "Draft a one-line raise rationale." })
@@ -433,7 +433,7 @@ const inspect = Effect.gen(function*() {
 
 ## EmbeddingModel
 
-`effect/unstable/ai/EmbeddingModel` — unstable
+`effect/ai/EmbeddingModel` — unstable
 
 A provider-agnostic service for turning text into vectors. `embed(input)` returns one embedding; `embedMany(inputs)` returns a batch with usage metadata. The single-input path is backed by a `RequestResolver`, so concurrent `embed` calls are automatically batched into one provider request.
 
@@ -441,7 +441,7 @@ Write against `EmbeddingModel.EmbeddingModel`; provide a provider Layer (e.g. `O
 
 ```ts
 import { Effect } from "effect"
-import { EmbeddingModel } from "effect/unstable/ai"
+import { EmbeddingModel } from "effect/ai"
 import { OpenAiEmbeddingModel } from "@effect/ai-openai"
 
 // Embed job descriptions so you can match roles, detect duplicate reqs, or
@@ -482,7 +482,7 @@ const embedJobDescriptions = Effect.gen(function*() {
 
 ## Decision
 
-`effect/unstable/ai/Decision` — unstable
+`effect/ai/Decision` — unstable
 
 A decision definition is plain data: one input `Schema` plus named questions whose answers come from a closed set. `Decision.make({ input, decisions })` builds it; nothing calls a model until [`DecisionModel.decide`](#decisionmodel) answers every decision in the definition in **one** provider call.
 
@@ -492,13 +492,13 @@ Three kinds of question:
 | --- | --- | --- |
 | `Decision.classify({ instructions, criteria })` | Which label fits; `criteria` maps each label to a description. | `{ label, probabilities, confidence? }` — `label` is the provider's pick and need not be the most probable label. |
 | `Decision.rate({ instructions, criteria })` | Where the input sits on an ordered scale; `criteria` lists levels lowest first. | `{ rating, label, probabilities, confidence? }` — `rating` is the probability-weighted position in `[0, levels - 1]` and can fall between two levels; `label` is the most probable level (the first one on a tie). |
-| `Decision.probability({ instructions, criteria: { false, true } })` | How likely a statement about the input holds. | `{ probability }` — the probability of `true`. |
+| `Decision.probability({ instructions, criteria? })` | How likely a statement about the input holds; `criteria` (an optional `{ false, true }` pair of descriptions) documents both outcomes but can be omitted. | `{ probability }` — the probability of `true`. |
 
-Answer keys and label types are inferred from the definition. The constructors validate eagerly and **throw**: `classify` needs at least two labels, `rate` at least two distinct levels, and `make` at least one decision. Define them at module level so a malformed definition fails at startup, not mid-request.
+Answer keys and label types are inferred from the definition. The constructors validate eagerly and **throw**: `classify` needs at least two labels, `rate` at least two distinct levels, and `make` at least one decision. Define them at module level so a malformed definition fails at startup, not mid-request. `criteria` on a `probability` decision is optional — code that inspects a definition at runtime should read it as `decision.criteria?.true`, not assume it is present.
 
 ```ts
 import { Schema } from "effect"
-import { Decision } from "effect/unstable/ai"
+import { Decision } from "effect/ai"
 
 // The input schema is the contract: `decide` encodes the value with
 // Schema.toCodecJson and sends the JSON as the decision state.
@@ -541,7 +541,7 @@ export const RaiseRequestTriage = Decision.make({
 
 ## DecisionModel
 
-`effect/unstable/ai/DecisionModel` — unstable
+`effect/ai/DecisionModel` — unstable
 
 The provider-neutral service that answers a `Decision` definition. `DecisionModel.decide(definition, { input })` encodes the input with `Schema.toCodecJson` (an explicit `undefined` field becomes `null`; an absent one stays absent), sends that state and every decision to the provider in one request, validates the reply, and returns `{ answers, usage }`. It requires `DecisionModel.DecisionModel` plus the input schema's encoding services, and fails only with `AiError`.
 
@@ -555,7 +555,7 @@ Validation proves shape, not calibration: whether a `0.3` means 30% depends on t
 
 ```ts
 import { Effect, Layer, Schema } from "effect"
-import { Decision, DecisionModel } from "effect/unstable/ai"
+import { Decision, DecisionModel } from "effect/ai"
 import { TypeSafeDecisionModel } from "@effect/ai-typesafe"
 
 // Kept self-contained here; a real module would import the definition above.
@@ -625,7 +625,9 @@ const ScriptedDecisions = Layer.effect(
 const routedInTest = routeRaiseRequest(request).pipe(Effect.provide(ScriptedDecisions))
 ```
 
-`DecisionModel.make({ decide })` is also how to adapt an unsupported provider: `decide` receives `{ state, decisions }` and returns answers tagged `"Classify"`, `"Rate"`, or `"Probability"` plus token `usage`. Returned answers and their probability records have `null` prototypes, so compare fields rather than deep-equality against an object literal.
+`DecisionModel.make({ decide, probabilityPrecision? })` is also how to adapt an unsupported provider: `decide` receives `{ state, decisions }` and returns answers tagged `"Classify"`, `"Rate"`, or `"Probability"` plus token `usage`. Returned answers and their probability records have `null` prototypes, so compare fields rather than deep-equality against an object literal.
+
+A provider that rounds each probability to a fixed number of decimal places can return a distribution whose sum drifts slightly from 1. `probabilityPrecision` tells `make` how many decimal places the provider rounds to, so it accepts drift up to half a unit of the last place per label and rescales the distribution to sum to 1 instead of failing validation; a larger drift still fails with `InvalidOutputError`. The OpenRouter and TypeSafe providers both set `probabilityPrecision: 2`.
 
 **DecisionModel or `generateObject`?**
 
@@ -642,7 +644,7 @@ A `confidence` field in a `generateObject` schema is text the model wrote about 
 
 ## Model
 
-`effect/unstable/ai/Model` — unstable
+`effect/ai/Model` — unstable
 
 The provider-agnostic handle every provider's `.model(...)` returns. A `Model` is a `Layer` that supplies AI services (`LanguageModel`, `EmbeddingModel`/`Dimensions`, or `DecisionModel`) and records two context values: `Model.ProviderName` and `Model.ModelName`.
 
@@ -650,7 +652,7 @@ The provider-agnostic handle every provider's `.model(...)` returns. A `Model` i
 
 ```ts
 import { Effect, Layer } from "effect"
-import { LanguageModel, Model } from "effect/unstable/ai"
+import { LanguageModel, Model } from "effect/ai"
 
 declare const bedrockLayer: Layer.Layer<LanguageModel.LanguageModel>
 
@@ -669,7 +671,7 @@ const program = Effect.gen(function*() {
 
 ## Tokenizer
 
-`effect/unstable/ai/Tokenizer` — unstable
+`effect/ai/Tokenizer` — unstable
 
 A service for counting tokens and truncating a `Prompt` to a token budget. `tokenize(input)` returns the token array (use `.length` for a count); `truncate(input, maxTokens)` drops whole messages from the front until the prompt fits.
 
@@ -679,7 +681,7 @@ A service for counting tokens and truncating a `Prompt` to a token budget. `toke
 
 ```ts
 import { Effect } from "effect"
-import { Tokenizer } from "effect/unstable/ai"
+import { Tokenizer } from "effect/ai"
 
 // Estimate the size of a review packet before sending it to the model.
 const countTokens = Effect.gen(function*() {
@@ -707,7 +709,7 @@ const WordTokenizer = Tokenizer.make({
 
 ## IdGenerator
 
-`effect/unstable/ai/IdGenerator` — unstable
+`effect/ai/IdGenerator` — unstable
 
 A service that mints identifiers for AI artifacts, primarily tool-call IDs. Uses Effect's `Random` under the hood, so it is deterministic under a seeded test runtime.
 
@@ -715,7 +717,7 @@ A service that mints identifiers for AI artifacts, primarily tool-call IDs. Uses
 
 ```ts
 import { Effect } from "effect"
-import { IdGenerator } from "effect/unstable/ai"
+import { IdGenerator } from "effect/ai"
 
 const useIds = Effect.gen(function*() {
   const gen = yield* IdGenerator.IdGenerator
@@ -737,7 +739,7 @@ const program = useIds.pipe(
 
 ## Telemetry
 
-`effect/unstable/ai/Telemetry` — unstable
+`effect/ai/Telemetry` — unstable
 
 Helpers that write standardized GenAI attributes onto OpenTelemetry spans, following OTel semantic conventions for LLMs (system, model, temperature, token usage, etc.). AI calls are already traced; this enriches those spans.
 
@@ -745,7 +747,7 @@ Helpers that write standardized GenAI attributes onto OpenTelemetry spans, follo
 
 ```ts
 import { Effect } from "effect"
-import { Telemetry } from "effect/unstable/ai"
+import { Telemetry } from "effect/ai"
 
 // Stamp GenAI attributes on the span around a review-drafting call so cost and
 // token usage show up on your comp-tooling dashboards.
@@ -763,7 +765,7 @@ const annotated = Effect.gen(function*() {
 
 ## AiError
 
-`effect/unstable/ai/AiError` — unstable
+`effect/ai/AiError` — unstable
 
 The typed failure channel for all AI operations. Every provider call, tool invocation, and structured decode fails with an `AiError` carrying a structured `reason`, enabling LLM failures to be handled like any other Effect error.
 
@@ -771,7 +773,7 @@ One umbrella error (`AiError`, tag `"AiError"`) wrapping a discriminated `reason
 
 ```ts
 import { Effect, Schedule, Schema } from "effect"
-import { AiError, LanguageModel } from "effect/unstable/ai"
+import { AiError, LanguageModel } from "effect/ai"
 
 // Wrap provider failures in your own tagged error, reusing the reason schema.
 class ReviewServiceError extends Schema.TaggedError<ReviewServiceError>()("ReviewServiceError", {
@@ -817,7 +819,7 @@ Every reason class has an `isRetryable` getter, and `AiError` forwards it (`erro
 
 ## ResponseIdTracker
 
-`effect/unstable/ai/ResponseIdTracker` — unstable
+`effect/ai/ResponseIdTracker` — unstable
 
 An optimization service for providers that support continuing from a prior response (e.g. OpenAI's Responses API `previousResponseId`). Records which prompt messages were sent with each response; a follow-up call can send only the new messages plus the prior response ID.
 
@@ -825,7 +827,7 @@ An optimization service for providers that support continuing from a prior respo
 
 ```ts
 import { Effect } from "effect"
-import { Chat, ResponseIdTracker } from "effect/unstable/ai"
+import { Chat, ResponseIdTracker } from "effect/ai"
 
 // Provide the tracker so a compatible provider reuses previousResponseId
 // instead of re-sending the entire HRBP conversation each turn.
@@ -848,7 +850,7 @@ Run the whole conversation with one compatible `LanguageModel` service. The same
 
 ## McpSchema
 
-`effect/unstable/ai/McpSchema` — unstable
+`effect/ai/McpSchema` — unstable
 
 The complete Model Context Protocol (MCP) wire format as Effect `Schema`s and `Rpc` definitions: requests/results, resources and resource templates, prompts, completions, capabilities, and JSON-RPC error codes. The typed contract `McpServer` is built on.
 
@@ -856,7 +858,7 @@ Commonly used helpers: `McpSchema.param(name, schema)` declares typed parameters
 
 ```ts
 import { Schema } from "effect"
-import { McpSchema } from "effect/unstable/ai"
+import { McpSchema } from "effect/ai"
 
 // A typed URI-template parameter — e.g. the employee id in an HRIS resource.
 const employeeIdParam = McpSchema.param("employeeId", Schema.String)
@@ -869,14 +871,14 @@ McpSchema.INVALID_PARAMS_ERROR_CODE // -32602
 
 ## McpProtocol
 
-`effect/unstable/ai/McpProtocol` — unstable
+`effect/ai/McpProtocol` — unstable
 
-The versioned protocol adapter registry used by `McpServer`. The audited release ships five adapters — `McpProtocol.v2024_11_05`, `v2025_03_26`, `v2025_06_18`, `v2025_11_25`, and (new in `rc.116`) `v2026_07_28` — each binding the matching client/server RPC groups and transport rules. The `2025-11-25` adapter adds sampling with tools, form- and URL-based elicitation, and `McpSchema.Icon` metadata (source URI, MIME type, sizes, light/dark theme) for server info, resources, resource templates, prompts, and tools. Server transports require a non-empty `protocols` list so negotiation is explicit rather than silently assuming whichever MCP revision a client sends.
+The versioned protocol adapter registry used by `McpServer`. It ships five adapters — `McpProtocol.v2024_11_05`, `v2025_03_26`, `v2025_06_18`, `v2025_11_25`, and `v2026_07_28` — each binding the matching client/server RPC groups and transport rules. The `2025-11-25` adapter adds sampling with tools, form- and URL-based elicitation (including identified object schemas), and `McpSchema.Icon` metadata (source URI, MIME type, sizes, light/dark theme) for server info, resources, resource templates, prompts, and tools. Server transports require a non-empty `protocols` list so negotiation is explicit rather than silently assuming whichever MCP revision a client sends.
 
 **`2026-07-28` is stateless.** It drops `initialize` and protocol-level sessions: each request carries its own protocol version and client metadata, a client can call `server/discover` to read the server's identity, capabilities, and instructions, and change notifications are delivered through `subscriptions/listen` when the transport can push. It works over both stdio and Streamable HTTP, and it can share a `protocols` list with the session-based revisions, so one server can serve old and new clients; a server accepts at most one stateless revision. Adapters now describe their transport rules through a `runtime` descriptor (`McpProtocol.StatefulRuntimeDescriptor` / `StatelessRuntimeDescriptor`) instead of the former `transport` field, which matters only if you wrote your own adapter.
 
 ```ts
-import { McpProtocol, McpServer } from "effect/unstable/ai"
+import { McpProtocol, McpServer } from "effect/ai"
 
 // Session-based clients negotiate 2025-11-25; stateless clients use 2026-07-28.
 const StdioMcp = McpServer.layerStdio({
@@ -886,7 +888,7 @@ const StdioMcp = McpServer.layerStdio({
 })
 ```
 
-The 2025-06-18 adapter rejects JSON-RPC batches on its transport. The `MCP-Protocol-Version` header is validated only on requests **after** initialization: an `initialize` request negotiates from the version offered in its body and reports the selected version in the response, so a fresh client whose default header is not registered is no longer rejected with `400` before negotiation can happen. List every adapter you intentionally support; initialization selects the requested version and the server uses the first adapter as its fallback/default.
+The 2025-06-18 adapter rejects JSON-RPC batches on its transport. The `MCP-Protocol-Version` header is validated only on requests **after** initialization: an `initialize` request negotiates from the version offered in its body and reports the selected version in the response, so a fresh client whose default header is not registered is no longer rejected with `400` before negotiation can happen. List every adapter you intentionally support; initialization selects the requested version and the server uses the first adapter as its fallback/default. A stdio server answers a `ping` sent before `initialize` with an empty result rather than rejecting it, even when a stateless protocol such as `2026-07-28` is listed first among several `protocols`.
 
 Streamable HTTP is strict at the boundary. If a request carries `Origin`, `layerHttp` returns 403 unless that exact origin appears in `allowedOrigins`. POST requires `Content-Type: application/json` (otherwise 415) and an `Accept` header that includes both `application/json` and `text/event-stream` with positive quality (otherwise 406).
 
@@ -894,16 +896,16 @@ Streamable HTTP is strict at the boundary. If a request carries `Origin`, `layer
 
 ## McpServer
 
-`effect/unstable/ai/McpServer` — unstable
+`effect/ai/McpServer` — unstable
 
 A batteries-included framework for building MCP servers — the protocol that lets editors and AI clients (Claude Desktop, IDEs) discover tools, resources, and prompts. Handles JSON-RPC plumbing; capabilities are registered as Layers and a transport is chosen.
 
-`McpServer.toolkit(toolkit)` exposes a `Toolkit` as MCP tools; `McpServer.resource\`uri/${param}\`({...})` exposes resources/templates (with auto-completion); `McpServer.prompt({...})` exposes parameterized prompts, with an optional human-readable `title` beside the `name` (from `rc.116`, also on `registerPrompt`). Transports: `layerStdio` (desktop clients), `layerHttp` (mount on an `HttpRouter`). Every server constructor (`layer`, `layerStdio`, `layerHttp`, `run`) accepts an optional `instructions` string, returned in the initialization and discovery responses to tell a client how to use the server. Launch with `Layer.launch` + `NodeRuntime.runMain`.
+`McpServer.toolkit(toolkit)` exposes a `Toolkit` as MCP tools; `McpServer.resource\`uri/${param}\`({...})` exposes resources/templates (with auto-completion); `McpServer.prompt({...})` exposes parameterized prompts, with an optional human-readable `title` beside the `name` (also accepted by `registerPrompt`). Transports: `layerStdio` (desktop clients), `layerHttp` (mount on an `HttpRouter`). Every server constructor (`layer`, `layerStdio`, `layerHttp`, `run`) accepts an optional `instructions` string, returned in the initialization and discovery responses to tell a client how to use the server. Launch with `Layer.launch` + `NodeRuntime.runMain`.
 
 ```ts
 import { Effect, Layer, Logger, Schema } from "effect"
 import { NodeRuntime, NodeStdio } from "@effect/platform-node"
-import { McpProtocol, McpSchema, McpServer } from "effect/unstable/ai"
+import { McpProtocol, McpSchema, McpServer } from "effect/ai"
 
 const employeeIdParam = McpSchema.param("employeeId", Schema.String)
 
@@ -949,24 +951,98 @@ Layer.launch(ServerLayer).pipe(NodeRuntime.runMain)
 | Handler outcome | Wire result | Logged and reported to `ErrorReporter` |
 | --- | --- | --- |
 | Success | `isError: false`; the encoded result as JSON text, plus `structuredContent` **only when it is a JSON object** (never `null` or an array, which MCP forbids there) | no |
-| Arguments fail the parameter schema (a `Tool.Strict` tool also rejects undeclared properties) | Protocols `2024-11-05`, `2025-03-26`, `2025-06-18`: a JSON-RPC `InvalidParams` error. Protocols `2025-11-25` and `2026-07-28`: an `isError: true` result carrying the validation message, so the calling model can correct itself | no |
-| Declared `failure`, `failureMode: "error"`, value is an `Error` instance | `isError: true` with that error's `message` — give the error class a meaningful `message`, because a bare tagged error has an empty one | no |
+| Arguments fail the parameter schema (a `Tool.Strict` tool also rejects undeclared properties) | Protocols `2024-11-05`, `2025-03-26`, `2025-06-18`: a JSON-RPC `InvalidParams` error listing every missing or invalid field, and every unknown key for a strict tool, in one response. Protocols `2025-11-25` and `2026-07-28`: an `isError: true` result carrying that same combined validation message, so the calling model can correct itself | no |
+| Declared `failure`, `failureMode: "error"`, value is an `Error` instance | `isError: true` with that error's `message` — an empty message falls back to the failure's encoded value, so a bare tagged error is still legible | no |
 | Declared `failure`, `failureMode: "error"`, any other value | `isError: true` with the failure encoded through its schema as JSON text | no |
 | Declared `failure`, `failureMode: "return"` | `isError: true` with the encoded failure payload as JSON text | no |
-| An undeclared failure or `AiError`, a defect, or a result that fails its `success` schema or cannot be serialized | `isError: true` with a fixed internal-error message — details never reach the client | yes |
+| An undeclared failure or `AiError`, a defect, or a result that fails its `success` schema or cannot be serialized | Protocols `2025-11-25` and `2026-07-28`: `isError: true` with a fixed internal-error message. Earlier protocols: a JSON-RPC `-32603 Internal error` (not `-32602 Invalid params`). Either way, details never reach the client | yes |
 
-A failed call never carries `structuredContent`. Declared failures are part of the tool's contract, so from `rc.116` the server sends them to the client and does not log or report them; everything else is logged at error level and handed to the configured `ErrorReporter`s, so provide one when you need alerting on tool faults (see [Observability](../operations/observability)). Both failure modes now produce `isError: true`: choose `"error"` when the client should read a short message, and `"return"` when it should receive the structured failure payload. Either way the declared failure is visible to the client, so keep secrets and internal detail out of it.
+A failed call never carries `structuredContent`. Declared failures are part of the tool's contract, so the server sends them to the client and does not log or report them; everything else is logged at error level and handed to the configured `ErrorReporter`s, so provide one when you need alerting on tool faults (see [Observability](../operations/observability)). Both failure modes produce `isError: true`: choose `"error"` when the client should read a short message, and `"return"` when it should receive the structured failure payload. Either way the declared failure is visible to the client, so keep secrets and internal detail out of it.
 
-Tool input schemas follow `Tool.Strict`: a strict tool advertises `additionalProperties: false` and the server rejects extra arguments, while a non-strict tool advertises `additionalProperties: true` and ignores them. A top-level `$ref` in a parameter schema is inlined, because MCP requires an object at the root.
+Tool input schemas follow `Tool.Strict`: a strict tool advertises `additionalProperties: false` and the server rejects extra arguments, while a non-strict tool advertises `additionalProperties: true` and ignores them. A top-level `$ref` in a parameter schema is inlined, and an identified `success` output schema is likewise normalized to an object root, because MCP requires an object at the root. Calling `McpServer.toolkit` with a tool whose parameter schema is not an object schema fails fast with a clear, named error instead of a dispatch-time failure. In a protocol that omits string `structuredContent`, a result whose single text block is already the exact JSON encoding of that string is returned as plain text rather than duplicated.
 
 - **Server identity can carry icons.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `icons: ReadonlyArray<McpSchema.Icon>` (`src`, optional `mimeType`, `sizes`, `theme`). The `McpSchema.Resource`, `ResourceTemplate`, `Prompt`, and `Tool` schemas have the same optional field for entries registered through the lower-level `McpServer` registry service.
 - **Prompt and resource callbacks receive decoded values.** `McpServer.prompt` / `registerPrompt` pass `content` the *decoded* type of each `parameters` schema, and resource templates resolve over both stdio and Streamable HTTP.
+- **Tool annotation titles survive `tools/list`.** On the `2025-06-18` and `2025-11-25` protocol revisions, a tool's annotation `title` is reported in `tools/list` responses alongside its top-level `title` and behavioral hints.
+- **Server `extensions` are advertised, not implemented.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `extensions`, a record keyed `vendor/name` with JSON settings, reported in the server capabilities of `initialize` and `server/discover`. `2026-07-28` discovery lists only object-valued settings. Behavior behind an extension is your code; 4.0.0 ships no extension helpers and no MCP client.
+
+### Request context, client gating, and human input
+
+- **`McpSchema.McpRequestContext`** is provided to every tool handler, resource `content`, and prompt `content`: `clientId`, `protocolVersion`, `clientCapabilities`, optional `clientInfo` and `requestMetadata`, and, on a continued `2026-07-28` call, `inputResponses` and `requestState`. Read it with `yield* McpSchema.McpRequestContext` or `McpSchema.McpRequestContext.useSync(f)`; `McpServer.clientCapabilities` reads just the capabilities. A toolkit tool declares it with `dependencies: [McpSchema.McpRequestContext]`, and `McpServer.toolkit` leaves it out of the Layer's requirements because each call supplies it. Everything in it is self-reported by the client.
+- **`McpSchema.McpServerClient`** exists only for initialized session-era clients. It is what server-to-client requests need; `2026-07-28` requests never have it.
+- **`McpSchema.EnabledWhen`** is an annotation holding a predicate over `{ protocolVersion, capabilities, clientInfo }`: `.annotate(McpSchema.EnabledWhen, predicate)` on a `Tool`, or `annotations: Context.make(McpSchema.EnabledWhen, predicate)` on `addTool`, `prompt`, and `registerResource`. A false predicate removes the entry from that client's list, and a direct call fails as not found. It trims the catalog per client; it does not authorize.
+- **`McpServer.elicit({ message, schema })`** returns `Effect<S["Type"], McpSchema.ElicitationDeclined, McpServerClient | S["DecodingServices"]>`. It sends a form-mode `elicitation/create` built from `schema` to the current session client, then decodes the accepted content with `schema`. A decline fails with `ElicitationDeclined`, and so does a client or revision without form elicitation (the reason is in `cause`); a cancel interrupts the handler. Session eras only, so hide the tool from `2026-07-28` clients:
+
+```ts
+import { Effect, Schema } from "effect"
+import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai"
+
+declare const applyBandTable: (tableId: string) => Effect.Effect<void>
+const Confirm = Schema.Struct({ confirm: Schema.Boolean })
+
+const ApplyBandTable = Tool.make("comp_apply_band_table", {
+  parameters: Schema.Struct({ tableId: Schema.String }),
+  success: Schema.Struct({ applied: Schema.Boolean }),
+  dependencies: [McpSchema.McpServerClient] // supplied per call to session clients
+}).annotate(McpSchema.EnabledWhen, (client) => client.protocolVersion !== "2026-07-28")
+
+const BandToolkit = Toolkit.make(ApplyBandTable)
+export const BandHandlers = BandToolkit.toLayer({
+  comp_apply_band_table: Effect.fn("comp_apply_band_table")(function*({ tableId }) {
+    const message = `Apply band table ${tableId} to every open cycle?`
+    const { confirm } = yield* McpServer.elicit({ message, schema: Confirm }).pipe(
+      Effect.catchTag("ElicitationDeclined", () => Effect.succeed({ confirm: false }))
+    )
+    if (confirm) yield* applyBandTable(tableId)
+    return { applied: confirm }
+  })
+})
+```
+
+- **`McpServer.McpServer.addTool` and `McpSchema.InputRequired`** are the stateless way to ask for input. A toolkit handler must return the tool's success type, so a tool that pauses for input is registered on the `McpServer.McpServer` service with a hand-written `McpSchema.Tool` descriptor (`inputSchema` must have an object root). Its `handle(payload)` receives the raw arguments and returns `CallToolResult | InputRequired`, failing only with `McpSchema.InternalError | McpSchema.InvalidParams` and requiring only `McpRequestContext`. `new McpSchema.InputRequired({ inputRequests, requestState })` needs at least one of the two; each keyed request is `elicitation/create`, `sampling/createMessage`, or `roots/list`. The client calls again with the same arguments, the answers in `inputResponses` under your keys, and `requestState` echoed unchanged. A missing client capability fails the call with protocol error `-32021` and `data.requiredCapabilities`; a session-era client that receives `InputRequired` gets a protocol error; `InvalidParams` on a continued call becomes JSON-RPC `-32602`. `requestState` returns from the client, so seal it (HMAC, expiry, caller binding) before trusting it.
+
+```ts
+import { Context, Effect, Layer, Schema } from "effect"
+import { McpSchema, McpServer } from "effect/ai"
+
+declare const lockCycle: Effect.Effect<void>
+const requestedSchema = { type: "object", properties: { confirm: { type: "boolean" } }, required: ["confirm"] }
+const isConfirmed = Schema.is(Schema.Struct({
+  action: Schema.Literal("accept"),
+  content: Schema.Struct({ confirm: Schema.Literal(true) })
+}))
+const text = (text: string) => new McpSchema.CallToolResult({ content: [{ type: "text", text }] })
+
+export const LockCycle = Layer.effectDiscard(McpServer.McpServer.use((server) =>
+  server.addTool({
+    tool: new McpSchema.Tool({ name: "comp_lock_cycle", inputSchema: { type: "object" } }),
+    annotations: Context.make(McpSchema.EnabledWhen, (client) => client.protocolVersion === "2026-07-28"),
+    handle: () =>
+      Effect.gen(function*() {
+        const answer = (yield* McpSchema.McpRequestContext).inputResponses?.["confirm"]
+        if (answer === undefined) {
+          const message = "Lock FY27-merit? Managers can no longer edit proposals."
+          return new McpSchema.InputRequired({
+            inputRequests: { confirm: { method: "elicitation/create", params: { mode: "form", message, requestedSchema } } }
+          })
+        }
+        if (!isConfirmed(answer)) return text("Not locked.")
+        yield* lockCycle
+        return text("Locked.")
+      })
+  })
+))
+```
+
+- **Authenticate by wrapping the HTTP layer.** `layerHttp` does not authenticate. Provide typed route middleware to it — `McpServer.layerHttp({ ... }).pipe(Layer.provide(BearerAuth.layer))`, where `BearerAuth = HttpRouter.middleware<{ provides: Principal }>()(...)` — and its routes are wrapped, because `router.add` applies the route middleware found where a route is registered; routes merged beside it (a public metadata route) are not. A service the middleware provides reaches tool, resource, and prompt handlers, which run with the HTTP request's services. Read it with `Effect.serviceOption` rather than as a tool `dependency` (that would make it a requirement of the toolkit Layer), and never provide it in the Layer graph: the server merges the toolkit's build-time context over each call's context.
+
+For the full architecture — protocol eras, catalog design, OAuth resource-server middleware, sealed `requestState`, a dual-era confirmation gate, idempotency, and in-process tests — read [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp).
 
 **Reach for it when** you want capabilities usable from Claude Desktop, an IDE, or any MCP client — without writing JSON-RPC by hand.
 
 ## AnthropicStructuredOutput
 
-`effect/unstable/ai/AnthropicStructuredOutput` — unstable
+`effect/ai/AnthropicStructuredOutput` — unstable
 
 The adapter enabling `generateObject` with Anthropic. `toCodecAnthropic(schema)` converts an Effect `Schema.Codec` into the JSON Schema subset Anthropic accepts and a matching codec to decode the model's reply back into the application type. The Anthropic provider wires this in automatically as its `codecTransformer`.
 
@@ -976,7 +1052,7 @@ Schema rewriting is lossless where possible: tuples become numeric-key objects, 
 
 ## OpenAiStructuredOutput
 
-`effect/unstable/ai/OpenAiStructuredOutput` — unstable
+`effect/ai/OpenAiStructuredOutput` — unstable
 
 The OpenAI counterpart. `toCodecOpenAI(schema)` turns an Effect `Schema.Codec` into OpenAI's structured-output JSON Schema subset plus a decoding codec. The OpenAI provider uses it automatically for `generateObject` and tool parameter schemas.
 
@@ -1004,22 +1080,22 @@ The modules above make a model call typed; they do not make it safe. These rules
 
 ## Provider packages
 
-Primitives live in `effect/unstable/ai`; concrete providers ship as satellite packages. Each exposes a `Client.layerConfig(...)` that reads a `Config.Redacted` API key (requires an `HttpClient`) and one or more `.model(name)` constructors (each a `Model` Layer). Every language-model provider produces the same `LanguageModel` service, and every decision provider the same `DecisionModel` service; switching providers is a one-line Layer change.
+Primitives live in `effect/ai`; concrete providers ship as satellite packages. Each exposes a `Client.layerConfig(...)` that reads a `Config.Redacted` API key (requires an `HttpClient`) and one or more `.model(name)` constructors (each a `Model` Layer). Every language-model provider produces the same `LanguageModel` service, and every decision provider the same `DecisionModel` service; switching providers is a one-line Layer change.
 
-- **pkg @effect/ai-openai** — OpenAI Responses API. `OpenAiClient.layerConfig`, `OpenAiLanguageModel.model("gpt-5.2")`, `OpenAiEmbeddingModel.model(name, { dimensions })`, provider-defined tools via `OpenAiTool` (e.g. `OpenAiTool.WebSearch`), and `OpenAiTelemetry`. A web search `search` action's `sources` can be URL sources (`{ type: "url", url }`) or, from `rc.116`, API sources (`{ type: "api", name }`, such as `oai-weather`), so narrow each source on `type` before reading `url` or `name`; code that read `source.url` directly no longer type-checks. Prompt caching can be steered explicitly: set `options: { openai: { promptCacheBreakpoint: { mode: "explicit" } } }` on a system message or a text part to mark the end of a reusable prefix (the provider documents this for GPT-5.6 or later and may reject it on earlier models).
+- **pkg @effect/ai-openai** — OpenAI Responses API. `OpenAiClient.layerConfig`, `OpenAiLanguageModel.model("gpt-5.2")`, `OpenAiEmbeddingModel.model(name, { dimensions })`, provider-defined tools via `OpenAiTool` (e.g. `OpenAiTool.WebSearch`), and `OpenAiTelemetry`. A web search `search` action's `sources` can be URL sources (`{ type: "url", url }`) or API sources (`{ type: "api", name }`, such as `oai-weather`), so narrow each source on `type` before reading `url` or `name`; `action` itself is optional on a web-search call or result, and an incomplete call decodes as a failed tool result instead of failing to decode. A dynamic tool backed by raw JSON Schema keeps its tool-call parameters intact. Prompt caching can be steered explicitly: set `options: { openai: { promptCacheBreakpoint: { mode: "explicit" } } }` on a system message or a text part to mark the end of a reusable prefix (the provider documents this for GPT-5.6 or later and may reject it on earlier models). In websocket mode, a turn that gets back `previous_response_not_found` is retried once with the full prompt, keeping the socket open if it is still open.
 
-- **pkg @effect/ai-anthropic** — Anthropic Messages API. `AnthropicClient.layerConfig`, `AnthropicLanguageModel.model("claude-opus-4-6")`, `AnthropicTool`, and `AnthropicTelemetry`. Structured output bridged automatically through `AnthropicStructuredOutput`.
+- **pkg @effect/ai-anthropic** — Anthropic Messages API. `AnthropicClient.layerConfig`, `AnthropicLanguageModel.model("claude-opus-4-6")`, `AnthropicTool`, and `AnthropicTelemetry`. Structured output bridged automatically through `AnthropicStructuredOutput`. A malformed 4xx response from an Anthropic-compatible gateway is mapped to the matching `AiError` reason by HTTP status (including a 429's retry delay) instead of failing as `InvalidOutputError`; a direct `AnthropicClient.client.betaMessagesPost` call fails with `HttpClientError` rather than `SchemaError` for these responses. A message response that omits `usage.inference_geo` — as some Anthropic-compatible gateways do — still decodes.
 
-- **pkg @effect/ai-openrouter** — OpenRouter's unified gateway to many models. `OpenRouterClient.layerConfig` (supports `siteReferrer`/`siteTitle` for attribution) and `OpenRouterLanguageModel.model(name)` — one key, hundreds of models. From `rc.116` it also offers `OpenRouterDecisionModel.model(name)`, a [`DecisionModel`](#decisionmodel) over OpenRouter's alpha Decisions API; it requires full label and level distributions, and accepts only a string, object, or array as the encoded input (other JSON values fail with `InvalidUserInputError`). The `OpenRouterClient.Service` interface gained `createDecisions`, so a hand-written client or test mock must now implement it.
+- **pkg @effect/ai-openrouter** — OpenRouter's unified gateway to many models. `OpenRouterClient.layerConfig` (supports `siteReferrer`/`siteTitle` for attribution) and `OpenRouterLanguageModel.model(name)` — one key, hundreds of models. It also offers `OpenRouterDecisionModel.model(name)`, a [`DecisionModel`](#decisionmodel) over OpenRouter's alpha Decisions API; it requires full label and level distributions, and accepts only a string, object, or array as the encoded input (other JSON values fail with `InvalidUserInputError`).
 
-- **pkg @effect/ai-typesafe** — New in `rc.116`: a `DecisionModel`-only provider for TypeSafe's System One API; it has no `LanguageModel`. `TypeSafeClient.layerConfig()` reads `TYPESAFE_API_KEY` by default (pass `apiKey` / `apiUrl` Configs to override), and `TypeSafeDecisionModel.model("jev-latest")` provides the service; versioned identifiers such as `"jev-1.13.0"` also work. The client does not retry, and a rate-limit error carries the provider's retry delay when one is sent, so apply the [retry rules](#classifying-a-failure-before-retrying) yourself.
+- **pkg @effect/ai-typesafe** — A `DecisionModel`-only provider for TypeSafe's System One API; it has no `LanguageModel`. `TypeSafeClient.layerConfig()` reads `TYPESAFE_API_KEY` by default (pass `apiKey` / `apiUrl` Configs to override), and `TypeSafeDecisionModel.model("jev-latest")` provides the service; versioned identifiers such as `"jev-1.13.0"` also work. The client does not retry, and a rate-limit error carries the provider's retry delay when one is sent, so apply the [retry rules](#classifying-a-failure-before-retrying) yourself.
 
 - **pkg @effect/ai-openai-compat** — Any OpenAI-compatible endpoint (local LLMs, Together, Groq, vLLM…). Same `OpenAiClient`/`OpenAiLanguageModel`/`OpenAiEmbeddingModel` API — point `apiUrl` at your server.
 
 ```ts
 // Swapping providers is a one-line change at the edge — comp logic is untouched.
 import { Config, Layer } from "effect"
-import { FetchHttpClient } from "effect/unstable/http"
+import { FetchHttpClient } from "effect/http"
 import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
 import { OpenRouterClient, OpenRouterLanguageModel } from "@effect/ai-openrouter"
 import { TypeSafeClient, TypeSafeDecisionModel } from "@effect/ai-typesafe"

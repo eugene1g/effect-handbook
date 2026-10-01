@@ -1,6 +1,6 @@
 # The Effect 4 Handbook — A Guided Tour of Effect v4
 
-> Source-grounded guide for humans and coding agents. Audited **2026-09-19** against published `effect@4.0.0-rc.116`, tag [`effect@4.0.0-rc.116`](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116), commit [`d62dd0d6`](https://github.com/Effect-TS/effect/commit/d62dd0d65252e5d3635538f0e41adc7c08aa9beb) (released 2026-09-18). Each module is labelled with its public import path and a stable/unstable marker.
+> Source-grounded guide for humans and coding agents. Audited **2026-10-01** against published `effect@4.0.0`, tag [`effect@4.0.0`](https://github.com/Effect-TS/effect/tree/effect%404.0.0), commit [`67ba4e46`](https://github.com/Effect-TS/effect/commit/67ba4e46a11ccda0b6761578bfd22c04ae00167d) (released 2026-10-01). Each module is labelled with its public import path and a stable/unstable marker.
 
 ---
 
@@ -8,52 +8,25 @@
 
 ### Version and validation scope
 
-This edition describes the published `effect@4.0.0-rc.116` API, not unreleased `main`. The source audit covered all 138 stable modules exported from `effect`, all 20 public `effect/unstable/*` families (207 modules), the platform/SQL/AI/Atom/OpenTelemetry/Vitest packages, their tests and examples, and every canonical Markdown page in this site. Examples were checked with pnpm, Node's native TypeScript execution, TypeScript 7.0.2 in strict mode, and the Effect `@effect/tsgo` diagnostics. Short fragments may declare application-specific boundaries, but every Effect API shown is present in the audited release.
+This edition describes the published `effect@4.0.0` API — the first stable release of Effect 4 — not unreleased `main`. The source audit covered all 138 modules exported from the `effect` root barrel, all 20 public `effect/<area>` families (213 modules), the platform/SQL/AI/Atom/OpenTelemetry/Vitest packages, their tests and examples, and every canonical Markdown page in this site. Examples were checked with pnpm, Node's native TypeScript execution, TypeScript 7.0.2 in strict mode, and the Effect `@effect/tsgo` diagnostics. Short fragments may declare application-specific boundaries, but every Effect API shown is present in the audited release.
 
-New to Effect 4? Start with [Getting Started](foundations/getting-started) — it covers the `rc` dist-tag trap (an untagged `npm install effect` still installs Effect 3), TypeScript and ESM settings, and a first program.
+New to Effect 4? Start with [Getting Started](foundations/getting-started) — it covers installation (`npm install effect` now installs Effect 4), TypeScript and ESM settings, and a first program.
 
-### What changed from rc.108 to rc.116
+### Stability and support
 
-Every release from `rc.109` to `rc.116` was published. Most breaking changes landed in `rc.113`; `rc.116` brought a second, smaller set. If you are upgrading, check these first.
+Effect 4.0 is a stable release with a published long-term-support policy: **bug fixes until September 2029 or one year after 5.0 ships, and security fixes until September 2029 or two years after 5.0 ships, whichever is later.** Every `effect` and `@effect/*` package shares one version number and is released together, so an upgrade is one coordinated bump.
 
-**Changed in `rc.116`.** None of these alters bytes on the wire; the PostgreSQL row changes values your code reads, so re-check row schemas before deploying.
+Stability is declared per API with a JSDoc tag, not by import path:
 
-| Change | What to do | Where |
+| Tag | Promise | Where you meet it |
 | --- | --- | --- |
-| `@effect/sql-pg` decodes `timestamp` / `timestamptz` as `Date` again (epoch milliseconds in `rc.113`–`rc.115`), decodes unregistered types such as enums as UTF-8 text, and types `listen` queues with `SqlError` | Switch row fields back to `Date`-based schemas or register a numeric codec; register codecs for enum arrays; wrap listeners in `Stream.retry`. | [Dates, enums, and LISTEN queues](interfaces/sql#dates-enums-and-listen-queues-on-the-native-client) |
-| `Stream.partition` returns `[passes, fails]` and takes `capacity` instead of `bufferSize` | Swap the destructuring order (the old order still type-checks) and rename the option. | [Combining and splitting streams](concurrency/streaming-channels#4-combining-and-splitting-streams) |
-| Stream signatures aligned with `Effect`: `Stream.mapBoth` takes `{ onElement, onError }`; `Stream.scan` / `scanEffect` take a lazy seed; `Stream.catchTags` rejects unknown keys; `Effect.orElseSucceed` passes the error to its function | Rename keys; write `Stream.scan(() => seed, f)`. | [Transforming streams](concurrency/streaming-channels#2-transforming-streams), [Errors, Option & Result](foundations/errors-option-result) |
-| `SchemaGetter` and `SchemaTransformation` values are plain data: methods, `new SchemaGetter.Getter`, `onSome` / `onNone`, and `SchemaTransformation.make` are gone | `SchemaGetter.map` / `compose` / `run`; `transformEffect` / `transformOptionalEffect`; `SchemaTransformation.composeTransformation` and `makeTransformation`. | [SchemaGetter](data/schema#schemagetter), [SchemaTransformation](data/schema#schematransformation) |
-| `Schema.Redacted(inner)` wraps the inner schema's *transformed* value | Expect `Redacted` of the decoded type. | [Secrets that arrive through a schema](foundations/configuration-secrets#secrets-that-arrive-through-a-schema) |
-| `ByteSize.Input` string literals must be a whole number and a unit | Parse external or fractional text with `ByteSize.fromString`. | [ByteSize](data/functional-toolkit#bytesize) |
-| YAML rejects unquoted plain scalars containing `: ` or ending in `:`, compact nested sequences, and multi-document input | Quote such values. | [Yaml](concurrency/streaming-channels#yaml) |
-| MCP tool failures always reach the client as `isError: true`; undeclared failures and defects send a generic message and are logged; strict dynamic tools need an Effect Schema; custom protocol adapters use `runtime` instead of `transport` | Declare failure schemas on tools exposed over MCP. | [McpServer](systems/ai-language-models#mcpserver), [McpProtocol](systems/ai-language-models#mcpprotocol) |
-| `HttpServerResponse.file` lost its unused `contentLength` option; SSE `id` fields are optional | Delete the option; model `id` with `Schema.optional`. | [HttpPlatform](interfaces/http-server#httpplatform), [Sse](concurrency/streaming-channels#sse) |
-| Custom `OpenRouterClient.Service` implementations need `createDecisions`; OpenAI web-search sources must be narrowed by `type` | Add the member to mocks; check `type` before reading `url`. | [Provider packages](systems/ai-language-models#provider-packages) |
-| `Arbitrary` shrinking and replay paths changed | Re-record saved replay tokens. | [Arbitrary](tooling/testing-dev-tooling#arbitrary) |
+| *(no tag)* | Semantic versioning: breaking changes only in a major release. | Everything imported from `"effect"` — `Effect`, `Layer`, `Schema`, `Stream`, `Config`, the data structures, the `Tx*` transactional modules — plus `effect/testing` and the text codecs under `effect/encoding`. |
+| `@stability unstable` | May change in a **minor** release. Production-ready; pin exact versions and read release notes before upgrading. | The subsystem families under `effect/<area>` — `http`, `http-api`, `rpc`, `sql`, `cluster`, `workflow`, `ai`, `cli`, `reactivity`, `persistence`, `eventlog`, `observability`, `net`, `socket`, `process`, `workers`, `devtools`, `schema` — the `Arbitrary` module, a set of advanced `Schema` APIs, and every API that exposes a third-party dependency (driver options and clients in `@effect/sql-*`, provider clients and generated schemas in `@effect/ai-*`, `@effect/opentelemetry`, the `vitest` re-export in `@effect/vitest`, Redis and undici accessors in the platform packages). |
+| `@stability experimental` | May change in a **patch** release. | A small number of APIs that the maintainers are still shaping; the handbook names them where they appear. |
 
-New in `rc.116`: `Decision` and `DecisionModel` with the `@effect/ai-typesafe` and `OpenRouterDecisionModel` providers; the `SchemaCompiler`, `SchemaJITCompiler`, and `SchemaAOTCompiler` modules; `Arbitrary.array`; `Crypto.randomULID`; `NetAddress.formatHost`, `inetAddressFromHostString`, and `scopeIdsFromInterfaces`; the HTTP `QUERY` method across clients, routers, and `HttpApi`; `HttpApi.ParseOptions`; `Stream.as`, `tapDefect`, `tapErrorTag`, and `unwrapReason`; the MCP `2026-07-28` protocol adapter, server `instructions`, and prompt titles; PostgreSQL `startupParameters` / `startupOptions`, `sslmode=prefer` / `allow`, and per-connection password Effects; nested transactions with independent rollback on Durable Object SQLite.
+"Unstable" describes the compatibility contract, not the quality: HTTP, SQL, and RPC are what production Effect applications are built on. Every handbook section carries a stable or unstable badge for its module. This handbook describes the pinned release only and does not track release-by-release changes; the per-package `CHANGELOG.md` files in the Effect repository are the authoritative record of what changed between versions.
 
-**Changed in `rc.109`–`rc.115`.** The first three rows change bytes on the wire or on disk, so they need a coordinated deploy rather than a rename.
-
-| Change | Since | What to do | Where |
-| --- | --- | --- | --- |
-| MessagePack removed; `SchemaBinary` is the binary format for RPC, cluster runner transports, and EventLog journals/remote messages | `rc.113` | Replace `RpcSerialization.layerMsgPack` with `layerSchemaBinary()` on both peers at once. `rc.108` and `rc.116` cluster runners cannot share the default binary transport; pinning both sides to `serialization: "ndjson"` is the only candidate bridge, and this handbook has not verified it across that version gap — rehearse a mixed-version rollout in staging, or replace the runners together. Pre-`rc.113` EventLog journals hold MessagePack payloads that the new codec cannot read. | [SchemaBinary](concurrency/streaming-channels#schemabinary), [RpcSerialization](interfaces/rpc#rpcserialization), [Cluster](systems/cluster-sharding), [EventLog](systems/event-log-event-sourcing) |
-| `@effect/sql-pg` runs on a native wire-protocol client | `rc.113` | Re-check row schemas (`int8` → `bigint`, timestamps → epoch milliseconds in `rc.113`–`rc.115` and `Date` again from `rc.116`, `date` → string, `bytea` → `Uint8Array`), wrap JSON parameters in `sql.json`, send one statement per query, and set `prepare: false` behind poolers that cannot keep named statements. | [Upgrading @effect/sql-pg](interfaces/sql#upgrading-effect-sql-pg-to-the-native-client) |
-| `PersistedQueue` retry policy moved from `take` to `make`; exhausted or undecodable items are dead-lettered | `rc.113` | Move `maxAttempts` to `PersistedQueue.make`, add `layerCleanup`, and monitor failed elements. | [PersistedQueue](tooling/persistence#persistedqueue) |
-| `Schema.toJsonSchemaDocument` leaves objects open by default (`"additionalProperties": true`) and compacts single annotations out of `allOf`; `OpenApi.fromApi` output stays closed | `rc.113` | Pass `{ onExcessProperty: "error" }` where consumers of a hand-generated JSON Schema relied on closed objects; refresh snapshot tests. | [JsonSchema](data/schema#jsonschema) |
-| `Config` constructors are PascalCase; `Config.mapOrFail` → `Config.mapEffect` | `rc.113` | `Config.string` → `Config.String`, `Config.redacted` → `Config.Redacted`, `Config.url` → `Config.URL`, and so on. | [Configuration & Secrets](foundations/configuration-secrets) |
-| CLI constructors are PascalCase; an omitted boolean flag is now a `MissingOption` error (`rc.110`) | `rc.113` | `Flag.integer` → `Flag.Int`, `Flag.float` → `Flag.Finite`, `Flag.choice` → `Flag.Literals`, `Prompt.text` → `Prompt.String`; add `Flag.withDefault(false)` to boolean flags. | [CLI Framework](tooling/cli-framework) |
-| fast-check bridge removed; native Schema-first `Arbitrary` engine | `rc.113` | `Schema.toArbitrary(s)(FastCheck)` → `Arbitrary.schema(s)`; `{ fastCheck: { numRuns } }` → `{ arbitrary: { runs } }`; prefer constructive checks such as `Schema.isBetween` over opaque filters; re-record saved failures. `@effect/vitest` now requires Vitest 5. | [Arbitrary](tooling/testing-dev-tooling#arbitrary) |
-| `Socket` is pull-based: scoped `reader` and `writer` replace `run` / `runString` / `runRaw`; server addresses are `NetAddress` values | `rc.113` | Rewrite handlers as a scoped pull loop; reconnect with `Effect.retry`; read addresses with `NetAddress.formatIp`. | [Socket](interfaces/platform-runtime-hosts#socket), [NetAddress](interfaces/platform-runtime-hosts#netaddress) |
-| `FileSystem.Size` / `KiB` / `MiB` … removed in favor of the stable `ByteSize` module | `rc.113` | Compare `File.Info.size` with `ByteSize.isGreaterThan`; pass plain numbers for `chunkSize`. | [ByteSize](data/functional-toolkit#bytesize) |
-| `SchemaGetter` / `SchemaTransformation` `transformOrFail` → `transformEffect`; revivers moved to `SchemaRepresentation`; parse options `"preserve"` and `propertyOrder` removed | `rc.113` | Rename; move operation-wide parse options from annotations to the decoder call; model extra properties with `Schema.Record` / `Schema.StructWithRest`. | [Schema](data/schema) |
-| `Effectable.Class` is driven by an abstract `asEffect()` method; `Effectable.Mixin` added | `rc.113` | Implement `asEffect()`. | [Effectable](foundations/core-runtime-execution#effectable) |
-| `Channel.runDone` removed | `rc.113` | Use `Channel.runDrain`. | [Channel](concurrency/streaming-channels#channel) |
-| HTTP data-type schemas (`UrlParams`, `Headers`, `Cookies`) moved into `effect/Schema`; Web handler Layers build eagerly | `rc.113` | `UrlParams.schemaJsonField` → `Schema.JsonFromUrlParamsField`; expect build failures at handler creation rather than on the first request. | [HTTP Server](interfaces/http-server) |
-| AI services use branded interfaces | `rc.113` | Refer to `LanguageModel`, `EmbeddingModel`, `Chat`, and `Reactivity` by their same-name type instead of `.Service`; custom implementations include `[TypeId]: TypeId`. | [AI & Language Models](systems/ai-language-models) |
-
-New in `rc.109`–`rc.115`: the stable `ByteSize` and `StandardSchema` modules; the unstable `arbitrary` and `net` families; `SchemaBinary`, `HttpStatus`, `Mime`, and `K8sTypes`; `Effectable.Mixin`; `Stream.catchDefect` / `Channel.catchDefect`; `Queue.flush`; `Pool.use` and `Pool.reserve`; `Match.fn`; `Schema.TaggedUnion.matchOrElse`, `Schema.JsonObject`, and `Schema.Graph`; a large set of `Graph` algorithms; four MCP protocol adapters (a fifth arrived in `rc.116`); and scoped Redis pub/sub. The `effect` package now has zero runtime dependencies.
+**Coming from a 4.0 release candidate?** The release candidates kept the subsystem families under `effect/unstable/*`; the stable release moved them to `effect/<area>` with no compatibility exports. Drop the `unstable/` segment (`effect/unstable/http` → `effect/http`), rename `httpapi` to `http-api`, import `Arbitrary` from `"effect"`, and replace the removed `effect/Encoding` module with the format modules under `effect/encoding` (`Base64`, `Base64Url`, `Hex`, `EncodingError`). Service keys and type ids that embedded `httpapi` or `Encoding` changed with them, so re-check persisted or serialized references.
 
 ### Official upstream companions
 
@@ -62,13 +35,14 @@ These official resources complement the handbook with longer explanations and ex
 | Official Effect resource | Best use |
 | --- | --- |
 | [Effect v4 guides](https://effect.website/docs/v4/getting-started) | The official website's narrative guides — error management, requirements, resources, concurrency, streams, scheduling, Schema, and platform. Not release-pinned. Every handbook topic links the matching guides at the top of its page. |
+| [API reference](https://effect.website/docs/v4/api) | Generated per-module reference for every `effect` and `@effect/*` package, versioned per release. |
 | [Onboarding track](https://effect.website/docs/v4/onboarding) and [Installation](https://effect.website/docs/v4/getting-started/installation) | The motivational on-ramp and setup steps; the handbook's short version is [Getting Started](foundations/getting-started). |
-| [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/packages/effect/ARBITRARY.md) | The long-form reference for the native property-testing engine. |
-| [Comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/packages/effect/SCHEMA.md) | The long-form reference for codecs, validation, transformations, serialization, tooling, errors, integrations, and migration. |
-| [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src) | Executable, topic-organized examples covering core Effect, streams, services, testing, HTTP, CLI, AI, cluster, and more. |
-| [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/LLMS.md) | The generated single-file aggregate of the AI docs. It opens with Effect's coding conventions and links the topic-organized executable examples. |
+| [`AGENTS.md` and `ai-docs/`](https://github.com/Effect-TS/effect/blob/effect%404.0.0/LLMS.md) shipped inside the `effect` package | The maintainers' own coding conventions for agents (also published as `LLMS.md`), with topic-organized executable examples under `node_modules/effect/ai-docs/src`. See [Coding conventions for agents](#coding-conventions-for-agents) below for how this handbook relates to it. |
+| [Migration guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0/MIGRATION.md) | The official v3 → v4 guide: import and API rename maps, services, causes, error handling, forking, layers, scopes, and the Schema v4 migration. |
+| [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/effect/ARBITRARY.md) | The long-form reference for the native property-testing engine. |
+| [Comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/effect/SCHEMA.md) | The long-form reference for codecs, validation, transformations, serialization, tooling, errors, integrations, and migration. |
 
-Effect 4 ships as **one library**. The core `effect` package holds the runtime, standard library, and unstable subsystems (http, rpc, sql, cluster, ai, …), with platform-, driver-, and provider-specific satellites around it. One import surface, one version number, runtime built for speed and tree-shaking.
+Effect 4 ships as **one library**. The core `effect` package holds the runtime, standard library, and the subsystem families (http, rpc, sql, cluster, ai, …), with platform-, driver-, and provider-specific satellites around it. One import surface, one version number, zero runtime dependencies, a runtime built for speed and tree-shaking.
 
 ### The through-line: one type
 
@@ -132,35 +106,50 @@ class Hris extends Context.Service<Hris, {
 
 Official guides: [Guidelines](https://effect.website/docs/v4/code-style/guidelines), [Do notation vs generators](https://effect.website/docs/v4/code-style/do), [Dual APIs](https://effect.website/docs/v4/code-style/dual).
 
-> **Note:** Modules imported from `"effect"` follow strict semver. Modules under `"effect/unstable/*"` (http, rpc, sql, cluster, ai, cli, workflow, and friends) are production-usable but may take breaking changes in minor releases — they graduate to the top level as they settle. Throughout the handbook, look for the stable and unstable badges on each module.
+### Coding conventions for agents
+
+The `effect` package ships its maintainers' conventions as `AGENTS.md` (the same text as the repository's `LLMS.md`), and this handbook follows them. The rules that matter most when generating code:
+
+- **Generators over combinator chains.** Write inline logic with `Effect.gen`; write reusable functions with `Effect.fn("name")` when a tracing span is useful and `Effect.fnUntraced` when it is not (library internals, hot paths). Do not write a function whose only body is `return Effect.gen(...)`. Attach extra behaviour as trailing arguments to `Effect.fn` rather than `.pipe` on its result.
+- **Return when you fail.** Inside a generator, write `return yield* new SomeError(...)` so TypeScript knows the function does not continue.
+- **Errors are `Schema.TaggedError` classes**, recovered with `Effect.catchTag` / `Effect.catchTags` for specific tags and `Effect.catch` for everything. Model variants inside one error with a tagged `reason` field and `Effect.catchReason`.
+- **Behaviour lives in services.** Define a service with `Context.Service<Self, Interface>()("package/path/Name")`, attach its implementation as a static `layer`, and build it with `Service.of({...})`. Use `Context.Reference` for values with a default (configuration, feature flags).
+- **Validate with `Schema`, never by hand.** Untrusted input is decoded with a schema; domain models are `Schema.Class`es. For runtime type guards on `unknown`, use the `Predicate` module instead of writing `isString`-style helpers.
+- **Time goes through `DateTime` and `Clock`**, not `Date.now()`, so it is testable.
+- **Run at the edge.** `NodeRuntime.runMain` or `Layer.launch` for a process; `ManagedRuntime` when a host framework calls in.
+- **Observability is built in.** Prefer the lightweight `Otlp` modules from `effect/observability` in new projects; use `@effect/opentelemetry` when joining an existing OpenTelemetry setup.
+
+Two tooling habits make agents measurably more effective with Effect: install the Effect language service (`@effect/tsgo`, see [Effect diagnostics](foundations/getting-started#effect-diagnostics-in-the-editor-and-in-ci)) so a wrong channel or an un-yielded Effect is a compiler error rather than a runtime surprise, and keep the installed `effect` source in reach — the official guidance is to prefer the installed package and its `ai-docs` over other copies of the documentation, which may describe a different version.
 
 ### The lay of the land
 
-- **effect** — The core: 138 stable modules (Effect, Stream, Schema, Layer, the data structures, STM…) plus 20 public `unstable/` families (http, httpapi, rpc, sql, cluster, ai, cli, workflow, eventlog, encoding, reactivity, persistence, arbitrary, net, and more).
+- **effect** — The core: 138 root modules (Effect, Stream, Schema, Layer, the data structures, STM…) plus 20 public `effect/<area>` families (http, http-api, rpc, sql, cluster, ai, cli, workflow, eventlog, encoding, reactivity, persistence, net, testing, and more).
 
 - **@effect/platform-*** — `node`, `bun`, `deno`, `browser`, plus the shared Node implementation package — concrete implementations of FileSystem, HttpServer, sockets, workers, and runtimes for each host.
 
 - **@effect/sql-*** — Drivers: `pg`, `mysql2`, `mssql`, `clickhouse`, `libsql`, `d1`, `pglite`, and a family of `sqlite-*` variants.
 
-- **@effect/ai-*** — Provider bindings: `anthropic`, `openai`, `openai-compat`, `openrouter` — concrete backends for the provider-agnostic AI modules.
+- **@effect/ai-*** — Provider bindings: `anthropic`, `openai`, `openai-compat`, `openrouter`, `typesafe` — concrete backends for the provider-agnostic AI modules.
 
 - **@effect/atom-*** — Framework bindings for the reactive Atom system: `react`, `solid`, `vue`.
 
 - **@effect/opentelemetry** — Bridges Effect's tracing/metrics/logging to a real OpenTelemetry SDK (Node SDK, Web SDK, exporters).
 
-- **@effect/vitest** — First-class testing: `it.effect`, `TestClock`-aware assertions, layer-sharing helpers.
+- **@effect/vitest** — First-class testing: `it.effect`, `TestClock`-aware assertions, layer-sharing helpers, property tests over the native `Arbitrary` module.
 
-- **tools** — The repo's own build/codegen tooling — AI code/doc generators, an OpenAPI generator, the bundler and jsdoc pipeline.
+- **tools** — The repo's own build/codegen tooling — AI code/doc generators, an OpenAPI generator, `@effect/doctest`, the bundler and jsdoc pipeline.
 
-**Import style.** Each module is labelled with its subpath (`effect/Queue`), while examples import from the `"effect"` barrel: `import { Effect, Queue } from "effect"`. The two are equivalent at runtime. The package declares no side effects, so bundlers with deep scope analysis (Rolldown, Rollup, Webpack 5+) tree-shake the barrel; `import * as Queue from "effect/Queue"` is the conservative form elsewhere. Unstable families are always imported by subpath, for example `effect/unstable/http`. Official guide: [Importing Effect](https://effect.website/docs/v4/getting-started/importing-effect).
+**Import style.** Each module is labelled with its subpath (`effect/Queue`), while examples import from the `"effect"` barrel: `import { Effect, Queue } from "effect"`. The two are equivalent at runtime. The package declares no side effects, so bundlers with deep scope analysis (Rolldown, Rollup, Webpack 5+) tree-shake the barrel; `import * as Queue from "effect/Queue"` is the conservative form elsewhere. Area families are always imported by their own barrel, for example `import { HttpClient } from "effect/http"`. Official guide: [Importing Effect](https://effect.website/docs/v4/getting-started/importing-effect).
 
 ### How to use this handbook
 
-- **⌘K / Ctrl+K — search** — Jump to any of 340 modules by name. Type "semaphore", "TxRef", "HttpApi", "Sink" — hit enter and you land right on it, with the module highlighted.
+- **⌘K / Ctrl+K — search** — Jump to any of 350 modules by name. Type "semaphore", "TxRef", "HttpApi", "Sink" — hit enter and you land right on it, with the module highlighted.
 
 - **Sidebar — browse by theme** — Chapters are grouped from foundations → concurrency → data → web → distributed → tooling. Roughly the order you'd grow into them.
 
 - **Prev / Next — read it like a book** — Each chapter ends with navigation.
+
+- **Reading programmatically** — Every page has a Markdown twin at the same path with `.md` appended, `llms.txt` routes intents to sections, and `effect-4-modules.md` lists every module. [Using the Handbook from an Agent](reference/agent-guide) is the full protocol, including a drop-in `AGENTS.md` block.
 
 Major module entries cover what the API is, its mental model, a real example, and a "reach for it when" line. Smaller supporting modules stay compact so this remains useful as an agent reference.
 

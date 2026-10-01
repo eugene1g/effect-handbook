@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import { defineConfig } from "vitepress"
 
 import { capabilities, handbookRelease, siteGroups, sitePages, slugifyHeading } from "../handbook.ts"
+import { renderMarkdownTwin } from "../scripts/build-page-markdown.ts"
 
 process.env.VITE_EXTRA_EXTENSIONS = [process.env.VITE_EXTRA_EXTENSIONS, "md"].filter(Boolean).join(",")
 
@@ -39,11 +40,13 @@ export default defineConfig({
               return
             }
             const source = decodeURIComponent(url.pathname.slice(base.length))
-            if (!pagesBySource.has(source)) {
+            const page = pagesBySource.get(source)
+            if (!page) {
               next()
               return
             }
-            const contents = await readFile(path.join(docsRoot, source))
+            // Serve the same generated twin the production build publishes.
+            const contents = Buffer.from(renderMarkdownTwin(page, await readFile(path.join(docsRoot, source), "utf8"), { base, siteUrl }))
             response.writeHead(200, {
               "cache-control": "no-cache",
               "content-length": contents.byteLength,
@@ -105,6 +108,7 @@ export default defineConfig({
       { text: "Handbook", link: "/" },
       { text: "Deep Dives", link: "/deep-dives/" },
       { text: "Cheat Sheet", link: "/reference/cheat-sheet-index" },
+      { text: "For Agents", link: "/reference/agent-guide" },
       {
         text: "Official Effect",
         items: [
@@ -118,6 +122,8 @@ export default defineConfig({
         text: "Downloads",
         items: [
           { text: "Concise handbook .md", link: absoluteArtifactUrl("effect-4-handbook.md"), target: "_blank" },
+          { text: "llms.txt index", link: absoluteArtifactUrl("llms.txt"), target: "_blank" },
+          { text: "Module index .md", link: absoluteArtifactUrl("effect-4-modules.md"), target: "_blank" },
           { text: "Standalone HTML", link: "/effect-4-handbook.html", target: "_blank" }
         ]
       },

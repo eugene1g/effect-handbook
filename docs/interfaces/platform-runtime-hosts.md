@@ -2,7 +2,7 @@
 
 Effect's platform layer separates service interfaces (in the core `effect` package, runtime-agnostic) from concrete implementations (provided as a Layer from `@effect/platform-node`, `@effect/platform-bun`, `@effect/platform-deno`, or `@effect/platform-browser`). Business logic imports only from `effect/*`; only the entrypoint imports the platform package. Swapping the Layer swaps the runtime.
 
-> **Official guides:** [Introduction to Effect Platform](https://effect.website/docs/v4/platform/introduction) (its module table lists a `PlatformLogger` that `rc.116` does not ship — the function is `Logger.toFile` — and it routes Deno through `@effect/platform-node`, while `rc.116` also publishes `@effect/platform-deno`). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Effect Platform](https://effect.website/docs/v4/platform/introduction) (its module table lists a `PlatformLogger` that this release does not ship — the function is `Logger.toFile` — and it routes Deno through `@effect/platform-node`, while Effect also publishes a dedicated `@effect/platform-deno`). These guides track Effect's `main` branch rather than this stable release, so where they differ, this page and the tagged source win.
 
 Who owns each of these runtimes, and when it is disposed, is a separate question from which Layer implements a service: see [Choosing a host](#choosing-a-host) below and [Owning Lifetimes — Startup, Readiness, and Shutdown](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown).
 
@@ -10,11 +10,11 @@ Who owns each of these runtimes, and when it is disposed, is a separate question
 
 `effect/FileSystem` — stable
 
-Service interface for filesystem operations: read, write, stat, copy, move, delete, make directories, create temp paths, stream bytes, watch for changes. Discrete operations return an `Effect` failing with `PlatformError` (`BadArgument` or `SystemError` carrying the OS reason); `stream` and `watch` expose that failure through a `Stream`.
+Service interface for filesystem operations: read, write, stat, copy, move, delete, make directories, create temp paths, stream bytes, watch for changes. Discrete operations return an `Effect` failing with `PlatformError` (`BadArgument` or `SystemError` carrying the OS reason); `stream` and `watch` expose that failure through a `Stream`. `PlatformError.isPlatformError(error)` is a type guard for narrowing an `unknown` caught value — useful at a boundary that re-throws or logs errors from several sources.
 
 Mental model: typed composable wrapper over `node:fs/promises`, working identically on Bun. Business modules import from `effect/FileSystem`; the entrypoint imports `NodeFileSystem.layer`. Use `FileSystem.layerNoop` to stub in tests.
 
-Common methods: `readFileString` / `writeFileString` (text), `readFile` / `writeFile` (`Uint8Array`), `exists`, `stat`, `makeDirectory`, `copy`, `remove`, `stream` (lazy byte `Stream`, configurable chunk size), and `glob(pattern, { root, exclude })`. `watch(path)` observes direct children by default; pass `{ recursive: true }` for subdirectories. Scoped helpers `makeTempDirectoryScoped` and `makeTempFileScoped` auto-clean on scope close. An opened `File` is the public handle type; its `seek(offset, from)` takes and returns a plain `bigint` position and rejects a negative result with `BadArgument`, leaving the cursor unchanged (there is no longer a public `FileDescriptor` type).
+Common methods: `readFileString` / `writeFileString` (text), `readFile` / `writeFile` (`Uint8Array`), `exists`, `stat`, `makeDirectory`, `copy`, `remove`, `stream` (lazy byte `Stream`, configurable chunk size), and `glob(pattern, { root, exclude })`. `watch(path)` observes direct children by default; pass `{ recursive: true }` for subdirectories. Scoped helpers `makeTempDirectoryScoped` and `makeTempFileScoped` auto-clean on scope close. An opened `File` is the public handle type; its `seek(offset, from)` takes and returns a plain `bigint` position and rejects a negative result with `BadArgument`, leaving the cursor unchanged (there is no public `FileDescriptor` type).
 
 The service covers the whole `node:fs` surface, so reaching for raw `node:fs` costs typed errors and testability without buying an operation:
 
@@ -28,7 +28,7 @@ The service covers the whole `node:fs` surface, so reaching for raw `node:fs` co
 | Temporary paths | `makeTempDirectory`, `makeTempFile`, and the `…Scoped` variants that delete on scope close |
 | Change notification | `watch` |
 
-**Sizes are `ByteSize` values.** The `FileSystem.Size` brand and the `FileSystem.KiB` / `MiB` / `GiB` / `TiB` / `PiB` helpers were removed in `rc.113`. `File.Info.size` is now a stable [`ByteSize.ByteSize`](../data/functional-toolkit#bytesize) — an exact non-negative `bigint` brand — so compare it with `ByteSize.isGreaterThan` and friends rather than with `>`. `stream`'s `offset` and `bytesToRead` accept any `ByteSize.Input`; `chunkSize` and `truncate`'s `length` are plain `number`s. Optional numeric `stat` metadata that exceeds the safe-integer range is reported as `Option.none()` instead of failing the whole call. The same exact-arithmetic pass (`rc.113`) reached HTTP file responses: [`HttpPlatform`](./http-server#httpplatform) clamps a requested range to the file's size, so `Content-Length` always matches the bytes actually sent.
+**Sizes are `ByteSize` values.** `File.Info.size` is a stable [`ByteSize.ByteSize`](../data/functional-toolkit#bytesize) — an exact non-negative `bigint` brand — so compare it with `ByteSize.isGreaterThan` and friends rather than with `>`; there is no separate `FileSystem.Size` brand or `KiB` / `MiB` / `GiB` / `TiB` / `PiB` family on `FileSystem`. `stream`'s `offset` and `bytesToRead` accept any `ByteSize.Input`; `chunkSize` and `truncate`'s `length` are plain `number`s. Optional numeric `stat` metadata that exceeds the safe-integer range is reported as `Option.none()` instead of failing the whole call. The same exact-arithmetic treatment reaches HTTP file responses: [`HttpPlatform`](./http-server#httpplatform) clamps a requested range to the file's size, so `Content-Length` always matches the bytes actually sent.
 
 ```ts
 import { ByteSize, FileSystem } from "effect"
@@ -83,7 +83,7 @@ Official guide: [FileSystem](https://effect.website/docs/v4/platform/file-system
 
 ### Testing without a disk
 
-`FileSystem.layerNoop(partial)` builds a complete service from only the methods the code under test calls (`FileSystem.makeNoop(partial)` is the same object without the Layer, for `Effect.provideService`). **A forgotten override is loud, not silent:** on `rc.116` most defaults fail with a typed `PlatformError` whose reason is `NotFound`; `makeDirectory` and the `makeTemp*` family die with `not implemented`; only `exists` (answers `false`) and `remove` (succeeds) are quiet.
+`FileSystem.layerNoop(partial)` builds a complete service from only the methods the code under test calls (`FileSystem.makeNoop(partial)` is the same object without the Layer, for `Effect.provideService`). **A forgotten override is loud, not silent:** most defaults fail with a typed `PlatformError` whose reason is `NotFound`; `makeDirectory` and the `makeTemp*` family die with `not implemented`; only `exists` (answers `false`) and `remove` (succeeds) are quiet.
 
 ```ts
 import { Effect, FileSystem } from "effect"
@@ -268,17 +268,17 @@ const program = hashNationalId("emp-001", "123-45-6789").pipe(
 )
 ```
 
-`crypto.randomULID` (`rc.116`) returns a 26-character, uppercase Crockford base32 ULID: 10 characters of millisecond timestamp from the current `Clock`, then 80 secure random bits. ULIDs sort by creation time across milliseconds, with no ordering within one millisecond, and because the timestamp comes from `Clock`, a `TestClock` pins the prefix in tests. Reach for it when an identifier must be time-sortable and shorter than a UUID in URLs or file names (payroll-run exports, say); `randomUUIDv7` gives the same ordering in a `uuid` column.
+`crypto.randomULID` returns a 26-character, uppercase Crockford base32 ULID: 10 characters of millisecond timestamp from the current `Clock`, then 80 secure random bits. ULIDs sort by creation time across milliseconds, with no ordering within one millisecond, and because the timestamp comes from `Clock`, a `TestClock` pins the prefix in tests. Reach for it when an identifier must be time-sortable and shorter than a UUID in URLs or file names (payroll-run exports, say); `randomUUIDv7` gives the same ordering in a `uuid` column.
 
 When to use: secure randomness, UUIDs, or hashing inside an Effect with testable, non-global injection.
 
 ## Socket
 
-`effect/unstable/socket/Socket` — unstable
+`effect/socket/Socket` — unstable
 
-Platform-neutral abstraction for a bidirectional socket (TCP, Unix domain, or WebSocket). Since `rc.113` a `Socket` is **pull-based**: it exposes a scoped `reader` and a scoped `writer`, and nothing is read from the transport until the consumer pulls.
+Platform-neutral abstraction for a bidirectional socket (TCP, Unix domain, or WebSocket). A `Socket` is **pull-based**: it exposes a scoped `reader` and a scoped `writer`, and nothing is read from the transport until the consumer pulls.
 
-- `socket.reader` — acquiring it *dials the connection*; its scope owns the connection lifetime. It yields a `Reader` whose `pull` returns the next non-empty batch (one buffer for TCP, one entry per WebSocket frame) and whose `upgrade(options?)` wraps a live TCP connection in TLS (STARTTLS). `Socket.readerBytes(socket)` and `Socket.readerString(socket, encoding?)` acquire a pull already normalized to `Uint8Array` or `string`.
+- `socket.reader` — acquiring it *dials the connection*; its scope owns the connection lifetime. It yields a `Reader` whose `pull` returns the next non-empty batch (one buffer for TCP, one entry per WebSocket frame) and whose `upgrade(options?)` wraps a live connection in TLS (STARTTLS) using `TlsUpgradeOptions` (`key`/`cert`/`ca`/`passphrase`/`alpnProtocols`/`requestCert`/`rejectUnauthorized`); an adapter that cannot upgrade in place fails with `SocketUpgradeError`. `Socket.readerBytes(socket)` and `Socket.readerString(socket, encoding?)` acquire a pull already normalized to `Uint8Array` or `string`.
 - `socket.writer` — acquisition cannot fail. It yields a `Writer` with `write(chunk | CloseEvent)` and `writeAll(chunks)`; both wait for the transport's native drain signal, so a slow peer backpressures the producer. Writes issued while disconnected suspend until the next connection.
 
 Mental model: a connection is a scoped read loop. Code placed between acquiring the reader and the first `pull` runs exactly once per (re)connection, which is where a handshake belongs. A `pull` **never completes normally** — every termination, a clean close included, fails with `SocketError` wrapping a `SocketCloseError` (or `SocketReadError`, `SocketWriteError`, `SocketOpenError`, `SocketUpgradeError`). Reconnection is therefore ordinary `Effect.retry` around the scoped loop, not a special socket option.
@@ -287,15 +287,16 @@ Backpressure is end to end: TCP pauses while nobody pulls; pausable WebSockets p
 
 WebSockets: `Socket.makeWebSocket(url)` creates a `Socket` from a URL; `Socket.layerWebSocket(url)` provides it as a service. A `WebSocketConstructor` service controls the underlying constructor (inject `ws` in Node, use the global in browsers). Its second argument is either subprotocols or a typed `WebSocketClientOptions` (`{ headers }` for the opening handshake, e.g. an `Authorization` header): the Node and Bun constructors honor it, while the global/browser constructor throws a `TypeError`, because browsers cannot set handshake headers. `makeWebSocket` forwards only `protocols`, so to send headers call the constructor service yourself and wrap the result with `Socket.fromWebSocket`.
 
-TCP in Node: use `NodeSocket.layerNet(opts)` where `opts` is a `Net.NetConnectOpts` object (e.g., `{ host, port }`). There is no `layerTCP` export.
+TCP in Node: use `NodeSocket.layerNet(opts)` where `opts` is a `Net.NetConnectOpts` object (e.g., `{ host, port }`). There is no `layerTCP` export. For a TLS connection from the start, `NodeSocket.makeTls(options)` (and its `layerTls`/`makeTlsChannel` counterparts) dials `tls.connect` directly, accepting the same options as `tls.connect` (`ca`, `cert`, `key`, `alpnProtocols`, `servername`, plus an `openTimeout`); a failed handshake, including an untrusted or expired certificate, fails with `SocketOpenError`.
 
 ```ts
-import { Socket } from "effect/unstable/socket"
+import { Socket } from "effect/socket"
 import { NodeSocket } from "@effect/platform-node"
 import { Effect, Schedule } from "effect"
 
 // Connect to the payroll service over TCP, send a sync trigger, log every ack.
 const triggerPayrollSync = Effect.gen(function*() {
+  // Socket is part of the unstable effect/socket module.
   const socket = yield* Socket.Socket
 
   // Acquiring the reader dials; this scope owns the connection.
@@ -322,26 +323,26 @@ const triggerPayrollSync = Effect.gen(function*() {
 
 For combinator-style consumption, `Socket.toStream(socket)` is a read-only binary `Stream` backed by the same pull, and `Socket.toChannel` / `Socket.toChannelString` expose the duplex connection as a `Channel`. All three fail on close for the same reason `pull` does.
 
-> **Warning:** `Socket.run`, `Socket.runString`, and `Socket.runRaw` were removed in `rc.113`, along with the `onOpen` callback, the close-code predicates, `SendQueueCapacity`, and `fromWebSocket`'s `onInitialRun` option. `Socket.make` now takes `{ reader, writer }`. Migrate a `run*` handler to a scoped pull loop, move `onOpen` logic to just before the first pull, and replace close-code checks with retry (or `Effect.catch` on `SocketError`) around the loop.
-
 When to use: typed Effect-native TCP or WebSocket communication over a persistent connection.
 
 ## SocketServer
 
-`effect/unstable/socket/SocketServer` — unstable
+`effect/socket/SocketServer` — unstable
 
 Server-side counterpart to `Socket`. The `SocketServer` service exposes: `address` — the bound `NetAddress.SocketAddress` (an `InetAddressV4 | InetAddressV6` with `address` and `port`, or a `UnixPathAddress` with `path`) — and `run(handler)`, a never-ending Effect that accepts connections and passes each as a `Socket.Socket` to the handler. Errors are `SocketServerError` with reason `SocketServerOpenError | SocketServerUnknownError`.
 
-Mental model: provide a handler; the server calls it concurrently per accepted connection. Each handler gets a fresh `Socket` whose scope closes when the handler completes. An accepted socket starts **paused** and its reader attaches to the existing connection, so it cannot reconnect after close — a failed `pull` simply ends that handler. `NodeSocketServer.layer({ port: 4000 })` wires up a Node TCP server; `NodeSocketServer.layerWebSocket({ port: 8080 })` wires up a WebSocket server backed by `ws`.
+Mental model: provide a handler; the server calls it concurrently per accepted connection. Each handler gets a fresh `Socket` whose scope closes when the handler completes. An accepted socket starts **paused** and its reader attaches to the existing connection, so it cannot reconnect after close — a failed `pull` simply ends that handler. `NodeSocketServer.layer({ port: 4000 })` wires up a Node TCP server; `NodeSocketServer.layerWebSocket({ port: 8080 })` wires up a WebSocket server backed by `ws`; `NodeSocketServer.makeTls(options)` wires up a TLS server from `tls.TlsOptions & net.ListenOptions` — the `tls.createServer` options, so a server supplies its own `key` and `cert` (the client-side `NodeSocket.makeTls` takes `tls.ConnectionOptions` instead).
 
 ```ts
-import { NetAddress } from "effect/unstable/net"
-import { Socket, SocketServer } from "effect/unstable/socket"
+import { NetAddress } from "effect/net"
+import { Socket, SocketServer } from "effect/socket"
 import { NodeSocketServer } from "@effect/platform-node"
 import { Effect } from "effect"
 
 // A small HRIS push-notification server: echo events back with a prefix
 const hrisNotificationServer = Effect.gen(function*() {
+  // SocketServer, NetAddress helpers, and Socket.readerString are part of the
+  // unstable effect/socket and effect/net modules.
   const server = yield* SocketServer.SocketServer
   const bound = NetAddress.isInetAddress(server.address)
     ? NetAddress.formatInet(server.address)
@@ -375,17 +376,20 @@ When to use: accepting TCP or WebSocket connections — custom protocols, push e
 
 ## NetAddress
 
-`effect/unstable/net/NetAddress` — unstable (new in `rc.113`)
+`effect/net/NetAddress` — unstable
 
-Pure, platform-neutral **values** for network addresses: `Ipv4Address` / `Ipv6Address` (`IpAddress`), `MacAddress`, internet socket addresses `InetAddressV4` / `InetAddressV6` (`InetAddress`, an IP plus a port), and `UnixPathAddress`. `SocketAddress = InetAddress | UnixPathAddress` is what `SocketServer.address` and `HttpServer.address` now report. Every value implements `Equal` and `Hash`, so addresses work as `HashMap` keys and compare structurally.
+Pure, platform-neutral **values** for network addresses: `Ipv4Address` / `Ipv6Address` (`IpAddress`), `MacAddress`, internet socket addresses `InetAddressV4` / `InetAddressV6` (`InetAddress`, an IP plus a port), and `UnixPathAddress`. `SocketAddress = InetAddress | UnixPathAddress` is what `SocketServer.address` and `HttpServer.address` report. `Ipv4Address` and `Ipv6Address` store their bits as `number`s rather than a `Uint8Array`, so `Equal`/`Hash` and comparisons are cheap; every value implements `Equal` and `Hash`, so addresses work as `HashMap` keys and compare structurally.
+
+Classifications are generic branded types parameterized by the address kind, not separate ad-hoc predicates: `MulticastAddress<A>`, `UnicastAddress<A>`, `BroadcastAddress<A>`, `LoopbackAddress<A>`, `LinkLocalAddress<A>`, `UnspecifiedAddress<A>`, `PrivateAddress<A>`, `UniqueLocalAddress<A>` narrow an `IpAddress` or `MacAddress` to the matching refinement, and `Schema.IpMulticastAddress` / `Schema.IpMulticastAddressFromString` / `Schema.MacMulticastAddress` / `Schema.MacMulticastAddressFromString` validate multicast addresses straight out of untrusted input.
 
 Mental model: parse once at the boundary, then pass a typed address instead of a string. Parsing is *checked* — `ipFromString`, `inetAddressFromString`, and `macAddressFromString` return a `Result` with a `NetAddressError`, and each has a throwing `*Unsafe` twin for trusted literals. Formatting is canonical: `formatIp`, `formatInet` (brackets IPv6 before the port), and `formatUrlHost` (brackets IPv6 for use inside a URL; scoped IPv6 is rejected by the URL helpers). Classification predicates — `isLoopback`, `isPrivate`, `isLinkLocal`, `isMulticast`, `isUniqueLocal`, `isUnspecified` — replace ad-hoc prefix string checks, which is what an SSRF or allow-list guard should be built on.
 
 ```ts
 import { Result } from "effect"
-import { IpNetwork, NetAddress } from "effect/unstable/net"
+import { IpNetwork, NetAddress } from "effect/net"
 
 // Untrusted input: checked parsing returns a Result, never throws.
+// NetAddress and IpNetwork are part of the unstable effect/net module.
 const parsed = NetAddress.ipFromString("10.20.3.999")
 if (Result.isFailure(parsed)) {
   console.log(parsed.failure._tag) // "NetAddressError"
@@ -407,14 +411,19 @@ const internalRange = IpNetwork.fromStringUnsafe("10.20.0.0/16")
 const isInternal = IpNetwork.contains(internalRange, payrollHost) // true
 ```
 
-Some socket APIs take the host and the port separately (`node:net`'s `{ host, port }`, a driver's `host` field). `formatHost(address)` (`rc.116`) renders only the numeric host, without brackets or port, and keeps a nonzero IPv6 scope ID as a `%` suffix. The reverse, `inetAddressFromHostString(host, port, scopeIds?)`, parses an unbracketed numeric host plus a port into an `InetAddress` and returns a `Result`; a hostname such as `payroll.internal` is a failure, because this module never resolves DNS. A **named** IPv6 zone (`fe80::1%en0`) needs a map from interface name to numeric scope ID, which `scopeIdsFromInterfaces(Object.entries(os.networkInterfaces()))` builds from entries you supply; numeric zones need no map, and an unknown name fails with `unknown IPv6 interface`.
+Some socket APIs take the host and the port separately (`node:net`'s `{ host, port }`, a driver's `host` field). `formatHost(address)` renders only the numeric host, without brackets or port, and keeps a nonzero IPv6 scope ID as a `%` suffix. The reverse, `inetAddressFromHostString(host, port, scopeIds?)`, parses an unbracketed numeric host plus a port into an `InetAddress` and returns a `Result`; a hostname such as `payroll.internal` is a failure, because this module never resolves DNS. A **named** IPv6 zone (`fe80::1%en0`) needs a map from interface name to numeric scope ID, which `scopeIdsFromInterfaces(Object.entries(os.networkInterfaces()))` builds from entries you supply; numeric zones need no map, and an unknown name fails with `unknown IPv6 interface`.
+
+Native socket APIs (raw `dgram`/`net` bindings for multicast, scope IDs) need slightly different formatting than `formatHost`: `formatNativeHost(address, scopeIds, platform?)` formats an `InetAddress` host without brackets or a port, keeping IPv6 zones numeric on `"win32"` and resolving them to an interface name elsewhere; `formatMulticastInterface(networkInterface, scopeIds, platform?)` formats an IPv4 address or an IPv6 interface index the same way for multicast join/leave calls. Both take the `scopeIdsFromInterfaces` map and an optional platform string, and neither performs OS lookups itself.
+
+`toCanonical(address)` converts an IPv4-mapped IPv6 address (and the IP side of an `InetAddress`) to plain IPv4, preserving the port on an internet address and leaving already-canonical or IPv6-scoped addresses unchanged — use it before comparing or classifying an address that may have arrived in mapped form (common with dual-stack listeners).
 
 ```ts
 import { Result } from "effect"
-import { NetAddress } from "effect/unstable/net"
+import { NetAddress } from "effect/net"
 import { networkInterfaces } from "node:os"
 
 // A payroll relay configured with `host` and `port` as separate settings.
+// NetAddress is part of the unstable effect/net module.
 const scopeIds = NetAddress.scopeIdsFromInterfaces(Object.entries(networkInterfaces()))
 const relay = NetAddress.inetAddressFromHostString("fe80::1%lo0", 8443, scopeIds)
 if (Result.isSuccess(relay)) {
@@ -423,29 +432,29 @@ if (Result.isSuccess(relay)) {
 }
 ```
 
-`Schema` ships matching codecs — `Schema.IpAddressFromString`, `Schema.InetAddressFromString`, `Schema.MacAddressFromString`, `Schema.SocketAddress`, and the v4/v6-specific variants — so a config value or request field decodes straight to an address. Migration: replace reads of a server address's old `hostname` with `NetAddress.formatIp(address.address)`, and use `address.path` for Unix sockets. Bun and Deno HTTP server layers can now fail with `ServeError` when the listener address cannot be converted.
+`Schema` ships matching codecs — `Schema.IpAddressFromString`, `Schema.InetAddressFromString`, `Schema.MacAddressFromString`, `Schema.SocketAddress`, and the v4/v6-specific variants — so a config value or request field decodes straight to an address. A server address has no `hostname` string field; read `NetAddress.formatIp(address.address)` instead, and use `address.path` for Unix sockets. Bun and Deno HTTP server layers can fail with `ServeError` when the listener address cannot be converted.
 
 When to use: any time an address crosses a boundary — config, request data, allow/deny lists, logging a bound listener — and whenever address equality or classification matters.
 
 ## IpNetwork
 
-`effect/unstable/net/IpNetwork` — unstable (new in `rc.113`)
+`effect/net/IpNetwork` — unstable
 
-A CIDR network: a network address plus a prefix length, generic over the address family (`Ipv4Network`, `Ipv6Network`). Construction is strict — `IpNetwork.fromString("10.20.3.7/16")` **fails** because host bits are set; use `IpNetwork.fromAddress` (which masks them) or go through `IpInterface` when you have a host address. Operations: `contains(network, address)`, `containsNetwork`, `overlaps`, `firstAddress` / `lastAddress`, `addressCount` (a `bigint`, since an IPv6 range does not fit a `number`), and `format`. PostgreSQL `cidr` columns decode to `IpNetwork` in the native `@effect/sql-pg` client.
+A CIDR network: a network address plus a prefix length, generic over the address family (`Ipv4Network`, `Ipv6Network`). Construction is strict — `IpNetwork.fromString("10.20.3.7/16")` **fails** because host bits are set; use `IpNetwork.fromAddress` (which masks them) or go through `IpInterface` when you have a host address. Operations: `contains(network, address)`, `containsNetwork`, `overlaps`, `firstAddress` / `lastAddress`, `addressCount` (a `bigint`, since an IPv6 range does not fit a `number`), and `format`. The native `@effect/sql-pg` client decodes PostgreSQL `cidr` columns to their formatted text (for example `"10.20.0.0/16"`), not to an `IpNetwork` value — parse it with `IpNetwork.fromString` where you need the structure.
 
 When to use: allow/deny lists, subnet planning, and tenant or region routing by address range.
 
 ## IpInterface
 
-`effect/unstable/net/IpInterface` — unstable (new in `rc.113`)
+`effect/net/IpInterface` — unstable
 
-An address **with** its prefix length — `10.20.3.7/16` — the form a host or network interface is configured with. Unlike `IpNetwork`, host bits are preserved. `IpInterface.fromString` parses it (with `ParseOptions`), `IpInterface.format` renders it, and `IpNetwork.fromInterface(iface)` yields the containing network (`10.20.0.0/16`). PostgreSQL `inet` columns decode to `IpInterface`.
+An address **with** its prefix length — `10.20.3.7/16` — the form a host or network interface is configured with. Unlike `IpNetwork`, host bits are preserved. `IpInterface.fromString` parses it (with `ParseOptions`), `IpInterface.format` renders it, and `IpNetwork.fromInterface(iface)` yields the containing network (`10.20.0.0/16`). `@effect/sql-pg` decodes PostgreSQL `inet` columns to formatted text as well (`"10.20.3.7/16"`, or just the address when the prefix covers the whole address); parse it with `IpInterface.fromString`.
 
 When to use: modelling "this host, on this subnet" without losing either half.
 
 ## Worker
 
-`effect/unstable/workers/Worker` — unstable
+`effect/workers/Worker` — unstable
 
 Parent-side API for communicating with a worker thread or IPC child process. A `Worker<O, I>` provides: `send(message: I)` — fire a typed message into the worker; `run(handler)` — a never-completing Effect calling the handler for each emitted `O`. Errors are `WorkerError`.
 
@@ -453,10 +462,10 @@ Mental model: typed bidirectional channel where `I` flows in and `O` flows out. 
 
 Setup: call `NodeWorker.layer(spawnFn)` to provide both `WorkerPlatform` and `Spawner`; acquire a typed `Worker` via `WorkerPlatform.spawn(id)`. The spawn function receives a numeric ID and returns a `WorkerThreads.Worker` or IPC `ChildProcess`.
 
-Lifetime: `run` owns the worker. **A worker that exits or throws — before or after the ready handshake — fails `run`** with a `WorkerError` whose reason is `WorkerReceiveError` (since `rc.113` a worker that dies before signalling readiness no longer leaves `run` hanging uninterruptibly). When the scope around `run` closes, the Node and Bun adapters send the worker a close message, wait up to five seconds for it to exit, and then call `terminate()` (Node: `kill("SIGKILL")` for an IPC child) — so worker-side finalizers get a bounded chance to run. The browser adapter only sends the close message; it does not terminate a dedicated worker you spawned.
+Lifetime: `run` owns the worker. **A worker that exits or throws — before or after the ready handshake — fails `run`** with a `WorkerError`: the Node adapter reports both exit and error events as `WorkerReceiveError`, the browser adapter reports `error` events the same way (a dedicated browser worker has no parent-visible exit event), and the Bun adapter reports `error` events as `WorkerUnknownError` and does not fail `run` on a plain exit. A worker that dies before signalling readiness does not leave `run` hanging uninterruptibly. When the scope around `run` closes, the Node and Bun adapters send the worker a close message, wait up to five seconds for it to exit, and then call `terminate()` (Node: `kill("SIGKILL")` for an IPC child) — so worker-side finalizers get a bounded chance to run. The browser adapter only sends the close message; it does not terminate a dedicated worker you spawned.
 
 ```ts
-import { Worker } from "effect/unstable/workers"
+import { Worker } from "effect/workers"
 import { NodeWorker } from "@effect/platform-node"
 import { Effect } from "effect"
 import * as WorkerThreads from "node:worker_threads"
@@ -468,6 +477,7 @@ const workerLayer = NodeWorker.layer(
 )
 
 const computeVestedSharesInParallel = Effect.gen(function*() {
+  // Worker is part of the unstable effect/workers module.
   const platform = yield* Worker.WorkerPlatform
   // Spawn a typed Worker: output = number (vestedShares), input = EquityGrant id
   const worker = yield* platform.spawn<number, string>(0)
@@ -488,7 +498,7 @@ When to use: offloading CPU-heavy computation to a worker thread while retaining
 
 ## WorkerRunner
 
-`effect/unstable/workers/WorkerRunner` — unstable
+`effect/workers/WorkerRunner` — unstable
 
 Worker-side counterpart to `Worker`. A `WorkerRunner<O, I>` listens for `I` messages from the parent (tagged by port ID), calls the handler, and sends `O` replies via `send(portId, message)` or `sendUnsafe`. The optional `disconnects` queue notifies when a port closes; the browser and Deno runners provide it (many ports can share one worker there), the Node runner has a single parent and does not. An RPC server running over a worker forwards every disconnect, so a closed port's in-flight requests are interrupted rather than left running.
 
@@ -496,12 +506,13 @@ Mental model: if `Worker` is the client, `WorkerRunner` is the server. Write the
 
 ```ts
 // vesting-worker.ts — runs inside the worker thread
-import { WorkerRunner } from "effect/unstable/workers"
+import { WorkerRunner } from "effect/workers"
 import { NodeWorkerRunner } from "@effect/platform-node"
 import { Effect } from "effect"
 
 // Receive a grant ID, compute vested shares, reply to parent
 const runner = Effect.gen(function*() {
+  // WorkerRunner is part of the unstable effect/workers module.
   const platform = yield* WorkerRunner.WorkerRunnerPlatform
   // start<O, I>() — O is what we send back, I is what we receive
   const workerRunner = yield* platform.start<number, string>()
@@ -528,27 +539,28 @@ When to use: writing the worker-thread side of a Worker/WorkerRunner pair.
 
 ## WorkerError
 
-`effect/unstable/workers/WorkerError` — unstable
+`effect/workers/WorkerError` — unstable
 
 Typed error union for worker communication. `WorkerError` wraps one of four reasons: `WorkerSpawnError` (worker failed to start), `WorkerSendError` (message serialization failed), `WorkerReceiveError` (message decode failed), `WorkerUnknownError` (anything else). Catch with `Effect.catchTag("WorkerError", ...)`.
 
 ## Transferable
 
-`effect/unstable/workers/Transferable` — unstable
+`effect/workers/Transferable` — unstable
 
 Zero-copy worker message delivery. Annotate schema fields with `Transferable.schema`; the `Transferable.Collector` service collects the backing `ArrayBuffer`, `MessagePort`, or `ImageData` buffer and passes it as the `postMessage` transfer list — no structured-clone copy. Essential for large binary payloads between parent and worker at native speed.
 
 ## ChildProcess
 
-`effect/unstable/process/ChildProcess` — unstable
+`effect/process/ChildProcess` — unstable
 
 Value type describing a command to run — a typed `ProcessBuilder`. Use `ChildProcess.make(cmd, args, options)` to create a `StandardCommand`, or chain two commands with `ChildProcess.pipeTo` to create a `PipedCommand` (shell `|` equivalent). Modifiers: `setEnv`, `setCwd`, `prefix`.
 
 Mental model: a `Command` is pure data describing what to run. Nothing executes until passed to a `ChildProcessSpawner`. Commands are composable and trivially testable. On Windows, the Node spawner hides the child console/GUI window by default unless the command is detached; set `windowsHide: false` explicitly when a visible window is intended. The option has no effect on other hosts.
 
 ```ts
-import { ChildProcess } from "effect/unstable/process"
+import { ChildProcess } from "effect/process"
 
+// ChildProcess is part of the unstable effect/process module.
 // Describe a payroll-export command (pure data, nothing runs yet)
 const payrollExportCmd = ChildProcess.make("payroll-cli", ["export", "--format=csv"])
 
@@ -564,10 +576,10 @@ const prodExportCmd = ChildProcess.make("payroll-cli", ["export"]).pipe(
 )
 ```
 
-`make` also has a template-literal form, with or without options first. **Interpolations are arguments, never shell text:** each interpolated value becomes exactly one argument (an array becomes several), so untrusted input cannot inject a command; the literal part is split on whitespace only, so quotes are *not* parsed — put anything containing a space in an interpolation (probed on `rc.116`; `rc.113` also fixed the template form losing the arguments that followed an astral-Unicode escape).
+`make` also has a template-literal form, with or without options first. **Interpolations are arguments, never shell text:** each interpolated value becomes exactly one argument (an array becomes several), so untrusted input cannot inject a command; the literal part is split on whitespace only, so quotes are *not* parsed — put anything containing a space in an interpolation.
 
 ```ts
-import { ChildProcess } from "effect/unstable/process"
+import { ChildProcess } from "effect/process"
 
 const employee = "Ada Lovelace; rm -rf /" // stays one harmless argument
 const flags = ["--format=csv", "--cycle=2026 H1"]
@@ -583,7 +595,7 @@ When to use: composing commands before running them, separating command descript
 
 ## ChildProcessSpawner
 
-`effect/unstable/process/ChildProcessSpawner` — unstable
+`effect/process/ChildProcessSpawner` — unstable
 
 Service that executes `ChildProcess.Command` values.
 
@@ -593,13 +605,14 @@ Key APIs: spawner.string(cmd), spawner.lines(cmd), spawner.spawn(cmd)
 
 Platform implementations: `NodeServices.layer` includes `NodeChildProcessSpawner.layer`; Bun uses `BunServices.layer`.
 
-**Termination waits, and only `forceKillAfter` bounds it.** On Node and Bun, closing the scope around `spawn` (or calling `handle.kill(options?)`) signals the child's whole *process group* with `killSignal` (default `SIGTERM`), then waits for the leader to exit and up to one more second for descendants to disappear. Nothing escalates by default, so a child that ignores `SIGTERM` holds the scope — and therefore your shutdown — open until it exits by itself (probed: a `trap '' TERM; sleep 4` child delayed release by the remaining four seconds). Set `forceKillAfter` on the command (or pass it to `kill`) to send `SIGKILL` to the group at that deadline; the probe then released in 300 ms. The waits use native timers rather than the Effect `Clock`, so they elapse under `TestClock` without `adjust`. Since `rc.116` the Node and Bun spawners also clean up the group when the leader has already exited, successfully or by a signal, before the scope closes: a grandchild the command left running in the background (`sh -c 'sleep 47 & exit 0'` in the probe) is gone once the scope closes. That cleanup targets a numeric process-group ID, so if the group disappears and the operating system reuses its ID first, an unrelated group can be signalled. On Windows the tree is ended with `taskkill /T /F` and only the leader is awaited; the Deno adapter differs again (see [Platform packages](#platform-packages)).
+**Termination waits, and only `forceKillAfter` bounds it.** On Node and Bun, closing the scope around `spawn` (or calling `handle.kill(options?)`) signals the child's whole *process group* with `killSignal` (default `SIGTERM`), then waits for the leader to exit and up to one more second for descendants to disappear. Nothing escalates by default, so a child that ignores `SIGTERM` holds the scope — and therefore your shutdown — open until it exits by itself (probed: a `trap '' TERM; sleep 4` child delayed release by the remaining four seconds). Set `forceKillAfter` on the command (or pass it to `kill`) to send `SIGKILL` to the group at that deadline; the probe then released in 300 ms. The waits use native timers rather than the Effect `Clock`, so they elapse under `TestClock` without `adjust`. The Node and Bun spawners also clean up the group when the leader has already exited, successfully or by a signal, before the scope closes: a grandchild the command left running in the background (`sh -c 'sleep 47 & exit 0'` in the probe) is gone once the scope closes. That cleanup targets a numeric process-group ID, so if the group disappears and the operating system reuses its ID first, an unrelated group can be signalled. On Windows the tree is ended with `taskkill /T /F` and only the leader is awaited; the Deno adapter differs again (see [Platform packages](#platform-packages)).
 
 ```ts
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { NodeServices } from "@effect/platform-node"
 import { Console, Data, Effect, Stream } from "effect"
 
+// ChildProcess and ChildProcessSpawner are part of the unstable effect/process module.
 class PayrollExportFailed extends Data.TaggedError("PayrollExportFailed")<{
   readonly exitCode: ChildProcessSpawner.ExitCode
 }> {}
@@ -655,7 +668,7 @@ The services above are interfaces. Platform packages provide concrete Layer impl
 
 Implements FileSystem, Path, Terminal, Stdio, Crypto, ChildProcessSpawner, Socket, SocketServer, Worker, WorkerRunner, HTTP, Redis, cluster transports, and stream adapters using Node.js APIs. `NodeServices.layer` is deliberately narrower: it aggregates ChildProcessSpawner, Crypto, FileSystem, Path, Stdio, and Terminal. Sockets, workers, HTTP (`NodeHttpServer.layer`), and other adapters have explicit layers.
 
-Two `rc.113` packaging changes: `@effect/platform-node/Mime` was deleted along with the `mime` dependency — use [`Mime`](./http-server#mime) from `effect/unstable/http`; and `NodeRedis` moved from `ioredis` to the `redis` (node-redis) client, so the optional peer dependency is now `redis >=5.0.0 <7.0.0`.
+`@effect/platform-node` has no `Mime` export — use [`Mime`](./http-server#mime) from `effect/http` instead. `NodeRedis` wraps the `redis` (node-redis) client, so the optional peer dependency is `redis >=5.0.0 <7.0.0`; its accessors are unstable because they expose that client's own types directly.
 
 ```ts
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
@@ -673,7 +686,7 @@ program.pipe(
 
 **@effect/platform-bun** — package
 
-Bun-native counterparts cover the same broad host responsibilities, but use `Bun*` namespaces and layers rather than promising every Node adapter is interchangeable. Like Node's aggregate, `BunServices.layer` includes ChildProcessSpawner, Crypto, FileSystem, Path, Stdio, and Terminal; HTTP, sockets, workers, Redis, and cluster adapters remain explicit.
+Bun-native counterparts cover the same broad host responsibilities, but use `Bun*` namespaces and layers rather than promising every Node adapter is interchangeable. Like Node's aggregate, `BunServices.layer` includes ChildProcessSpawner, Crypto, FileSystem, Path, Stdio, and Terminal; HTTP, sockets, workers, `BunRedis` (unstable — it exposes the underlying `redis` client's types), and cluster adapters remain explicit.
 
 ```ts
 import { BunRuntime, BunServices } from "@effect/platform-bun"
@@ -691,7 +704,7 @@ program.pipe(
 
 **@effect/platform-deno** — package
 
-The Deno host package (Deno 2.5+) covers FileSystem, Path, Crypto, Stdio, Terminal, child processes, HTTP client/server, sockets, workers, Redis, multipart parsing, key-value storage, and cluster HTTP/socket adapters. `DenoServices.layer` is the standard aggregate; specialized HTTP/socket/worker layers remain explicit. `DenoRuntime.runMain` installs structured SIGINT/SIGTERM interruption and teardown.
+The Deno host package (Deno 2.8.3+) covers FileSystem, Path, Crypto, Stdio, Terminal, child processes, HTTP client/server, sockets, workers, `DenoRedis` (unstable, same caveat as `NodeRedis`/`BunRedis`), multipart parsing, key-value storage, and cluster HTTP/socket adapters. `DenoServices.layer` is the standard aggregate; specialized HTTP/socket/worker layers remain explicit. `DenoRuntime.runMain` installs structured SIGINT/SIGTERM interruption and teardown.
 
 The Deno child-process adapter has narrower process-control semantics than Node: commands using `detached` or `additionalFds` fail as unsupported, and killing a handle terminates only the direct child, not its descendants. Design process-tree cleanup explicitly when Deno is a deployment target.
 
@@ -718,7 +731,7 @@ Contains implementation shared by the Node, Bun, and Deno adapters: Node-compati
 
 Browser-specific implementations: `BrowserCrypto.layer` (Web Crypto API), `BrowserSocket.layer` (native WebSocket), `BrowserWorker.layer` and `BrowserWorkerRunner.layer` (dedicated/shared workers via `postMessage`). No FileSystem or ChildProcess in browsers. Additional APIs include `Permissions`, `Clipboard`, `Geolocation`, typed DOM event streams, Fetch/XHR clients, browser persistence/key-value layers, and the typed IndexedDB subsystem below.
 
-`BrowserRuntime.runMain` listens for **`pagehide`** (it was `beforeunload` before `rc.113`) and interrupts the root fiber when the document is being discarded. A *persisted* `pagehide` — the page entering the back/forward cache — is ignored, because that document may be restored with its fibers intact. The interruption is best effort: the browser may tear the page down before asynchronous finalizers, network flushes, or timers complete, so persist anything important before unload rather than in a finalizer.
+`BrowserRuntime.runMain` listens for **`pagehide`** and interrupts the root fiber when the document is being discarded. A *persisted* `pagehide` — the page entering the back/forward cache — is ignored, because that document may be restored with its fibers intact. The interruption is best effort: the browser may tear the page down before asynchronous finalizers, network flushes, or timers complete, so persist anything important before unload rather than in a finalizer.
 
 ```ts
 import { BrowserRuntime, BrowserWorker } from "@effect/platform-browser"
@@ -750,18 +763,18 @@ A platform Layer says *how* a capability is implemented. The host decides someth
 
 - **Same program, different owner.** Business code is identical in every row; only the outermost line and the platform Layer change. If a module has to know which row it runs in, a platform import has leaked inward.
 - **Server-side rendering is two hosts.** The server request and the hydrated page have separate scopes and runtimes: serialize validated data across that seam, never a service, fiber, `Scope`, or runtime.
-- **Edge isolates may forbid timers at module scope.** Since `rc.113` the default scheduler falls back to a microtask when setting a timer throws (Cloudflare Workers' global scope), so an Effect run at module load no longer crashes there. A module-level `ManagedRuntime` amortizes acquisition across invocations of a reused isolate, but it must not capture request data and must not assume disposal runs.
+- **Edge isolates may forbid timers at module scope.** The default scheduler falls back to a microtask when setting a timer throws (Cloudflare Workers' global scope), so an Effect run at module load does not crash there. A module-level `ManagedRuntime` amortizes acquisition across invocations of a reused isolate, but it must not capture request data and must not assume disposal runs.
 - **Platform-specific defaults follow the host.** `Logger.consolePretty()` detects TTY versus browser rendering; pin one with `Logger.consolePrettyTty` or `Logger.consolePrettyBrowser`. `Logger.toFile` writes through the `FileSystem` service, so it needs a platform Layer in scope (both in [Observability](../operations/observability#logger)).
 
-Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime) (it gives the exit code as only `0` or `1` and names only SIGINT; `rc.116` also uses `130` and handles SIGTERM). Recipes: [a graceful Node entrypoint](../recipes/graceful-entrypoint-and-shutdown), [ManagedRuntime at an imperative boundary](../recipes/managed-runtime-integration), and [request cancellation through a host](../recipes/request-cancellation-through-a-host).
+Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime) (it gives the exit code as only `0` or `1` and names only SIGINT; this release also uses `130` for an interrupt and handles SIGTERM). Recipes: [a graceful Node entrypoint](../recipes/graceful-entrypoint-and-shutdown), [ManagedRuntime at an imperative boundary](../recipes/managed-runtime-integration), and [request cancellation through a host](../recipes/request-cancellation-through-a-host).
 
 ### Keep platform and unstable imports behind a capability
 
-**Let domain code depend on a small app-owned service, and let exactly one module import the platform package or the `effect/unstable/*` path that implements it.** The reason is churn as much as portability: `effect/unstable/*` modules may change in any release, and during the release-candidate series stable ones moved too (`rc.113` reshaped `Socket`, removed the `FileSystem` size helpers, and deleted `@effect/platform-node/Mime`). A quarantined import turns such a release into a one-file change. Tests provide a fake Layer instead of patching globals.
+**Let domain code depend on a small app-owned service, and let exactly one module import the platform package or the unstable module that implements it.** The reason is churn as much as portability: unstable modules (`effect/socket/*`, `effect/net/*`, `effect/process/*`, `effect/workers/*`) may change in any release, and a stable module's surface can move across a major version too. A quarantined import turns such a change into a one-file edit. Tests provide a fake Layer instead of patching globals.
 
 ```ts
 import { Context, Data, Effect, Layer } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 
 class PayrollCliFailed extends Data.TaggedError("PayrollCliFailed")<{
   readonly cause: unknown
@@ -852,7 +865,7 @@ const program = Effect.gen(function*() {
 
 Use `.add(V2, (from, to) => ...)` to preserve/copy rows while changing stores or indexes. `withTransaction({ tables, mode: "readwrite" })(effect)` aborts writes when the effect fails. Queries provide `equals`, comparison/range operators, `limit`, `offset`, `reverse`, `filter`, `first`, paged `stream`, and reactive variants; mutations expose invalidation. `rebuild` deletes and recreates the database, so data not reintroduced by migrations is lost.
 
-**Reach for it when** a browser application needs local, typed, queryable state with deliberate migrations and transactions. For simple keys, use `BrowserKeyValueStore`; for generic persistence, `BrowserPersistence.layerIndexedDb` builds on this stack.
+**Reach for it when** a browser application needs local, typed, queryable state with deliberate migrations and transactions. For simple keys, use `BrowserKeyValueStore`; for generic persistence, `BrowserPersistence.layerIndexedDb` is a separate, simpler store that talks to the raw `indexedDB` API directly rather than building on these typed modules.
 
 ## Other browser capabilities
 

@@ -3,11 +3,11 @@
 This repository keeps one editable Markdown corpus and generates human, offline, and machine-retrieval views from it:
 
 - **Human site:** concise handbook topics and long-form deep dives built with VitePress 2, with navigation, local search, deep links, and dark mode.
-- **Agent handbook:** `dist/effect-4-handbook.md`, the complete concise reference, decisions, recipes, troubleshooting, and compact deep-dive architecture summaries. Long-form deep dives stay outside this aggregate.
-- **Retrieval artifacts:** `dist/effect-4-catalog.json`, `dist/effect-4-examples.json`, plus focused `effect-4-{core,web,concurrency,distributed,ai}.md` bundles. The catalog maps natural-language intents and symbols to selection guidance, errors, requirements, lifetimes, alternatives, and canonical anchors; the example inventory distinguishes compile, contextual, run, pseudocode, and expected-invalid fences and declares their required checks without pretending transient CI evidence is embedded.
+- **Agent handbook:** `dist/effect-4-handbook.md` (also served as `dist/llms-full.txt`), the complete concise reference, decisions, recipes, troubleshooting, and compact deep-dive architecture summaries. Long-form deep dives stay outside this aggregate.
+- **Retrieval artifacts:** `dist/effect-4-catalog.json`, `dist/effect-4-examples.json`, `dist/effect-4-modules.{md,json}`, plus focused `effect-4-{core,web,concurrency,distributed,ai}.md` bundles. The catalog maps natural-language intents and symbols to selection guidance, errors, requirements, lifetimes, alternatives, and canonical anchors; the example inventory distinguishes compile, contextual, run, pseudocode, and expected-invalid fences and declares their required checks without pretending transient CI evidence is embedded; the module index lists every module section with its import path, stability badge, and Markdown anchor.
 - **Offline handbook:** `dist/effect-4-handbook.html`, one self-contained file with every concise topic and deep dive, inline search/theme/navigation, and embedded source Markdown. Double-click it to open it directly in Chrome; no local server or network connection is required.
 
-Every human page also has an exact Markdown twin at the same path with `.md` appended (`/data/schema` → `/data/schema.md`, and `/` → `/index.md`). The page toolbar can copy that canonical source or open it raw. `dist/llms.txt` is an intent-first routing index; HTML pages advertise both their Markdown twin with `rel="alternate"` and that index with `rel="describedby"`.
+Every human page also has a Markdown twin at the same path with `.md` appended (`/data/schema` → `/data/schema.md`, and `/` → `/index.md`). A twin is the canonical page plus three generated additions that keep an agent inside Markdown: a one-line provenance header, a contents line on long pages, and internal links rewritten to the neighbouring twins. The page toolbar names the twin, can copy it, and opens it raw. `dist/llms.txt` is an intent-first routing index with per-page word counts; HTML pages advertise their twin with `rel="alternate"` and the index with `rel="describedby"`, and `dist/robots.txt` repeats the entry points. [`docs/reference/agent-guide.md`](docs/reference/agent-guide.md) is the reading protocol for agents, and [`.agents/skills/use-effect-4-handbook/`](.agents/skills/use-effect-4-handbook/SKILL.md) packages it as an installable skill.
 
 All editable prose lives under [`docs/`](docs/), and that tree contains Markdown only:
 
@@ -34,7 +34,7 @@ Useful commands:
 
 ```bash
 pnpm docs:check       # verify the canonical source inventory and structure
-pnpm docs:build       # build the site, agent Markdown, and offline HTML into dist/
+pnpm docs:build       # build the site, agent Markdown, indexes, and offline HTML into dist/
 pnpm docs:standalone  # regenerate only the double-clickable offline HTML
 pnpm docs:verify      # crawl and verify the production output
 pnpm docs:smoke       # exercise both HTTP and file:// builds in headless Chrome
@@ -52,7 +52,7 @@ When adding or moving a concise topic, update `handbookGroups` in `handbook.ts`.
 
 ## Periodic correctness refresh
 
-The repository includes the Codex skill [`$refresh-effect-handbook`](.agents/skills/refresh-effect-handbook/SKILL.md). Invoke it when a new Effect v4 release is published, or whenever the handbook needs a full source-grounded audit:
+The repository includes two Codex-style skills under [`.agents/skills/`](.agents/skills/): [`$use-effect-4-handbook`](.agents/skills/use-effect-4-handbook/SKILL.md) teaches an agent to consume the published Markdown artifacts, and [`$refresh-effect-handbook`](.agents/skills/refresh-effect-handbook/SKILL.md) maintains the handbook. Invoke the latter when a new Effect v4 release is published, or whenever the handbook needs a full source-grounded audit:
 
 ```text
 Use $refresh-effect-handbook to audit and update all handbook topics and deep dives against the latest published Effect v4 release.

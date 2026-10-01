@@ -42,11 +42,11 @@ const program = Effect.gen(function*() {
 
 | You are… | Go to |
 | --- | --- |
-| Installing `rc.116`, configuring TypeScript, or writing a first program | [Getting Started](../foundations/getting-started) |
+| Installing Effect 4, configuring TypeScript, or writing a first program | [Getting Started](../foundations/getting-started) |
 | Choosing between primitives that all look plausible | [Choosing Effect Primitives](choosing-effect-primitives) |
 | Looking at a symptom, or checking generated code against known mistakes | [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns) |
 | Reviewing a design or a diff | [Review Checklists](review-checklists) |
-| Upgrading from an earlier release candidate | [What changed from rc.108 to rc.116](../#what-changed-from-rc-108-to-rc-116) |
+| Coming from a 4.0 release candidate or from Effect 3 | [Stability and support](../#stability-and-support), [Migration guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0/MIGRATION.md) |
 | Moving an existing Promise codebase over, one leaf at a time | [Adopting Effect in an Existing TypeScript Codebase](../deep-dives/adopting-effect-in-an-existing-codebase) |
 | Wanting a connected walkthrough rather than a lookup | [Deep Dives](../deep-dives/) |
 
@@ -161,7 +161,7 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | Keep a file or cursor open exactly as long as a stream is consumed | [`Stream.unwrap` over a scoped acquisition](../concurrency/streaming-channels#6-owning-resources-inside-a-stream) |
 | Find every place a pipeline buffers | [Where buffering hides](../concurrency/streaming-channels#7-where-buffering-hides) |
 | Batch by size or time | [`Stream.grouped` / `groupedWithin`](../concurrency/streaming-channels#2-transforming-streams), [`Stream.transduce`](../concurrency/streaming-channels#adapting-leftovers-and-repeatable-batching) |
-| Frame bytes on a socket or file | [`Ndjson`](../concurrency/streaming-channels#ndjson), [`Sse`](../concurrency/streaming-channels#sse), [`SchemaBinary`](../concurrency/streaming-channels#schemabinary) (MessagePack was removed) |
+| Frame bytes on a socket or file | [`Ndjson`](../concurrency/streaming-channels#ndjson), [`Sse`](../concurrency/streaming-channels#sse), [`SchemaBinary`](../concurrency/streaming-channels#schemabinary) |
 | Import a large file without buffering it | [Streaming Ingestion Without Accidental Buffering](../deep-dives/streaming-ingestion-without-accidental-buffering) |
 
 ### Time and scheduling
@@ -211,7 +211,7 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | Write state and an external effect atomically | [the outbox](../interfaces/sql#external-effects-after-commit-outbox) and [Recipe: A Transactional Write with an Outbox](../recipes/transactional-write-with-outbox) |
 | Give a repository one stable error | [Normalizing errors at a repository boundary](../interfaces/sql#normalizing-errors-at-a-repository-boundary) |
 | Run migrations and operate pools in production | [Operating migrations](../interfaces/sql#operating-migrations), [Operating SQL in production](../interfaces/sql#operating-sql-in-production) |
-| Upgrade `@effect/sql-pg` | [Upgrading to the native client](../interfaces/sql#upgrading-effect-sql-pg-to-the-native-client) |
+| Upgrade `@effect/sql-pg` | [Upgrading to the native client](../interfaces/sql#native-client-behavior-codecs-json-and-listen) |
 | Go end to end from Schema to HttpApi to SQL | [the boundary recipe](../recipes/schema-httpapi-sql-boundary) |
 | Files, sockets, workers, child processes | [Platform & Runtime Hosts](../interfaces/platform-runtime-hosts); sockets are pull-based (`reader` / `writer`) |
 | Parse and match IP addresses and networks | [`NetAddress`](../interfaces/platform-runtime-hosts#netaddress), [`IpNetwork`](../interfaces/platform-runtime-hosts#ipnetwork), [`IpInterface`](../interfaces/platform-runtime-hosts#ipinterface) |
@@ -252,7 +252,7 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | You want to… | Reach for |
 | --- | --- |
 | Test effects deterministically | [`@effect/vitest` + `TestClock`](../tooling/testing-dev-tooling) and [Testing an Effect Application](../deep-dives/testing-an-effect-application) |
-| Property-test from a Schema | [`Arbitrary`](../tooling/testing-dev-tooling#arbitrary) (`effect/unstable/arbitrary`; the fast-check bridge was removed) |
+| Property-test from a Schema | [`Arbitrary`](../tooling/testing-dev-tooling#arbitrary) (`effect/Arbitrary`; the fast-check bridge was removed) |
 | Know what an in-memory harness does *not* prove | [In-memory test runtimes shipped with Effect](../tooling/testing-dev-tooling#in-memory-test-runtimes-shipped-with-effect) |
 | Test laziness and the exact `E` and `R` | [Prove laziness and the static contract](../tooling/testing-dev-tooling#prove-laziness-and-the-static-contract) |
 | Capture `Effect.log*` records or spans in a test | [a test Logger](../deep-dives/testing-an-effect-application#capture-effect-log-records-with-a-test-logger), [structural span tests](../deep-dives/testing-an-effect-application#test-spans-structurally) |
@@ -276,5 +276,6 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | A test strategy for a whole service | — | [Testing an Effect Application](../deep-dives/testing-an-effect-application) |
 | Reactive UI state | — | [Reactivity — From Atoms to Mastery](../deep-dives/reactivity-from-atoms-to-mastery) |
 | An LLM feature with tools and budgets | — | [Building a Production AI Capability](../deep-dives/building-a-production-ai-capability) |
+| An MCP server other agents can call, with auth and approvals | [`McpServer`](../systems/ai-language-models#mcpserver) | [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp) |
 
-> **Tip:** Everything imported from `"effect"` is covered by semver. The big subsystems — `http`, `httpapi`, `rpc`, `sql`, `cluster`, `workflow`, `eventlog`, `ai`, `cli`, `reactivity`, `persistence`, `observability`, `devtools`, `socket`, `workers`, `process`, `schema/Model`, and since `rc.113` `arbitrary` and `net` — live under `"effect/unstable/*"` and may shift in minor releases. They're built to be used; just pin your version, read the changelog, and keep each unstable import [behind one app-owned capability](../interfaces/platform-runtime-hosts#keep-platform-and-unstable-imports-behind-a-capability).
+> **Tip:** Everything imported from `"effect"` is covered by semver, with two exceptions the handbook badges as unstable: the `Arbitrary` module and a set of advanced `Schema` APIs. The big subsystems — `http`, `http-api`, `rpc`, `sql`, `cluster`, `workflow`, `eventlog`, `ai`, `cli`, `reactivity`, `persistence`, `observability`, `devtools`, `socket`, `workers`, `process`, `net`, `schema/Model` — live under `"effect/<area>"`, carry `@stability unstable`, and may shift in minor releases. They're built to be used; just pin your version, read the changelog, and keep each unstable import [behind one app-owned capability](../interfaces/platform-runtime-hosts#keep-platform-and-unstable-imports-behind-a-capability).

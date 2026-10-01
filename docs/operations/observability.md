@@ -2,7 +2,7 @@
 
 _Effect ships structured logging, spans, and metrics as first-class runtime citizens. The export layer is separate — use a local collector for development, an OTLP endpoint for production, or skip export in tests._
 
-> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/08_observability) cover production logging and OTLP tracing.
+> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/08_observability) cover production logging and OTLP tracing.
 
 ## Designing signals
 
@@ -66,7 +66,7 @@ A `Logger<Message, Output>` receives a log event (message, level, cause, fiber, 
 
 - **defaultLogger** — The text logger every program starts with: `[time] LEVEL (#fiber) logSpan=12ms: message` followed by the annotations, written through the `Console` service.
 - **tracerLogger** — Records each log call as an event on the active span (message as the event name; annotations, `effect.fiberId`, `effect.logLevel`, and `effect.cause` as attributes). It is the second member of the default logger set, which is why logs show up inside traces without any setup.
-- **consolePretty()** — Human-readable TTY output with optional color. Development default. Options: `colors` (`"auto"` or a boolean — pass `false` for CI), `mode` (`"auto"`, `"tty"`, or `"browser"`), and `formatDate`. The `stderr` option was removed in `rc.113`. To pin one renderer regardless of detection use `Logger.consolePrettyTty` or `Logger.consolePrettyBrowser`.
+- **consolePretty()** — Human-readable TTY output with optional color. Development default. Options: `colors` (`"auto"` or a boolean — pass `false` for CI), `mode` (`"auto"`, `"tty"`, or `"browser"`), and `formatDate`. There is no `stderr` option — route pretty output to `console.error` instead with `Layer.succeed(Logger.LogToStderr, true)`. To pin one renderer regardless of detection use `Logger.consolePrettyTty` or `Logger.consolePrettyBrowser`.
 - **consoleJson / formatJson** — One JSON object per line. For log aggregation pipelines (Datadog, Loki, CloudWatch).
 - **consoleLogFmt / formatLogFmt** — logfmt (`key=value` pairs). Compact, grep-friendly, popular in Go/Kubernetes ecosystems; level names are uppercase.
 - **consoleStructured / formatStructured** — Plain JS object per event. For in-memory inspection and custom transforms.
@@ -74,7 +74,7 @@ A `Logger<Message, Output>` receives a log event (message, level, cause, fiber, 
 - **batched(logger, { window, flush })** — Collects entries for a time window then calls `flush` with the batch. Returns `Effect<Logger, never, Scope>`.
 - **toFile(logger, path, options?)** — Pipes a string logger to a file. Requires `FileSystem` (`NodeFileSystem.layer` on Node.js). Returns `Effect<Logger, PlatformError, Scope | FileSystem>`. Options are `flag` (default `"a+"`, append), `mode`, and `batchWindow` (default 1 second). Output is always batched through `Logger.batched`; the pending batch is written when the logger's scope closes, so a hard crash can lose up to one window of lines. Only opening the file can fail with `PlatformError` — later write errors are ignored.
 
-Official guide: [PlatformLogger](https://effect.website/docs/v4/platform/platformlogger) (rc.116 has no `PlatformLogger` module — the API is `Logger.toFile`, and the guide's "written as they arrive" remark does not match rc.116, where output is always batched, 1 second by default).
+Official guide: [PlatformLogger](https://effect.website/docs/v4/platform/platformlogger) (there is no `PlatformLogger` module — the API is `Logger.toFile`, and the guide's "written as they arrive" remark does not match it: output is always batched, 1 second by default).
 
 ### Installing and swapping loggers
 
@@ -252,7 +252,7 @@ This example redacts the top-level `employeeId` annotation and matching strings.
 
 **Reach for it when** swapping log format, adding a file sink, shipping logs to a remote aggregator, or adding a redaction backstop on top of Effect's structured log events.
 
-Official guide: [Logging](https://effect.website/docs/v4/observability/logging) (its "Built-in Loggers" subsection headings — `stringLogger`, `jsonLogger`, and so on — are names that rc.116 does not export; its code samples use the correct `Logger.format*` / `Logger.console*` names).
+Official guide: [Logging](https://effect.website/docs/v4/observability/logging) (its "Built-in Loggers" subsection headings — `stringLogger`, `jsonLogger`, and so on — are names this module does not export; its code samples use the correct `Logger.format*` / `Logger.console*` names).
 
 ## LogLevel
 
@@ -493,7 +493,7 @@ const finalizeApprovalChain = (priorApprovalSpan: Tracer.AnySpan) =>
 
 **Reach for it when** implementing a custom tracer backend, bridging an external trace context, or tuning sampling. For day-to-day use, `Effect.withSpan` and `Effect.fn` suffice.
 
-Official guide: [Tracing](https://effect.website/docs/v4/observability/tracing) (annotated span dumps and a one-container local Grafana stack; in rc.116 the OpenTelemetry API and SDK packages are optional peers of `@effect/opentelemetry`, so install the ones you import explicitly).
+Official guide: [Tracing](https://effect.website/docs/v4/observability/tracing) (annotated span dumps and a one-container local Grafana stack; the OpenTelemetry API and SDK packages are optional peers of `@effect/opentelemetry`, so install the ones you import explicitly).
 
 ## Metric
 
@@ -579,7 +579,7 @@ const processMeritRecommendation = Effect.fn("merit.processRecommendation")(
 | `Effect.trackDuration(metric, f?)` | The elapsed `Duration` (monotonic clock), or `f(duration)` | Every exit, interruption included |
 | `Effect.track(metric, f?)` | The whole `Exit`, or `f(exit)` | Every exit |
 
-With a mapper, the mapper's parameter type bounds what it can be attached to: `Effect.track(metric, f)` (tightened in rc.113) and `Effect.trackErrors(metric, f)` reject an effect whose error type `f` does not accept, so a mapper written for one error union cannot silently be reused on a wider one.
+With a mapper, the mapper's parameter type bounds what it can be attached to: `Effect.track(metric, f)` and `Effect.trackErrors(metric, f)` reject an effect whose error type `f` does not accept, so a mapper written for one error union cannot silently be reused on a wider one.
 
 ```ts
 import { Effect, Metric, Schema } from "effect"
@@ -789,7 +789,7 @@ it.effect("records one approval with its fields", () =>
 
 ## Otlp
 
-`effect/unstable/observability/Otlp` — unstable
+`effect/observability/Otlp` — unstable
 
 All-in-one OTLP layer. Wires `OtlpLogger`, `OtlpMetrics`, and `OtlpTracer` from a single config, posting to `/v1/logs`, `/v1/metrics`, and `/v1/traces` under a shared `baseUrl`.
 
@@ -798,8 +798,8 @@ All-in-one OTLP layer. Wires `OtlpLogger`, `OtlpMetrics`, and `OtlpTracer` from 
 ```ts
 import { NodeRuntime } from "@effect/platform-node"
 import { Layer } from "effect"
-import { FetchHttpClient } from "effect/unstable/http"
-import { Otlp } from "effect/unstable/observability"
+import { FetchHttpClient } from "effect/http"
+import { Otlp } from "effect/observability"
 
 // layerJson bakes in JSON serialization — no OtlpSerialization dep needed.
 export const ObservabilityLayer = Otlp.layerJson({
@@ -839,14 +839,14 @@ Default export intervals are 1 second for logs, 5 seconds for traces, and 10 sec
 
 ## OtlpLogger
 
-`effect/unstable/observability/OtlpLogger` — unstable
+`effect/observability/OtlpLogger` — unstable
 
 An Effect `Logger` that serializes log records as OTLP log records and ships them via HTTP. Includes log level, message, annotations, cause, fiber id, and current trace/span ids. Batches are flushed on scope finalization to prevent log loss on graceful shutdown.
 
 ```ts
 import { Layer } from "effect"
-import { FetchHttpClient } from "effect/unstable/http"
-import { OtlpLogger, OtlpSerialization } from "effect/unstable/observability"
+import { FetchHttpClient } from "effect/http"
+import { OtlpLogger, OtlpSerialization } from "effect/observability"
 
 // Ship comp-service structured logs (with employeeId/cycleId annotations) to
 // a local OTLP collector. OtlpLogger.layer merges with existing loggers by default.
@@ -867,14 +867,14 @@ Use `OtlpLogger.layerFromConfig()` to read endpoint URL and headers from `OTEL_E
 
 ## OtlpMetrics
 
-`effect/unstable/observability/OtlpMetrics` — unstable
+`effect/observability/OtlpMetrics` — unstable
 
 Periodically reads the Effect metric registry and posts snapshots to an OTLP metrics endpoint. Supports `"cumulative"` and `"delta"` aggregation temporality.
 
 ```ts
 import { Layer } from "effect"
-import { FetchHttpClient } from "effect/unstable/http"
-import { OtlpMetrics, OtlpSerialization } from "effect/unstable/observability"
+import { FetchHttpClient } from "effect/http"
+import { OtlpMetrics, OtlpSerialization } from "effect/observability"
 
 // Export merit-cycle throughput counters and budget gauges every 30 seconds.
 export const MeritMetricsLayer = OtlpMetrics.layer({
@@ -892,14 +892,14 @@ export const MeritMetricsLayer = OtlpMetrics.layer({
 
 ## OtlpTracer
 
-`effect/unstable/observability/OtlpTracer` — unstable
+`effect/observability/OtlpTracer` — unstable
 
 Replaces the Effect runtime's `Tracer` with one that batches and exports finished spans over OTLP/HTTP. Spans include trace and span IDs, parent links, attributes, events, timing, kind, and status.
 
 ```ts
 import { Layer } from "effect"
-import { FetchHttpClient } from "effect/unstable/http"
-import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability"
+import { FetchHttpClient } from "effect/http"
+import { OtlpSerialization, OtlpTracer } from "effect/observability"
 
 // Export merit-calculation spans to a staging collector using protobuf encoding.
 export const CompTracingLayer = OtlpTracer.layer({
@@ -921,7 +921,7 @@ export const CompTracingLayer = OtlpTracer.layer({
 
 ## OtlpExporter
 
-`effect/unstable/observability/OtlpExporter` — unstable
+`effect/observability/OtlpExporter` — unstable
 
 Shared batch-export engine used internally by `OtlpLogger`, `OtlpMetrics`, and `OtlpTracer`. Buffers items, posts encoded batches at a configurable interval, retries transient errors, honors HTTP 429 `Retry-After`, temporarily disables export after repeated failures (60 s backoff), and flushes on scope close. Typically not used directly.
 
@@ -938,7 +938,7 @@ Delivery semantics, so nobody mistakes export for a guarantee:
 
 ## OtlpResource
 
-`effect/unstable/observability/OtlpResource` — unstable
+`effect/observability/OtlpResource` — unstable
 
 Builds the OTLP `Resource` object (service name, version, arbitrary attributes) attached to every exported signal. `OtlpResource.make({ serviceName, serviceVersion, attributes })` returns a `Resource`; `fromConfig` reads from a config record. Helpers `entriesToAttributes` and `unknownToAttributeValue` convert JS values to OTLP `KeyValue`/`AnyValue`.
 
@@ -946,12 +946,12 @@ Builds the OTLP `Resource` object (service name, version, arbitrary attributes) 
 
 ## OtlpSerialization
 
-`effect/unstable/observability/OtlpSerialization` — unstable
+`effect/observability/OtlpSerialization` — unstable
 
 A `Context.Service` class with three methods — `traces(data)`, `metrics(data)`, `logs(data)` — that convert in-memory OTLP data structures to `HttpBody` instances. Two implementations: `OtlpSerialization.layerJson` (JSON, default) and `OtlpSerialization.layerProtobuf` (binary protobuf, `application/x-protobuf`).
 
 ```ts
-import { OtlpSerialization } from "effect/unstable/observability"
+import { OtlpSerialization } from "effect/observability"
 
 // JSON — zero extra deps, works everywhere.
 export const JsonSerialization = OtlpSerialization.layerJson
@@ -964,14 +964,14 @@ export const ProtobufSerialization = OtlpSerialization.layerProtobuf
 
 ## PrometheusMetrics
 
-`effect/unstable/observability/PrometheusMetrics` — unstable
+`effect/observability/PrometheusMetrics` — unstable
 
 Renders the Effect metric registry in Prometheus exposition format (text/plain version 0.0.4). `PrometheusMetrics.format()` returns `Effect<string>`; `PrometheusMetrics.layerHttp()` registers a `GET /metrics` route on the `HttpRouter` service in context.
 
 ```ts
 import { Effect, Metric } from "effect"
-import { PrometheusMetrics } from "effect/unstable/observability"
-import { HttpRouter } from "effect/unstable/http"
+import { PrometheusMetrics } from "effect/observability"
+import { HttpRouter } from "effect/http"
 import { Layer } from "effect"
 
 // Standalone: format on demand — for a debug dump or a custom scrape route.
@@ -995,13 +995,13 @@ const MetricsLayer = PrometheusMetrics.layerHttp({ prefix: "comp", path: "/metri
 
 **Reach for it when** running a Prometheus-compatible stack (Prometheus + Grafana, Victoria Metrics, etc.) and want metrics scraped via a pull endpoint.
 
-> **Tip:** **New project?** Use `effect/unstable/observability/Otlp*`. No peer dependencies, works in Node, Bun, Deno, and browsers, purpose-built for Effect's data model. A single `Otlp.layerJson({ baseUrl, resource })` covers logs, metrics, and traces.
+> **Tip:** **New project?** Use `effect/observability/Otlp*`. No peer dependencies, works in Node, Bun, Deno, and browsers, purpose-built for Effect's data model. A single `Otlp.layerJson({ baseUrl, resource })` covers logs, metrics, and traces.
 > **Existing OpenTelemetry SDK in the picture?** Use `@effect/opentelemetry`. It bridges Effect tracing/logging/metrics into the OTel API/SDK so existing `SpanProcessor`, `MetricReader`, and `LogRecordProcessor` pipelines keep working. The bridge is load-order sensitive for auto-instrumentation — read the NodeSdk docs carefully.
 > You can also mix them: use `OtlpTracer` for lightweight span export while keeping `@effect/opentelemetry`'s `NodeSdk` for an existing metrics reader.
 
 ## DevTools
 
-`effect/unstable/devtools/DevTools` — unstable
+`effect/devtools/DevTools` — unstable
 
 Application-side entry point for connecting to the Effect DevTools desktop app. `DevTools.layer(url?)` opens a WebSocket to `ws://localhost:34437` (or a custom URL) and mirrors spans and metric snapshots to the DevTools process. Zero configuration required for local development.
 
@@ -1010,7 +1010,7 @@ Application-side entry point for connecting to the Effect DevTools desktop app. 
 ```ts
 import { NodeRuntime } from "@effect/platform-node"
 import { Config, Layer } from "effect"
-import { DevTools } from "effect/unstable/devtools"
+import { DevTools } from "effect/devtools"
 
 const DevToolsLayer = Layer.unwrap(
   Config.String("NODE_ENV").pipe(
@@ -1034,7 +1034,7 @@ Layer.launch(Main.pipe(Layer.provide(DevToolsLayer))).pipe(
 
 ## DevToolsClient
 
-`effect/unstable/devtools/DevToolsClient` — unstable
+`effect/devtools/DevToolsClient` — unstable
 
 Low-level socket protocol layer underneath `DevTools`. Drives the NDJSON duplex channel, queues `Ping` heartbeats, sends span starts/events/completions, responds to `MetricsRequest` messages by snapshotting the metric registry, and exposes `DevToolsClient.layerTracer` which installs a tracer that wraps the existing tracer and forwards events to the socket.
 
@@ -1042,13 +1042,13 @@ Low-level socket protocol layer underneath `DevTools`. Drives the NDJSON duplex 
 
 ## DevToolsServer
 
-`effect/unstable/devtools/DevToolsServer` — unstable
+`effect/devtools/DevToolsServer` — unstable
 
 Server-side half of the DevTools protocol. `DevToolsServer.run` accepts a `Client` (a socket connection from a connected Effect application) and drives the conversation: receives span and metric data, sends metric snapshot requests and pong responses. Used by the Effect DevTools desktop app itself; not typically used in application code.
 
 ## DevToolsSchema
 
-`effect/unstable/devtools/DevToolsSchema` — unstable
+`effect/devtools/DevToolsSchema` — unstable
 
 Schema definitions for the DevTools wire protocol — `Span`, `SpanEvent`, `Ping`/`Pong`, `MetricsRequest`, `MetricsSnapshot`, and the `Request`/`Response` discriminated unions. Both client and server use these schemas to encode/decode NDJSON frames over the WebSocket.
 

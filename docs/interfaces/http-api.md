@@ -4,11 +4,11 @@ Describe the API once as data: groups of endpoints, each with Schema-typed path 
 
 > **Tip:** Keep the API *definition* (`HttpApi`, groups, endpoints, error schemas, middleware interfaces) in a module with **no server code**. The server implements handlers against it; clients derive from it. This lets a frontend import the exact same contract the backend serves, with zero server code crossing the boundary.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
+> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
 
 ## HttpApiEndpoint
 
-`effect/unstable/httpapi/HttpApiEndpoint` — unstable
+`effect/http-api/HttpApiEndpoint` — unstable
 
 One endpoint described as data. `HttpApiEndpoint.get(identifier, path, spec)` (and `post`, `put`, `patch`, `delete`, …) declares a route whose `params`, `query`, `payload`, `success`, and `error` are all Schemas. The `identifier` becomes the handler key and client method name and is exposed as `.identifier`; do not use `.name`, which is the native function name because endpoints are callable function objects. The path string carries `:params`.
 
@@ -16,7 +16,7 @@ One endpoint described as data. `HttpApiEndpoint.get(identifier, path, spec)` (a
 
 ```ts
 import { Schema } from "effect"
-import { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi"
+import { HttpApiEndpoint, HttpApiSchema } from "effect/http-api"
 import { CompRecord, EmployeeId, RaiseInput } from "./domain/Comp.ts"
 import { EmployeeNotFound } from "./domain/CompErrors.ts"
 
@@ -42,11 +42,11 @@ const postRaise = HttpApiEndpoint.post("postRaise", "/employees/:id/raise", {
 })
 ```
 
-`HttpApiEndpoint.query` (`rc.116`) declares an HTTP `QUERY` endpoint: a safe, idempotent read whose `payload` travels in the request body like a `POST`, for searches too large or too structured for a query string. The server, the derived client, and `HttpApiTest` handle it like any other verb (probed); OpenAPI output and CORS need attention, see [OpenApi](#openapi) and [HttpMiddleware](http-server#httpmiddleware).
+`HttpApiEndpoint.query` declares an HTTP `QUERY` endpoint: a safe, idempotent read whose `payload` travels in the request body like a `POST`, for searches too large or too structured for a query string. The server, the derived client, and `HttpApiTest` handle it like any other verb; OpenAPI output and CORS need attention, see [OpenApi](#openapi) and [HttpMiddleware](http-server#httpmiddleware).
 
 ```ts
 import { Schema } from "effect"
-import { HttpApiEndpoint } from "effect/unstable/httpapi"
+import { HttpApiEndpoint } from "effect/http-api"
 
 // Search comp bands with a structured filter in the body: QUERY /comp-bands/search
 const searchBands = HttpApiEndpoint.query("searchBands", "/comp-bands/search", {
@@ -58,7 +58,7 @@ const searchBands = HttpApiEndpoint.query("searchBands", "/comp-bands/search", {
 })
 ```
 
-A literal suffix after a path parameter stays literal: `/merit-cycles/:id:close` binds `id` and keeps `:close` as literal path text. Since `rc.116` the server router, the derived client and `urlBuilder`, and the OpenAPI path (`/merit-cycles/{id}:close`) all agree on that shape (probed).
+A literal suffix after a path parameter stays literal: `/merit-cycles/:id:close` binds `id` and keeps `:close` as literal path text. The server router, the derived client and `urlBuilder`, and the OpenAPI path (`/merit-cycles/{id}:close`) all agree on that shape.
 
 > **Warning:** **Put the rule on the contract, not in the handler.** A permissive endpoint schema (`id: Schema.String`) with the real pattern, range, or brand check repeated inside the handler hides the rule from the derived client, the OpenAPI document, and contract tests, and it lets invalid input reach downstream work before anything rejects it. Put checks and brands on `params`, `query`, `headers`, and `payload`; the handler then only ever sees decoded values. HttpApi answers a request that fails decoding with an empty `400` and an unmatched request `Content-Type` with `415`, both before the handler runs — [HttpApiTest](#httpapitest) shows how to prove it. Schema mechanics (checks, brands, transformations) live in [Schema](../data/schema#schema).
 
@@ -66,14 +66,14 @@ A literal suffix after a path parameter stays literal: `/merit-cycles/:id:close`
 
 ## HttpApiGroup
 
-`effect/unstable/httpapi/HttpApiGroup` — unstable
+`effect/http-api/HttpApiGroup` — unstable
 
 Named bundle of related endpoints sharing a path prefix, middleware, and OpenAPI metadata. `HttpApiGroup.make("comp").add(...endpoints)` collects endpoints; `.prefix("/comp")` mounts them; `.middleware(Authorization)` applies middleware to the group; `.annotateMerge(OpenApi.annotations(...))` adds docs. Pass `{ topLevel: true }` to flatten a group's endpoints onto the root of the derived client.
 
 **Mental model.** The unit of organization and shared policy. In the derived client, a group becomes a namespace (`client.comp.getComp()`) unless `topLevel`, in which case methods sit at the root (`client.health()`).
 
 ```ts
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/http-api"
 import { Authorization } from "./Authorization.ts"
 
 const getComp = HttpApiEndpoint.get("getComp", "/employees/:id")
@@ -100,14 +100,14 @@ export class SystemApi extends HttpApiGroup.make("system", { topLevel: true }).a
 
 ## HttpApi
 
-`effect/unstable/httpapi/HttpApi` — unstable
+`effect/http-api/HttpApi` — unstable
 
 Root value tying groups into one API. `HttpApi.make("my-api").add(GroupA).add(GroupB)` builds it; `.annotateMerge(OpenApi.annotations(...))` adds top-level docs (title, version, license). This single object is what you serve, generate clients from, and produce OpenAPI specs from.
 
 **Mental model.** Table of contents and source of truth. Everything downstream — server routes, typed client, docs — is *derived* from it; the contract can't drift.
 
 ```ts
-import { HttpApi, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, OpenApi } from "effect/http-api"
 import { CompGroup } from "./Comp.ts"
 import { SystemApi } from "./System.ts"
 
@@ -117,11 +117,11 @@ export class Api extends HttpApi.make("comp-api")
   .annotateMerge(OpenApi.annotations({ title: "Acme Compensation API" })) {}
 ```
 
-`HttpApi.ParseOptions` (`rc.116`) sets the Schema parse options that the server **and** the derived client use for every codec of an endpoint: path, query, headers, payload, success, errors, and SSE events. Annotate the API, a group, or an endpoint with `.annotate(HttpApi.ParseOptions, options)`. The most specific level wins and replaces the whole object (options are not merged), and without an annotation Schema's defaults apply. Annotate the API before passing it to `HttpApiBuilder.group` or `HttpApiBuilder.endpoint`.
+`HttpApi.ParseOptions` sets the Schema parse options (`onExcessProperty`, `errors`) that the server **and** the derived client use for every codec of an endpoint: path, query, headers, payload, success, errors, and SSE events. Annotate the API, a group, or an endpoint with `.annotate(HttpApi.ParseOptions, options)`. The most specific level wins and replaces the whole object (options are not merged), and without an annotation Schema's defaults apply (`onExcessProperty: "ignore"`). Annotate the API before passing it to `HttpApiBuilder.group` or `HttpApiBuilder.endpoint`.
 
 ```ts
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
 
 const RaiseInput = Schema.Struct({ amount: Schema.Finite, effectiveDate: Schema.String })
 
@@ -134,13 +134,30 @@ export class RaisesApi extends HttpApi.make("raises").add(
 ).annotate(HttpApi.ParseOptions, { onExcessProperty: "error", errors: "all" }) {}
 ```
 
-Probed on `rc.116`: with that annotation a `POST` carrying an extra property gets `400`; without it the property is dropped and the handler runs. Header codecs receive **all** request headers, so on an endpoint that declares `headers`, `onExcessProperty: "error"` also rejects undeclared ones such as `content-type`; set a looser object on that endpoint.
+With that annotation a `POST` carrying an extra property gets `400`; without it the property is dropped and the handler runs.
+
+`ParseOptions` is the fallback for six slot-specific annotations: `ParamsParseOptions`, `QueryParseOptions`, `HeadersParseOptions`, `PayloadParseOptions`, `SuccessParseOptions`, and `ErrorParseOptions`. Each one configures only its slot and, when unset, falls back to `ParseOptions`. Header codecs receive **all** request headers, so a blanket `onExcessProperty: "error"` also rejects undeclared ones such as `content-type`. Keep strict body parsing while leaving transport headers alone by overriding just that slot:
+
+```ts
+import { Schema } from "effect"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
+
+const RaiseInput = Schema.Struct({ amount: Schema.Finite, effectiveDate: Schema.String })
+
+export class RaisesApi2 extends HttpApi.make("raises").add(
+  HttpApiGroup.make("raises").add(
+    HttpApiEndpoint.post("propose", "/raises", { payload: RaiseInput })
+  )
+)
+  .annotate(HttpApi.ParseOptions, { onExcessProperty: "error" })
+  .annotate(HttpApi.HeadersParseOptions, {}) {}
+```
 
 **Reach for it when** assembling groups into the one definition that drives server, client, and docs.
 
 ## HttpApiSchema
 
-`effect/unstable/httpapi/HttpApiSchema` — unstable
+`effect/http-api/HttpApiSchema` — unstable
 
 Toolkit for describing HTTP-specific facets of a schema: status codes, content types, empty responses, and streaming. `HttpApiSchema.status(code)` pins a status; `NoContent`/`Created`/`Accepted` are ready-made empty responses; `asText({ contentType })` serves a string as text/CSV/etc.; `asNoContent({ decode })` turns an error into a bodyless response; `asMultipart` marks a payload as multipart upload; `StreamUint8Array`/`StreamSse` describe streaming bodies (raw bytes or Server-Sent Events).
 
@@ -148,7 +165,7 @@ Toolkit for describing HTTP-specific facets of a schema: status codes, content t
 
 ```ts
 import { Schema } from "effect"
-import { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi"
+import { HttpApiEndpoint, HttpApiSchema } from "effect/http-api"
 import { CompRecord } from "./domain/Comp.ts"
 
 // Content negotiation: the same roster either as JSON OR as a CSV export.
@@ -183,17 +200,17 @@ const page = HttpApiSchema.withHeaders({
 })
 ```
 
-`HttpApiSchema.status` takes a numeric code or, since `rc.109`, a status literal name from [HttpStatus](http-server#httpstatus): `RaiseInput.pipe(HttpApiSchema.status("Created"))` and `HttpApiSchema.status(201)` annotate the same thing, and the name survives code review better than a bare number.
+`HttpApiSchema.status` takes a numeric code or a status literal name from [HttpStatus](http-server#httpstatus): `RaiseInput.pipe(HttpApiSchema.status("Created"))` and `HttpApiSchema.status(201)` annotate the same thing, and the name survives code review better than a bare number.
 
 `WithHeaders(bodySchema, headersSchema)` makes the success/client value a branded `{ body, headers }` pair and works for streaming success bodies too. For a domain error that should remain the handler's error type while encoding selected fields into HTTP headers, pipe it through `encodeToWithHeaders({ body, headers }, { decode, encode })`. Nesting `WithHeaders` is rejected. Explicit `content-type` or `content-length` values in the returned headers override values inferred from the body; endpoint construction also rejects ambiguous response variants sharing the same status/content type.
 
-In `StreamSse({ data })` mode each event is `{ id?, event, data }`: since `rc.116` the `id` is optional in the TypeScript type and in the OpenAPI schema, and a decoded event without an `id` omits the key rather than carrying `id: undefined`. A custom `events` schema should declare the id as `Schema.optional(Schema.String)`, not `Schema.UndefinedOr(Schema.String)`.
+In `StreamSse({ data })` mode each event is `{ id?, event, data }`: the `id` is optional in the TypeScript type and in the OpenAPI schema, and a decoded event without an `id` omits the key rather than carrying `id: undefined`. A custom `events` schema should declare the id as `Schema.optional(Schema.String)`, not `Schema.UndefinedOr(Schema.String)`. The event name `"effect/http-api/stream/failure"` is reserved: it's how a mid-stream handler failure is encoded to the client, and defining your own `events` schema with that literal fails at endpoint-construction time.
 
 **Reach for it when** an endpoint needs a specific status, non-JSON content type, empty body, file upload, or streaming response.
 
 ## HttpApiError
 
-`effect/unstable/httpapi/HttpApiError` — unstable
+`effect/http-api/HttpApiError` — unstable
 
 Ready-made schema-typed errors for common HTTP failures: `BadRequest`, `Unauthorized`, `Forbidden`, `NotFound`, `Conflict`, `UnprocessableEntity` (422), `RequestTimeout`, `InternalServerError`, and more — each with the correct status code, plus `*NoContent` variants such as `UnprocessableEntityNoContent` for empty-body responses. Add to an endpoint's `error` list and fail with them like any yieldable error.
 
@@ -201,7 +218,7 @@ Ready-made schema-typed errors for common HTTP failures: `BadRequest`, `Unauthor
 
 ```ts
 import { Effect } from "effect"
-import { HttpApiError } from "effect/unstable/httpapi"
+import { HttpApiError } from "effect/http-api"
 
 // Inside a handler: fail with a built-in error like any other.
 const handler = Effect.gen(function*() {
@@ -286,7 +303,7 @@ export const approveRaiseHandler = (raiseId: string) =>
 
 ## HttpApiSecurity
 
-`effect/unstable/httpapi/HttpApiSecurity` — unstable
+`effect/http-api/HttpApiSecurity` — unstable
 
 Declarative security schemes: `HttpApiSecurity.bearer` (Authorization: Bearer), `apiKey({ key, in })` (header/query/cookie), `basic` (HTTP Basic). Attach to a middleware definition; HttpApi extracts and decodes the credential from each request (handing it to middleware as a `Redacted` value) and emits the matching `securityScheme` into the OpenAPI doc so the "Authorize" button works in Swagger/Scalar.
 
@@ -296,7 +313,7 @@ Declarative security schemes: `HttpApiSecurity.bearer` (Authorization: Bearer), 
 
 ## HttpApiMiddleware
 
-`effect/unstable/httpapi/HttpApiMiddleware` — unstable
+`effect/http-api/HttpApiMiddleware` — unstable
 
 Middleware for the declarative world, defined as a typed service. `HttpApiMiddleware.Service` declares what the middleware `provides` to downstream handlers (e.g. a `CurrentUser` service), what it `requires`, the `error` it can raise, and an optional `security` scheme. The definition lives next to the API (no implementation); the server supplies a `Layer` that implements it; clients supply a `layerClient` to inject credentials.
 
@@ -304,7 +321,7 @@ Middleware for the declarative world, defined as a typed service. `HttpApiMiddle
 
 ```ts
 import { Context, Schema } from "effect"
-import { HttpApiMiddleware, HttpApiSecurity } from "effect/unstable/httpapi"
+import { HttpApiMiddleware, HttpApiSecurity } from "effect/http-api"
 import type { Employee } from "../domain/Comp.ts"
 
 // The service the middleware injects for downstream endpoints — the
@@ -370,7 +387,7 @@ The `AuthorizationLayer` above compares the token with a literal to keep the wir
 
 ```ts
 import { Context, Effect, Layer, type Redacted, Schema } from "effect"
-import { HttpApiMiddleware, HttpApiSecurity } from "effect/unstable/httpapi"
+import { HttpApiMiddleware, HttpApiSecurity } from "effect/http-api"
 
 // What handlers may know about the caller: verified facts only.
 export class CurrentPrincipal extends Context.Service<CurrentPrincipal, {
@@ -429,9 +446,9 @@ export const authorize = Effect.fn("authorize")(function*(action: string, tenant
 })
 ```
 
-A handler for `POST /tenants/:tenantId/raises/:id/approve` starts with `yield* authorize("raise:approve", params.tenantId)` and declares `Forbidden` in the endpoint's `error`. Probed on `rc.116`: a request with no `Authorization` header and an invalid `:id` gets `401`, not `400`, because **middleware wraps request decoding** — an unauthenticated caller learns nothing about your validation rules; a valid token with the wrong tenant or a missing permission gets `403`, and the handler body never runs.
+A handler for `POST /tenants/:tenantId/raises/:id/approve` starts with `yield* authorize("raise:approve", params.tenantId)` and declares `Forbidden` in the endpoint's `error`. A request with no `Authorization` header and an invalid `:id` gets `401`, not `400`, because **middleware wraps request decoding** — an unauthenticated caller learns nothing about your validation rules; a valid token with the wrong tenant or a missing permission gets `403`, and the handler body never runs.
 
-- **Declare a middleware's error once, on the middleware.** It reaches the derived client's error channel and the OpenAPI responses of every endpoint it covers (duplicated entries were fixed in `rc.113`); repeating it on each endpoint is noise.
+- **Declare a middleware's error once, on the middleware.** It reaches the derived client's error channel and the OpenAPI responses of every endpoint it covers; repeating it on each endpoint is noise.
 - **Never infer authorization** from route possession, a documented security scheme, an unverified claim, a phantom type, or a cast. Audit system actors and "internal" bypass paths the same way as user calls.
 - **Test every denial independently**: no credential, bad credential, wrong tenant, missing permission, and the success path each get their own assertion, plus one that a secret canary appears in neither the response body nor the captured log output.
 - If the `401` needs a `WWW-Authenticate` challenge, fold the header into the error with `HttpApiSchema.encodeToWithHeaders` (see [HttpApiSchema](#httpapischema)).
@@ -440,7 +457,7 @@ A handler for `POST /tenants/:tenantId/raises/:id/approve` starts with `yield* a
 
 ## HttpApiBuilder
 
-`effect/unstable/httpapi/HttpApiBuilder` — unstable
+`effect/http-api/HttpApiBuilder` — unstable
 
 The server side — where handlers are implemented. `HttpApiBuilder.group(api, "comp", build)` gives a typed `handlers` object whose `.handle("name", impl)` only accepts endpoints in that group, with inputs (`params`, `query`, `payload`) already decoded and return type constrained to the endpoint's `success`/`error`. `HttpApiBuilder.layer(api, { openapiPath })` turns the implemented API into router routes (and optionally publishes the OpenAPI JSON).
 
@@ -450,7 +467,7 @@ For a larger group, `handlers.handleAll({ endpointId: handler, ... })` registers
 
 ```ts
 import { Effect, Layer } from "effect"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpApiBuilder } from "effect/http-api"
 import { Api } from "../../api/Api.ts"
 import { CurrentUser } from "../../api/Authorization.ts"
 import { CompService } from "../CompService.ts"
@@ -482,11 +499,11 @@ export const CompApiHandlers = HttpApiBuilder.group(
 )
 ```
 
-`HttpApiBuilder.handler(api, groupId, endpointId, f)` (ported in `rc.113`) defines one endpoint callback outside the `group` builder. It returns `f` unchanged, but infers the request shape, the allowed success and error types, and the callback's service requirements from the endpoint — so large groups can keep one handler per module and still register them with `handlers.handle`.
+`HttpApiBuilder.handler(api, groupId, endpointId, f)` defines one endpoint callback outside the `group` builder. It returns `f` unchanged, but infers the request shape, the allowed success and error types, and the callback's service requirements from the endpoint — so large groups can keep one handler per module and still register them with `handlers.handle`.
 
 ```ts
 import { Effect, Schema } from "effect"
-import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
 
 class CompRecord extends Schema.Class<CompRecord>("CompRecord")({
   employeeId: Schema.String,
@@ -515,8 +532,8 @@ Assemble the server: provide each group's handler Layer to `HttpApiBuilder.layer
 ```ts
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { Layer } from "effect"
-import { HttpRouter } from "effect/unstable/http"
-import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi"
+import { HttpRouter } from "effect/http"
+import { HttpApiBuilder, HttpApiScalar } from "effect/http-api"
 import { createServer } from "node:http"
 
 const ApiRoutes = HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
@@ -544,7 +561,7 @@ A handler translates one decoded request into one use-case call and returns the 
 
 ## HttpApiClient
 
-`effect/unstable/httpapi/HttpApiClient` — unstable
+`effect/http-api/HttpApiClient` — unstable
 
 Fully typed client derived from your API definition — no codegen. `HttpApiClient.make(Api, { transformClient })` produces an object mirroring your groups and endpoints: `client.comp.getComp({ params: { id } })` returns `Effect<CompRecord, EmployeeNotFound | ...>` with request encoding, middleware, and response decoding handled. Path params, query, and payload go under named keys: `{ params: { id }, payload: { ... } }`. `transformClient` sets the base URL and adds retries by composing the underlying `HttpClient`.
 
@@ -552,8 +569,8 @@ Fully typed client derived from your API definition — no codegen. `HttpApiClie
 
 ```ts
 import { Context, Effect, flow, Layer, Schedule } from "effect"
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
-import { HttpApiClient, HttpApiMiddleware } from "effect/unstable/httpapi"
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http"
+import { HttpApiClient, HttpApiMiddleware } from "effect/http-api"
 import { Api } from "./api/Api.ts"
 import { Authorization } from "./api/Authorization.ts"
 
@@ -599,24 +616,24 @@ Options and per-call controls worth knowing:
 | --- | --- |
 | Point the client at a host or base path | `HttpApiClient.make(Api, { baseUrl: "https://hr.acme.internal/api/v2" })` — shorter than a `prependUrl` transform |
 | The status or headers as well as the decoded value | pass `responseMode: "decoded-and-response"` (a `[value, response]` tuple) or `"response-only"` in the call's request object; the default is `"decoded-only"` |
-| A link or redirect target without executing a request | `HttpApiClient.urlBuilder(Api, { baseUrl })` mirrors the client's shape and returns strings: `urls.comp.getComp({ params, query })`. Params and query are encoded through the endpoint schemas, and a base URL's pathname is kept (it was dropped before `rc.113`) |
-| Stricter or exhaustive decoding of responses | the same [`HttpApi.ParseOptions`](#httpapi) annotation the server reads also configures the client's request encoders and response decoders (`rc.116`) |
-| A larger SSE event budget for one `StreamSse` endpoint | `sseOptions: { maxEventSize }` in that call's request object (`rc.113`); the default cap is 10 MiB per pending event |
+| A link or redirect target without executing a request | `HttpApiClient.urlBuilder(Api, { baseUrl })` mirrors the client's shape and returns strings: `urls.comp.getComp({ params, query })`. Params and query are encoded through the endpoint schemas, and a base URL's pathname is kept |
+| Stricter or exhaustive decoding of responses | the same [`HttpApi.ParseOptions`](#httpapi) annotation (or its per-slot variants) the server reads also configures the client's request encoders and response decoders |
+| A larger SSE event budget for one `StreamSse` endpoint | `sseOptions: { maxEventSize }` in that call's request object; the default cap is 10 MiB per pending event |
 
-The client decodes JSON, text, bytes, and — since `rc.113` — form-urlencoded responses according to the endpoint's declared encoding. Request values are encoded through the endpoint schemas *before* anything is sent, so a value that violates a check fails locally with `SchemaError`: **a typed client cannot produce malformed wire input**, which is why boundary tests need a raw request ([HttpApiTest](#httpapitest)).
+The client decodes JSON, text, bytes, and form-urlencoded responses according to the endpoint's declared encoding. Request values are encoded through the endpoint schemas *before* anything is sent, so a value that violates a check fails locally with `SchemaError`: **a typed client cannot produce malformed wire input**, which is why boundary tests need a raw request ([HttpApiTest](#httpapitest)).
 
 **Reach for it when** consuming an `HttpApi` from another service or frontend and wanting a typed client that can never silently drift from the server.
 
 ## OpenApi
 
-`effect/unstable/httpapi/OpenApi` — unstable
+`effect/http-api/OpenApi` — unstable
 
 OpenAPI 3.1 generator and annotation toolkit. `OpenApi.fromApi(api)` returns a complete spec object derived from endpoints, schemas, errors, and security. `OpenApi.annotations({ title, version, description, license, ... })` attaches metadata; services (`OpenApi.Title`, `Version`, `Servers`, `Summary`, `Deprecated`, `Exclude`, `Transform`) override anything down to a single parameter.
 
 **Mental model.** Docs are a *projection* of the same definition — not a parallel artifact kept in sync by hand. Because the spec comes from live Schemas, request/response shapes in the docs are always correct. Results are fresh clones even when the compiler cache is hit, so mutating one returned spec does not contaminate a later `fromApi` call.
 
 ```ts
-import { OpenApi } from "effect/unstable/httpapi"
+import { OpenApi } from "effect/http-api"
 import { Api } from "./api/Api.ts"
 
 // The raw spec object — serve it, write it to a file, feed it to codegen tools.
@@ -629,24 +646,25 @@ Facts that decide how you use the document:
 
 - **Each model owns its own artifact.** A value Schema knows a shape, so [`Schema.toJsonSchemaDocument`](../data/schema#jsonschema) yields a *JSON Schema* for config validation, structured-output prompts, or cross-language payload codegen. Methods, paths, parameter locations, statuses, per-endpoint errors, security, and media types live only on the assembled `HttpApi`, so the *OpenAPI* document must come from `OpenApi.fromApi`. Feeding either generator the other model produces a document missing exactly the facts the other owns — and a JSON Schema is not "the OpenAPI".
 - **Objects are closed here, open there.** `fromApi` generates object schemas with `onExcessProperty: "error"`, so struct bodies carry `additionalProperties: false`. A bare `Schema.toJsonSchemaDocument` call leaves objects open (`additionalProperties: true`) unless you pass the same option. Decoding is a separate matter: by default the server decodes with Schema's default parse options, so an unknown request property is dropped before the handler sees the payload, not rejected. To make the server enforce what the document advertises, annotate the API with [`HttpApi.ParseOptions`](#httpapi) `{ onExcessProperty: "error" }`.
-- **`QUERY` operations sit under an extension.** OpenAPI 3.1 has no `query` field, so `fromApi` emits an [`HttpApiEndpoint.query`](#httpapiendpoint) operation under `paths[path]["x-oai-additionalOperations"].QUERY` (probed). Swagger UI, Scalar, and generators that do not read that extension will not show it; `@effect/openapi-generator` reads both the extension and OpenAPI 3.2's native `query` field.
+- **`QUERY` operations sit under an extension.** OpenAPI 3.1 has no `query` field, so `fromApi` emits an [`HttpApiEndpoint.query`](#httpapiendpoint) operation under `paths[path]["x-oai-additionalOperations"].QUERY`. Swagger UI, Scalar, and generators that do not read that extension will not show it; `@effect/openapi-generator` reads both the extension and OpenAPI 3.2's native `query` field.
 - **Only identified schemas become components.** A schema with an `identifier` annotation is emitted once under `components.schemas` and referenced by `$ref`; anonymous structs are inlined at each use. A `Schema.Class` named `CompRecord` appears as `CompRecordEncoded`, because the document describes the encoded side. Name the DTOs you want codegen tools to reuse.
-- **Generation is deferred.** Since `rc.112` the `openapiPath`, Swagger, and Scalar routes build the document on the first request and memoize it, so startup stays cheap — and a generation defect (duplicate `operationId`, conflicting security scheme, invalid component key) surfaces on that first request, not at boot. Call `OpenApi.fromApi(Api)` in a test to move the failure into CI.
-- **Overrides apply last.** Endpoint-level `OpenApi.Override` and `OpenApi.Transform` annotations run after schema generation (`rc.113`), so a transform sees — and may rewrite — the finished operation, including its generated request and response schemas.
+- **Optionality mirrors the encoded schema.** A path parameter, query parameter, or response header is marked optional in the document precisely when the corresponding field is optional on the schema's encoded side (`Schema.optional`, etc.) — the same flag that decoding uses, so the document never drifts from runtime behavior.
+- **Generation is deferred.** The `openapiPath`, Swagger, and Scalar routes build the document on the first request and memoize it, so startup stays cheap — and a generation defect (duplicate `operationId`, conflicting security scheme, invalid component key) surfaces on that first request, not at boot. Call `OpenApi.fromApi(Api)` in a test to move the failure into CI.
+- **Overrides apply last.** Endpoint-level `OpenApi.Override` and `OpenApi.Transform` annotations run after schema generation, so a transform sees — and may rewrite — the finished operation, including its generated request and response schemas.
 - **Assert semantics, not snapshots.** Check the facts a consumer depends on — path, method, parameter locations, security requirement, media types, each declared status — instead of snapshotting the whole document, whose key order and component layout are not a contract.
 
-Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) — how `identifier` annotations become shared definitions (its "Generation Options" section describes an `additionalProperties` option; `rc.116` has `onExcessProperty` instead).
+Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) — how `identifier` annotations become shared definitions (its "Generation Options" section describes an `additionalProperties` option; HttpApi uses `onExcessProperty` instead).
 
 **Reach for it when** you need an OpenAPI document for external consumers, codegen, or API gateways — guaranteed to match what you actually serve.
 
 ## HttpApiSwagger
 
-`effect/unstable/httpapi/HttpApiSwagger` — unstable
+`effect/http-api/HttpApiSwagger` — unstable
 
 Mounts Swagger UI for your API. `HttpApiSwagger.layer(Api, { path: "/docs" })` serves the interactive Swagger explorer (with a working "Authorize" button if security is declared) at the chosen path, backed by the generated OpenAPI spec. Merge the Layer alongside your API routes.
 
 ```ts
-import { HttpApiSwagger } from "effect/unstable/httpapi"
+import { HttpApiSwagger } from "effect/http-api"
 import { Api } from "./api/Api.ts"
 
 const SwaggerRoute = HttpApiSwagger.layer(Api, { path: "/docs" })
@@ -656,12 +674,12 @@ const SwaggerRoute = HttpApiSwagger.layer(Api, { path: "/docs" })
 
 ## HttpApiScalar
 
-`effect/unstable/httpapi/HttpApiScalar` — unstable
+`effect/http-api/HttpApiScalar` — unstable
 
 Same idea as Swagger, rendered with [Scalar's](https://github.com/scalar/scalar) modern API reference UI. `HttpApiScalar.layer(Api, { path: "/docs" })` bundles the Scalar script inline; `HttpApiScalar.layerCdn(Api, { path, version })` loads it from a CDN. Both serve the generated OpenAPI spec.
 
 ```ts
-import { HttpApiScalar } from "effect/unstable/httpapi"
+import { HttpApiScalar } from "effect/http-api"
 import { Api } from "./api/Api.ts"
 
 const DocsRoute = HttpApiScalar.layer(Api, { path: "/docs" })
@@ -671,7 +689,7 @@ const DocsRoute = HttpApiScalar.layer(Api, { path: "/docs" })
 
 ## HttpApiTest
 
-`effect/unstable/httpapi/HttpApiTest` — unstable
+`effect/http-api/HttpApiTest` — unstable
 
 In-memory testing — no socket, no port. `HttpApiTest.groups(Api, ["comp"])` wires selected groups' handlers to a generated client through the *real* request encoding, routing, response encoding, and client decoding pipeline, then returns the typed client. Call endpoints exactly as in production and assert on results. Unselected groups get placeholder handlers that fail if called, keeping tests scoped.
 
@@ -680,8 +698,8 @@ In-memory testing — no socket, no port. `HttpApiTest.groups(Api, ["comp"])` wi
 ```ts
 import { assert, it } from "@effect/vitest"
 import { Effect, FileSystem, Layer, Path } from "effect"
-import { Etag, HttpPlatform } from "effect/unstable/http"
-import { HttpApiTest } from "effect/unstable/httpapi"
+import { Etag, HttpPlatform } from "effect/http"
+import { HttpApiTest } from "effect/http-api"
 import { Api } from "./api/Api.ts"
 import { CompApiHandlers } from "./server/Comp/http.ts"
 
@@ -702,7 +720,7 @@ it.layer(TestServices)("Comp API", (it) => {
 })
 ```
 
-`HttpServer.layerServices` is the ready-made equivalent of the `TestServices` Layer above (`Path`, a weak `Etag` generator, `HttpPlatform`, and a no-op `FileSystem`). Since `rc.113` the harness also runs registered pre-response handlers, so headers and cookies added with `HttpEffect.appendPreResponseHandler` or `HttpApiBuilder.securitySetCookie` are visible on the test response.
+`HttpServer.layerServices` is the ready-made equivalent of the `TestServices` Layer above (`Path`, a weak `Etag` generator, `HttpPlatform`, and a no-op `FileSystem`). The harness also runs registered pre-response handlers, so headers and cookies added with `HttpEffect.appendPreResponseHandler` or `HttpApiBuilder.securitySetCookie` are visible on the test response.
 
 ### What each test ring proves
 
@@ -719,8 +737,8 @@ A direct call to a service method is evidence about that service, not about HTTP
 ```ts
 import { assert, it } from "@effect/vitest"
 import { Context, Effect, Layer, Ref, Schema } from "effect"
-import { HttpRouter, HttpServer } from "effect/unstable/http"
-import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
+import { HttpRouter, HttpServer } from "effect/http"
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
 
 const EmployeeId = Schema.String.check(Schema.isPattern(/^E-\d{4}$/)).pipe(Schema.brand("EmployeeId"))
 const CompRecord = Schema.Struct({ employeeId: EmployeeId, baseSalary: Schema.Finite })

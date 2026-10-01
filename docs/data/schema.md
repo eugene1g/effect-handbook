@@ -2,9 +2,9 @@
 
 Effect v4 rebuilt Schema around a single `Codec` abstraction: a two-way, validating, possibly-effectful bridge between two TypeScript types. `Type` is the decoded, in-memory value; `Encoded` is the wire/storage shape. `decode` goes Encoded → Type (with validation); `encode` goes Type → Encoded. `Schema.String` is the degenerate case (both sides `string`); `Schema.FiniteFromString` (`Encoded = string`, `Type = number`) is the usual numeric boundary. Satellite modules — `SchemaParser`, `SchemaIssue`, `SchemaGetter`, `SchemaTransformation`, `SchemaRepresentation` — are the implementation; `Schema` is the interface.
 
-> **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
+> **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
 >
-> **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings predate `rc.113`); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings are stale — see the sections below); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this page's tagged 4.0.0 source, so where they differ, this page and the tagged source win.
 
 ## Schema
 
@@ -66,7 +66,7 @@ Effect.runPromise(Schema.encodeUnknownEffect(SalaryFromString)(192400)).then(con
 
 Per-call behavior — excess keys, error accumulation, concurrency, rejected-input reporting — is covered in [Parse options are boundary policy](#14-parse-options-are-boundary-policy).
 
-Official guide: [Getting Started](https://effect.website/docs/v4/schema/getting-started) (its `"preserve"`, `propertyOrder`, and `parseOptions`-annotation passages do not apply to `rc.116`).
+Official guide: [Getting Started](https://effect.website/docs/v4/schema/getting-started) (its `"preserve"`, `propertyOrder`, and `parseOptions`-annotation passages do not apply to 4.0.0).
 
 ### 2. Type vs Encoded — the distinction that runs everything
 
@@ -177,11 +177,11 @@ const AuditedAction = Schema.Union([
 
 > **Warning:** `mapFields` **drops struct-level `.check(...)` filters**, because the old predicate may not type-check against the new shape. Re-attach the rule, or pass `{ unsafePreserveChecks: true }` as the second argument when the predicate provably still applies.
 
-`Schema.encodeKeys` leaves unmapped keys alone and fails at construction when two fields map to the same encoded name. `Schema.annotateKey({ ... })` attaches key-level metadata (`title`, `description`, `messageMissingKey`) that JSON Schema output and error messages use. Since `rc.113` a declared struct field may be **inherited** from the input's prototype and is copied to an own property of the output; check ownership before parsing if every field must be own.
+`Schema.encodeKeys` leaves unmapped keys alone and fails at construction when two fields map to the same encoded name. `Schema.annotateKey({ ... })` attaches key-level metadata (`title`, `description`, `messageMissingKey`) that JSON Schema output and error messages use. A declared struct field may be **inherited** from the input's prototype and is copied to an own property of the output; check ownership before parsing if every field must be own.
 
 ### 4. Unions, literals, records, tuples
 
-`Union([...])` normally evaluates viable members in order, but it first uses literal sentinel fields to discard contradicted candidates. RC 108 applies the same pruning to nested unions by collecting sentinels common to their members, so an error tree may omit branches already contradicted by the observed discriminator. `Literals([...])` is the array form of a literal union; supports `.pick([...])` and `.transform([...])`. `Record(key, value)` takes two positional schemas. `Tuple([...])` takes an element array. Refined key schemas in a `Record` select matching properties rather than rejecting the whole object.
+`Union([...])` normally evaluates viable members in order, but it first uses literal sentinel fields to discard contradicted candidates. The same pruning applies to nested unions by collecting sentinels common to their members, so an error tree may omit branches already contradicted by the observed discriminator. `Literals([...])` is the array form of a literal union; supports `.pick([...])` and `.transform([...])`. `Schema.StringForLiteralAutocomplete` is an alias for `Schema.String` that editors treat as a plain string for autocomplete purposes; pair it with `Union` and `Literals` to accept any string while still suggesting the known literals (`Union([StringForLiteralAutocomplete, Literals(["GET", "POST"])])`). `Record(key, value)` takes two positional schemas. `Tuple([...])` takes an element array. Refined key schemas in a `Record` select matching properties rather than rejecting the whole object.
 
 ```ts
 import { Schema } from "effect"
@@ -279,7 +279,7 @@ const PayComponents = Schema.Record(Schema.Literals(["base", "bonus"]), Schema.F
 
 Also available: `Schema.NonEmptyArray(item)` (infers `readonly [A, ...A[]]`), `Schema.ArrayEnsure(item)` (a single value or an array decodes to an array; a one-element array encodes back to the single value), `Schema.UniqueSymbol(sym)`, `Schema.Enum(TsEnum)` (exposes `.enums`; rejects non-finite numeric members), `Schema.JsonObject` (a string-keyed record of `Schema.Json` values — arrays and non-JSON leaves such as `Date` fail), and the primitives `BigInt`, `Symbol`, `ObjectKeyword`, `Any`, `Unknown`, `Never`, `Null`. Schema values keep their parts public — `.fields`, `.members`, `.elements`, `.rest`, `.literals`, `.key` / `.value`, `.schema` — so they can be recombined. `Schema.Literal(0)` and `Schema.Literal(-0)` each accept either signed zero and preserve the input's sign; add a transformation when a canonical sign matters.
 
-Official guide: [Basic Usage](https://effect.website/docs/v4/schema/basic-usage) (its "Transforming Keys" passage is stale: `rc.116` records accept transformed key schemas).
+Official guide: [Basic Usage](https://effect.website/docs/v4/schema/basic-usage) (its "Transforming Keys" passage is stale: 4.0.0 records accept transformed key schemas).
 
 ### 5. Refinements — `check` and `refine`
 
@@ -313,13 +313,15 @@ const RaiseRecommendation = Schema.Struct({
 
 | Carrier | Checks |
 | --- | --- |
-| String | `isMinLength(n)`, `isMaxLength(n)`, `isLengthBetween(min, max)`, `isNonEmpty()`, `isPattern(regExp)`, `isStartsWith`, `isEndsWith`, `isIncludes`, `isTrimmed`, `isLowercased`, `isUppercased`, `isCapitalized`, `isUncapitalized`, `isUUID(version?)`, `isGUID`, `isULID`, `isBase64`, `isBase64Url` |
+| String | `isMinLength(n)`, `isMaxLength(n)`, `isBetweenLength(min, max)`, `isMinCodePoints(n)`, `isMaxCodePoints(n)`, `isBetweenCodePoints(min, max)`, `isNonEmpty()`, `isPattern(regExp)`, `isStartingWith`, `isEndingWith`, `isIncluding`, `isTrimmed`, `isLowercased`, `isUppercased`, `isCapitalized`, `isUncapitalized`, `isUUID(version?)`, `isGUID`, `isULID`, `isBase64`, `isBase64Url` |
 | Number | `isGreaterThan`, `isGreaterThanOrEqualTo`, `isLessThan`, `isLessThanOrEqualTo`, `isBetween({ minimum, maximum })`, `isInt`, `isInt32`, `isUint32`, `isFinite`, `isMultipleOf(n)` (throws for a zero or non-finite divisor) |
 | Array | the string length checks, plus `isUnique()` and `isUniqueKey()` (unique first elements in an array of `[key, value]` tuples) |
-| Map / Set, object | `isMinSize`, `isMaxSize`, `isSizeBetween`; `isMinProperties`, `isMaxProperties`, `isPropertiesLengthBetween`, `isPropertyNames(keySchema)` |
+| Map / Set, object | `isMinSize`, `isMaxSize`, `isBetweenSize`; `isMinProperties`, `isMaxProperties`, `isBetweenProperties`, `isPropertyNames(keySchema)` |
 | `Date`, `bigint`, `BigDecimal` | the comparison family with a suffix: `isBetweenDate`, `isGreaterThanBigInt`, `isLessThanOrEqualToBigDecimal`, ... |
 
 Prebuilt aliases cover the common combinations (`Schema.NonEmptyString`, `Schema.Int`, `Schema.Natural`, `Schema.Trimmed`). `Duration` has no dedicated family; write a `makeFilter` over `Duration` predicates.
+
+`isMinLength`/`isMaxLength`/`isBetweenLength` count UTF-16 code units; `isMinCodePoints`/`isMaxCodePoints`/`isBetweenCodePoints` count Unicode code points instead, so a string with astral characters (emoji, many CJK extension characters) is measured the way a person reading it would count. The code-unit checks still drive generated JSON Schema: `isMinLength`/`isMaxLength`/`isBetweenLength` export `minLength`/`maxLength` as an estimated code-point bound (`Math.ceil(unitsLength / 2)`) rather than the exact unit count, since JSON Schema's `minLength`/`maxLength` are defined over code points — treat the exported bound as approximate when round-tripping through JSON Schema.
 
 **Filter annotations, `abort`, and groups.** `Schema.makeFilter(predicate, annotations?, abort?)` receives `(input, ast, options)` and may return `undefined` / `true` (pass), `false`, a message string, `{ path, issue }`, a full `SchemaIssue.Issue`, or an array of those. Its annotations decide what every derivation sees: `expected` / `message` for error text, **`toJsonSchema` so the rule reaches generated JSON Schema and OpenAPI (a custom predicate is otherwise invisible there)**, and `arbitraryConstraint` so the native generator satisfies the rule constructively instead of by rejection. `.abort()` on a filter stops later checks from running once it fails; `Schema.makeFilterGroup([...checks], annotations)` packages a reusable set.
 
@@ -386,7 +388,7 @@ Schema.decodeUnknownSync(SharesFromText)("4000")    // 4000
 Schema.decodeUnknownSync(ActiveFromStatus)("active") // true
 ```
 
-For a transformation that can fail, use `SchemaGetter.transformEffect` and return an `Effect` that fails with a `SchemaIssue`. (It was named `transformOrFail` until `rc.113`; `SchemaTransformation.transformOrFail` became `SchemaTransformation.transformEffect` in the same release, matching `Config.mapEffect` and the rest of the library.) When a conversion is decode-only, use `SchemaGetter.forbiddenEncoding` as the `encode` leg so an attempt to encode fails with a `Forbidden` issue instead of inventing a value. For async validation, use `SchemaGetter.checkEffect` inside a `Schema.decode({...})` — the v4 replacement for `filterEffect`.
+For a transformation that can fail, use `SchemaGetter.transformEffect` and return an `Effect` that fails with a `SchemaIssue`; the two-way equivalent is `SchemaTransformation.transformEffect`, matching `Config.mapEffect` and the rest of the library. When a conversion is decode-only, use `SchemaGetter.forbiddenEncoding` as the `encode` leg so an attempt to encode fails with a `Forbidden` issue instead of inventing a value. For async validation, use `SchemaGetter.checkEffect` inside a `Schema.decode({...})` — the v4 replacement for `filterEffect`.
 
 ```ts
 import { Effect, Number, Option, Schema, SchemaGetter, SchemaIssue } from "effect"
@@ -428,7 +430,7 @@ Schema.decodeUnknownSync(PageFromQueryValue)("%7B%22page%22%3A1%2C%22size%22%3A2
 
 Getters that call services or do asynchronous work are covered in [Effectful schemas and services](#18-effectful-schemas-and-services).
 
-Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it still spells `transformEffect` as `transformOrFail`, and it predates `SchemaGetter.forbiddenEncoding`).
+Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it still spells `transformEffect` as `transformOrFail`, and it predates `SchemaGetter.forbiddenEncoding` — this page and the tagged 4.0.0 source win).
 
 ### 7. Branded schemas
 
@@ -452,6 +454,8 @@ type Money = typeof Money.Type // BigDecimal & Brand<"Money">
 - **A brand is earned by decoding (or `make`).** `raw as EmployeeId` bypasses the gate and makes the brand meaningless, so reserve the cast for test fixtures of already-valid data.
 - **Brands prevent mixing, they do not sanitize.** An `EmployeeId` that is also a SQL fragment is still a SQL fragment.
 - **One owner per rule.** When a [`Brand`](functional-toolkit#brand) constructor already exists, reuse it with `Schema.fromBrand(identifier, constructor)` — identifier first — instead of restating its checks.
+
+**`identifier` must be a single concrete string literal.** `Schema.brand` rejects a union, a widened `string`, or an open template-literal type for its identifier at the type level — the brand key has to be one known name. The brand is also type-only: it narrows the TypeScript type but is not recorded as an AST annotation, so schema representations and generated schema code omit it entirely. Reapply `Schema.brand` after rebuilding a representation or regenerating a schema when the nominal type still matters (checks added by `fromBrand` do survive, via the constructor's own `.checks`). `Schema.fromBrand`'s `identifier` must match the constructor's one brand key; apply `fromBrand` repeatedly to compose distinct brands, and represent alternatives with `Union`.
 
 ```ts
 import { Brand, Schema } from "effect"
@@ -540,7 +544,7 @@ Official guides: [Advanced Usage](https://effect.website/docs/v4/schema/advanced
 
 `Schema.Class` produces a real class whose constructor validates its fields, with a derived schema attached. `TaggedClass` auto-adds a `_tag`. `Error` and `TaggedError` produce yieldable, schema-validated errors: `yield* new EmployeeNotFound({...})` works inside `Effect.gen`. `Schema.Opaque` types the decoded value as a nominal class rather than its structural shape. A class supports `Base.extend<Sub>("Sub")(extraFields)` for schema-validated subclassing; the `Self` generic is required just as it is on `Schema.Class` (omit it and the result is the `MissingSelfGeneric` error type), and the subclass inherits fields, checks, getters, and methods.
 
-These class builders are distinct from validating an existing JavaScript `Error`: use `Schema.ErrorInstance(options?)` for that. Its JSON representation contains `message` plus optional `name` and `cause`; stack data is omitted unless `includeStack` is enabled, and `excludeCause` removes the cause. Persisted schema representations containing it need `SchemaRepresentation.ErrorInstanceReviver` (every built-in reviver moved from `Schema` to `SchemaRepresentation` in `rc.113`, and the constructors were renamed to `makeReviverDeclaration`, `makeReviverFilter`, and `makeReviverFilterGroup`).
+These class builders are distinct from validating an existing JavaScript `Error`: use `Schema.ErrorInstance(options?)` for that. Its JSON representation contains `message` plus optional `name` and `cause`; stack data is omitted unless `includeStack` is enabled, and `excludeCause` removes the cause. Persisted schema representations containing it need `SchemaRepresentation.ErrorInstanceReviver`; every built-in reviver lives in `SchemaRepresentation`, built from `SchemaRepresentation.makeReviverDeclaration`, `makeReviverFilter`, and `makeReviverFilterGroup`.
 
 ```ts
 import { Effect, Schema } from "effect"
@@ -567,8 +571,8 @@ const lookup: Effect.Effect<never, EmployeeNotFound> =
 **What a class schema is.** A declaration wrapped around its field struct: decoding turns a plain object into an instance, encoding turns an instance back into a plain object (a plain object passed to `encode` fails with `Expected <identifier>`). So a class is a codec, not only a validated constructor.
 
 - **The identifier is load-bearing.** It is exposed as `Grant.identifier`, stored in the AST, used in diagnostics and as the JSON Schema `$defs` name, and it drives a runtime marker that still recognizes instances after a hot-module reload replaces the constructor. It must be explicit because the JavaScript class name is not available while `extends` is evaluated and may be minified. Keep it unique and stable.
-- **Instances compare structurally.** They extend `Data.Class`, so `Equal.equals(a, b)` is `true` for two separately decoded instances with equal fields while `a === b` is `false`. `Schema.toEquivalence(Grant)` compares the *declared fields* (it fell back to `Equal.equals`, which also saw undeclared runtime properties, before `rc.113`).
-- **`new` always builds a fresh instance; `Grant.make(existing)`, `makeOption`, and `makeEffect` return an existing instance unchanged** (since `rc.113`).
+- **Instances compare structurally.** They extend `Data.Class`, so `Equal.equals(a, b)` is `true` for two separately decoded instances with equal fields while `a === b` is `false`. `Schema.toEquivalence(Grant)` compares only the *declared fields*, ignoring any undeclared runtime properties on the instance.
+- **`new` always builds a fresh instance; `Grant.make(existing)`, `makeOption`, and `makeEffect` return an existing instance unchanged.**
 - **The fields argument may be a whole `Schema.Struct(...).check(...)`**, so a cross-field rule is enforced by `new`, decoding, and encoding alike; a second argument carries annotations (`title`, `description`).
 
 ```ts
@@ -606,15 +610,14 @@ Equal.equals(decoded, new LevelBand({ min: 150_000, max: 210_000, level: 5 })) /
 | round trip under a stated equivalence | use `Equal.equals` or `Schema.toEquivalence`, never `===` |
 | the JSON form | `JSON.stringify(instance)` is not the codec; derive `Schema.toCodecJson(Class)` |
 
-Official guide: [Class APIs](https://effect.website/docs/v4/schema/classes) (its sample output for a failing `new` shows formatted issue text; `rc.116` throws the generic message described in section 13).
+Official guide: [Class APIs](https://effect.website/docs/v4/schema/classes) (its sample output for a failing `new` shows formatted issue text; 4.0.0 throws the generic message described in [section 13](#13-construction-and-deliberate-fallbacks)).
 
 ### 10. Annotations and derivations
 
-`annotate` attaches metadata (title, description, examples, custom keys) that flows into JSON Schema, error messages, and docs. Derivations from the same schema object: `Arbitrary.schema` (native property-test generator, from `effect/unstable/arbitrary`), `toEquivalence` (structural equality), `toFormatter` (pretty-printer), `toStandardSchemaV1` (Standard Schema interop), `toJsonSchemaDocument`.
+`annotate` attaches metadata (title, description, examples, custom keys) that flows into JSON Schema, error messages, and docs. Derivations from the same schema object: `Arbitrary.schema` (native property-test generator, from `effect/Arbitrary`), `toEquivalence` (structural equality), `toFormatter` (pretty-printer), `toStandardSchemaV1` (Standard Schema interop), `toJsonSchemaDocument`.
 
 ```ts
-import { Schema } from "effect"
-import { Arbitrary } from "effect/unstable/arbitrary"
+import { Arbitrary, Schema } from "effect"
 
 const CompBand = Schema.Struct({
   level: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 })),
@@ -626,13 +629,13 @@ const CompBand = Schema.Struct({
 const eq = Schema.toEquivalence(CompBand)
 eq({ level: 5, salaryMid: 190000 }, { level: 5, salaryMid: 190000 }) // true
 
-// Native generator for the decoded Type. `Schema.toArbitrary` and the fast-check
-// bridge were removed in rc.113; checks like isBetween generate constructively.
+// Native generator for the decoded Type: there is no `Schema.toArbitrary` or
+// fast-check bridge; checks like isBetween generate constructively.
 const CompBandArb = Arbitrary.schema(CompBand) // Arbitrary<{ level: number; salaryMid: number }>
 const fiveBands = Arbitrary.sampleEffect(CompBandArb, { count: 5, seed: 42 })
 ```
 
-**Three attachment points.** `annotate` documents the decoded side, `Schema.annotateEncoded` the encoded side (the one JSON Schema sees for a transformation), and `Schema.annotateKey` a struct field or tuple element. **`.annotate(...)` called after `.check(...)` lands on the last check**, not on the base schema, and `Schema.resolveAnnotations(schema)` reads from the same place — so annotate first, then add checks, when the metadata describes the schema as a whole. `examples` and `default` annotations are documentation only; they never affect decoding or construction. A `parseOptions` annotation is ignored since `rc.113` ([section 14](#14-parse-options-are-boundary-policy)).
+**Three attachment points.** `annotate` documents the decoded side, `Schema.annotateEncoded` the encoded side (the one JSON Schema sees for a transformation), and `Schema.annotateKey` a struct field or tuple element. **`.annotate(...)` called after `.check(...)` lands on the last check**, not on the base schema, and `Schema.resolveAnnotations(schema)` reads from the same place — so annotate first, then add checks, when the metadata describes the schema as a whole. `examples` and `default` annotations are documentation only; they never affect decoding or construction. A `parseOptions` annotation is ignored ([section 14](#14-parse-options-are-boundary-policy)).
 
 **Typed custom annotations.** Annotations are an open record. Make a team-specific key (a PII marker, a deprecation flag, a UI hint) type-checked by augmenting the `Annotations` interface, and read it back with `Schema.resolveAnnotations` (key-level ones with `Schema.resolveAnnotationsKey`).
 
@@ -680,7 +683,7 @@ const auditLine = Schema.toFormatter(Employee, {
 auditLine({ id: 1, displayName: "Ada" }) // { "id": 1, "displayName": <masked> }
 ```
 
-Official guides: [Schema Annotations](https://effect.website/docs/v4/schema/annotations) (its `parseOptions` annotation row and its claim that `concurrency` reaches union members are obsolete in `rc.116`), [Schema to Equivalence](https://effect.website/docs/v4/schema/equivalence), [Schema to Formatter](https://effect.website/docs/v4/schema/formatter).
+Official guides: [Schema Annotations](https://effect.website/docs/v4/schema/annotations) (its `parseOptions` annotation row and its claim that `concurrency` reaches union members are obsolete in 4.0.0), [Schema to Equivalence](https://effect.website/docs/v4/schema/equivalence), [Schema to Formatter](https://effect.website/docs/v4/schema/formatter).
 
 ### 11. Serialization codecs
 
@@ -825,9 +828,10 @@ Level.make(42, { disableChecks: true }) // 42 — a deliberate hole
 
 > **Warning:** `{ disableChecks: true }` (a second argument to every constructor and class `new`, and a parse option for decoding) skips checks while still applying defaults and transformations. It is a measured optimization for data that was validated moments ago, never an ingress default.
 
+
 **Deliberate fallbacks.** `SchemaParser.makeOption(schema)` is the standalone form of `.makeOption(...)`. `Schema.catchDecoding` can replace a decoding failure with an effectful `Option` fallback; `catchDecodingWithContext` may additionally require services. These middlewares intentionally weaken a boundary, so reserve them for an explicit compatibility/defaulting policy rather than hiding malformed input.
 
-Official guide: [Default Constructors](https://effect.website/docs/v4/schema/default-constructors) (it types `makeEffect` as failing with `SchemaError` and prints formatted text for a throwing `make`; `rc.116` behaves as the table above says).
+Official guide: [Default Constructors](https://effect.website/docs/v4/schema/default-constructors) (it types `makeEffect` as failing with `SchemaError` and prints formatted text for a throwing `make`; 4.0.0 behaves as the table above says).
 
 ### 14. Parse options are boundary policy
 
@@ -868,8 +872,9 @@ const firstOnly = decodeStrict(input, { errors: "first" })
 
 - **The excess-property policy is part of the contract.** A struct *looks* strict in its type while the runtime quietly accepts `{ id, admin: true }` and drops the extra key. That is right for a tolerant reader or a projection, and wrong for a config file, a signed payload, a PATCH body, or any input where a typo'd or smuggled key must be noticed. Decide per boundary and test the chosen policy — it is the case most often forgotten.
 - **The same option name controls [JSON Schema generation](#jsonschema).** Pass `"error"` in both places when the published document and the runtime parser must agree.
-- **To keep unknown keys, model them** with `Schema.Record` or `Schema.StructWithRest` ([section 4](#4-unions-literals-records-tuples)). `onExcessProperty: "preserve"` was removed in `rc.113` because it let unvalidated values cross the boundary.
-- **Options apply to the whole operation.** Since `rc.113` a `parseOptions` *annotation* no longer affects parsing, so there is no per-node override; `propertyOrder` is gone too, and decoded key order is unspecified — sort at presentation time if order matters.
+- **To keep unknown keys, model them** with `Schema.Record` or `Schema.StructWithRest` ([section 4](#4-unions-literals-records-tuples)). There is no `onExcessProperty: "preserve"` option, because it would let unvalidated values cross the boundary.
+- **Options apply to the whole operation.** A `parseOptions` *annotation* does not affect parsing, so there is no per-node override; there is no `propertyOrder` option either, and decoded key order is unspecified — sort at presentation time if order matters.
+- **Excess-property checks only see enumerable own properties.** A non-enumerable own property — `Error#stack` on a `TaggedError` instance, for example — is never flagged as an excess property, even under `onExcessProperty: "error"`, unless the schema explicitly declares it; the same rule applies to the properties an index signature can match.
 - **`errors: "all"` does not mean "every rule ran".** An invalid field prevents a struct-level check from running (a cross-field rule is reported only once its fields parse), and an aborting filter stops later checks. Do not assert on the absence of an issue under `"all"`.
 - **`concurrency` parallelizes product children only** — tuple and array elements, struct fields, record entries, structs with rest — independently at each nesting level. Union members always stay sequential, because speculatively running candidates would execute transformations that are not selected. With `errors: "first"` the first *observed* failure interrupts its siblings; array order is preserved, but issue order (and the winner of colliding transformed record keys) follows completion order.
 
@@ -931,7 +936,7 @@ Schema.decodeUnknownSync(MeritBudgetsJson)([["eng", "100"]]) // HashMap with "en
 | --- | --- |
 | `Schema.Option(A)` | `{ _tag: "None" }` or `{ _tag: "Some", value }` |
 | `Schema.Result(A, E)` | `{ _tag: "Success", success }` or `{ _tag: "Failure", failure }` |
-| `Schema.Exit(A, E, D)` | `{ _tag: "Success", value }` or `{ _tag: "Failure", cause: [...] }`, where `cause` is a flat array of reasons such as `{ _tag: "Fail", error }` and `{ _tag: "Die", defect }`; `Schema.Defect()` revives error-like defects as `{ name, message }`. Since `rc.116`, `Schema.Cause` encodes each reason to exactly these wire fields, so strict encoding (`onExcessProperty: "error"`) yields the same output |
+| `Schema.Exit(A, E, D)` | `{ _tag: "Success", value }` or `{ _tag: "Failure", cause: [...] }`, where `cause` is a flat array of reasons such as `{ _tag: "Fail", error }` and `{ _tag: "Die", defect }`; `Schema.Defect()` revives error-like defects as `{ name, message }`. `Schema.Cause` encodes each reason to exactly these wire fields, so strict encoding (`onExcessProperty: "error"`) yields the same output |
 | `ReadonlySet` / `HashSet` | array of items |
 | `ReadonlyMap` / `HashMap` | array of `[key, value]` entries |
 | `Schema.Duration` | `{ _tag: "Millis", value }`, `{ _tag: "Nanos", value: "<digits>" }`, or an infinity tag, so infinite and sub-millisecond durations survive |
@@ -951,11 +956,11 @@ The general lesson: when the encoded carrier is narrower than the `Type`, either
 
 | Area | Schemas | Notes |
 | --- | --- | --- |
-| Secrets | `Schema.Redacted(S, { label?, disallowJsonEncode? })`, `Schema.RedactedFromValue(S, { label?, disallowEncode? })` | the first expects a `Redacted` on both sides and, since `rc.116`, rewraps the inner schema's transformed result (`Schema.Redacted(Schema.NumberFromString)` decodes a `Redacted<string>` to a `Redacted<number>`, keeping the label); the second decodes a raw value and wraps it. The "refuse to encode" option is spelled differently on each |
+| Secrets | `Schema.Redacted(S, { label?, disallowJsonEncode? })`, `Schema.RedactedFromValue(S, { label?, disallowEncode? })` | the first expects a `Redacted` on both sides and rewraps the inner schema's transformed result (`Schema.Redacted(Schema.NumberFromString)` decodes a `Redacted<string>` to a `Redacted<number>`, keeping the label); the second decodes a raw value and wraps it. The "refuse to encode" option is spelled differently on each |
 | Sizes | `Schema.ByteSize`, `ByteSizeFromString`, `ByteSizeFromBigInt`, `ByteSizeFromNumber` | the string form requires a unit (`"5 MiB"`) and encodes the exact count as `"5242880 bytes"`; see [ByteSize](functional-toolkit#bytesize) |
 | Graphs | `Schema.Graph("directed" \| "undirected", node, edge)` | immutable [Graph](data-structures#graph) values; derive `toCodecJson` for a `{ type, nodes, edges }` snapshot |
-| Network (unstable) | `Schema.IpAddressFromString`, `Ipv4AddressFromString`, `Ipv6AddressFromString`, `IpNetworkFromString`, `InetAddressFromString`, `MacAddressFromString` | text to `effect/unstable/net` values; malformed text fails with a specific message |
-| HTTP (unstable) | `Schema.UrlParams`, `Schema.Headers`, `Schema.Cookies`, `Schema.RecordFromUrlParams`, `Schema.RecordFromCookies`, `Schema.JsonFromUrlParamsField(field)` | moved here from the HTTP modules in `rc.113`; usage lives with [UrlParams](../interfaces/http-server#urlparams) |
+| Network (unstable) | `Schema.IpAddressFromString`, `Ipv4AddressFromString`, `Ipv6AddressFromString`, `IpNetworkFromString`, `InetAddressFromString`, `MacAddressFromString` | text to `effect/net` values; malformed text fails with a specific message |
+| HTTP (unstable) | `Schema.UrlParams`, `Schema.Headers`, `Schema.Cookies`, `Schema.RecordFromUrlParams`, `Schema.RecordFromCookies`, `Schema.JsonFromUrlParamsField(field)` | live in `effect/Schema`, not the HTTP modules; usage lives with [UrlParams](../interfaces/http-server#urlparams) |
 
 Official guide: [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types).
 
@@ -1086,7 +1091,7 @@ if (SchemaAST.isObjects(ast)) {
 const title = SchemaAST.resolveTitle(Schema.String.annotate({ title: "Name" }).ast)
 ```
 
-> **Note:** Handy AST utilities: `SchemaAST.getAST(schema)` (the node), `toType`/`toEncoded`/`flip` (memoized tree rewrites that power the `Schema`-level functions of the same name), `annotate`/`appendChecks`/`replaceEncoding` (build derived nodes), and `resolveTitle`/`resolveDescription`/`resolveIdentifier` (read annotations). The node classes — `Objects`, `Arrays`, `Union`, `Literal`, `Declaration` — are exported if you need to construct one. Since `rc.113` the `SchemaAST` and `SchemaIssue` nodes and the `SchemaTransformation` models are published as **structural instance interfaces**: `new` and `instanceof` still work, but a constructor's `prototype` is no longer part of the TypeScript API, so name the instance interface (`SchemaAST.AST`, `SchemaTransformation.Transformation<T, E>`) in type positions. `SchemaGetter.Getter<T, E, R>` is a tagged union with no constructor at all since `rc.116` ([SchemaGetter](#schemagetter)). `SchemaAST.Base` is gone; accept `SchemaAST.AST` and narrow with the `is*` guards. Since `rc.116`, `SchemaAST.Context.constructorDefault` holds the constructor-default `Effect` directly rather than a `SchemaAST.Link`; code that builds or reads a `Context` by hand passes or reads that `Effect`.
+> **Note:** Handy AST utilities: `SchemaAST.getAST(schema)` (the node), `toType`/`toEncoded`/`flip` (memoized tree rewrites that power the `Schema`-level functions of the same name), `annotate`/`appendChecks`/`replaceEncoding` (build derived nodes), and `resolveTitle`/`resolveDescription`/`resolveIdentifier` (read annotations). The node classes — `Objects`, `Arrays`, `Union`, `Literal`, `Declaration` — are exported if you need to construct one. The `SchemaAST` and `SchemaIssue` nodes and the `SchemaTransformation` models are published as **structural instance interfaces**: `new` and `instanceof` still work, but a constructor's `prototype` is not part of the TypeScript API, so name the instance interface (`SchemaAST.AST`, `SchemaTransformation.Transformation<T, E>`) in type positions. `SchemaGetter.Getter<T, E, R>` is a tagged union with no constructor at all ([SchemaGetter](#schemagetter)). `SchemaAST.Base` does not exist; accept `SchemaAST.AST` and narrow with the `is*` guards. `SchemaAST.Context.constructorDefault` holds the constructor-default `Effect` directly rather than a `SchemaAST.Link`; code that builds or reads a `Context` by hand passes or reads that `Effect`.
 
 **Reach for it when** building tooling on top of schemas: custom JSON-Schema dialects, schema-driven UI generation, schema linters, or any code that reasons about a schema's structure rather than just runs it.
 
@@ -1139,13 +1144,13 @@ Schema.asserts(Rating, input) // throws if not a rating; otherwise narrows
 input.toUpperCase()
 ```
 
-Since `rc.116`, parsers look up each exact AST in a shared decoder registry. By default that entry is the interpreter; [SchemaJITCompiler](#schemajitcompiler) and [SchemaAOTCompiler](#schemaaotcompiler) can install compiled entries whose optional synchronous `decode`, `is`, and `make` fast paths the parser tries first, falling back to the detailed decoder to build the issue when a fast path rejects the input. The `SchemaParser` API and its results stay the same either way.
+Parsers look up each exact AST in a shared decoder registry. By default that entry is the interpreter; [SchemaJITCompiler](#schemajitcompiler) and [SchemaAOTCompiler](#schemaaotcompiler) can install compiled entries whose optional synchronous `decode`, `is`, and `make` fast paths the parser tries first, falling back to the detailed decoder to build the issue when a fast path rejects the input. The `SchemaParser` API and its results stay the same either way.
 
 **Reach for it when** writing a custom `declare` codec and needing to decode/encode inner schemas, or building a low-level tool that wants the raw `Effect<A, Issue>` traversal. Day to day, call through `Schema`.
 
 ## SchemaCompiler
 
-`effect/unstable/schema/SchemaCompiler` — unstable (new in `rc.116`)
+`effect/schema/SchemaCompiler` — unstable
 
 The shared registry that maps an exact `SchemaAST.AST` to a `CompiledDecoder`: a required `decodeEffect` (complete decoding with detailed issues) plus optional `is`, `decode`, `make`, and `makeEffect` operations. The JIT and AOT compilers are both clients of this registry; `SchemaCompiler.set(ast, decoder)` is the manual entry point, and `SchemaCompiler.invalid` / `SchemaCompiler.missing` are the sentinels a fast path returns for "rejected, ask the detailed decoder" and "no value produced".
 
@@ -1153,7 +1158,7 @@ The shared registry that maps an exact `SchemaAST.AST` to a `CompiledDecoder`: a
 
 ```ts
 import { Effect, Schema, SchemaIssue } from "effect"
-import { SchemaCompiler } from "effect/unstable/schema"
+import { SchemaCompiler } from "effect/schema"
 
 const EmployeeId = Schema.String.check(Schema.isPattern(/^E\d{6}$/))
 
@@ -1174,15 +1179,15 @@ SchemaCompiler.set(EmployeeId.ast, {
 
 ## SchemaJITCompiler
 
-`effect/unstable/schema/SchemaJITCompiler` — unstable (new in `rc.116`)
+`effect/schema/SchemaJITCompiler` — unstable
 
-Generates decoder source for a schema at runtime and installs it through `new Function`. Two entry points: the side-effect import `effect/unstable/schema/SchemaJITCompiler/enable` compiles every schema lazily on first use, and `SchemaJITCompiler.enable(schema.ast)` compiles one schema and its parsing dependencies.
+Generates decoder source for a schema at runtime and installs it through `new Function`. Two entry points: the side-effect import `effect/schema/SchemaJITCompiler/enable` compiles every schema lazily on first use, and `SchemaJITCompiler.enable(schema.ast)` compiles one schema and its parsing dependencies.
 
 **Mental model.** A drop-in accelerator for the same parser. Operations compile lazily on first use; checks, transformations, and defaults are never executed at installation. Validators, structs, and homogeneous arrays get generated code; most transformations and all middleware still run through the interpreter, with compiled children.
 
 ```ts
 import { Schema } from "effect"
-import { SchemaJITCompiler } from "effect/unstable/schema"
+import { SchemaJITCompiler } from "effect/schema"
 
 const PayrollLine = Schema.Struct({
   employeeId: Schema.NonEmptyString,
@@ -1196,25 +1201,25 @@ SchemaJITCompiler.enable(PayrollLine.ast)
 const decodeLine = Schema.decodeUnknownSync(PayrollLine) // same API, same issues on failure
 
 // Global alternative, as the entrypoint's first import:
-// import "effect/unstable/schema/SchemaJITCompiler/enable"
+// import "effect/schema/SchemaJITCompiler/enable"
 ```
 
-Probed on `rc.116`, a four-field struct decoded about three times faster with JIT enabled and produced identical results and error messages. Where dynamic function construction is blocked (a Content Security Policy without `'unsafe-eval'`, some edge runtimes), compilation fails silently and parsing stays interpreted: nothing breaks, nothing gets faster. Enable **before first use**: a parser function that has already run keeps its interpreted entry, while one created but not yet called picks up the compiled entry.
+In practice, a four-field struct decodes about three times faster with JIT enabled and produces identical results and error messages. Where dynamic function construction is blocked (a Content Security Policy without `'unsafe-eval'`, some edge runtimes), compilation fails silently and parsing stays interpreted: nothing breaks, nothing gets faster. Enable **before first use**: a parser function that has already run keeps its interpreted entry, while one created but not yet called picks up the compiled entry.
 
 **Reach for it when** profiling shows schema decoding on a hot path (high-volume ingestion, large payload arrays) in a runtime that allows `new Function`. Leave it off otherwise; results do not change, only speed.
 
 ## SchemaAOTCompiler
 
-`effect/unstable/schema/SchemaAOTCompiler` — unstable (new in `rc.116`)
+`effect/schema/SchemaAOTCompiler` — unstable
 
-The build-time twin of the JIT compiler. `SchemaAOTCompiler.compile(targets)` returns the source of a static JavaScript module whose `install(asts)` export registers the generated decoders, so no code is constructed at runtime. The companion entrypoint `effect/unstable/schema/SchemaAOTCompiler/Build` exposes `build(options)`, which loads your schema modules, compiles their **direct** `Schema` exports, and writes a module that installs itself when imported. It needs `FileSystem` and `Path` and fails with `BuildError` or `PlatformError`.
+The build-time twin of the JIT compiler. `SchemaAOTCompiler.compile(targets)` returns the source of a static JavaScript module whose `install(asts)` export registers the generated decoders, so no code is constructed at runtime. The companion entrypoint `effect/schema/SchemaAOTCompiler/Build` exposes `build(options)`, which loads your schema modules, compiles their **direct** `Schema` exports, and writes a module that installs itself when imported. It needs `FileSystem` and `Path` and fails with `BuildError` or `PlatformError`.
 
 **Mental model.** JIT output frozen into a file. Operations are opt-in per build (`"decode"` by default; add `"encode"`, `"is"`, `"make"`); anything not generated falls back to the interpreter.
 
 ```ts
 import { NodeServices } from "@effect/platform-node"
 import { Effect } from "effect"
-import { build } from "effect/unstable/schema/SchemaAOTCompiler/Build"
+import { build } from "effect/schema/SchemaAOTCompiler/Build"
 
 // A build script: compile the schemas exported by the payroll module.
 declare const loadPayrollSchemas: () => Promise<unknown> // () => import("./payroll/schemas.ts")
@@ -1233,7 +1238,7 @@ const writeAotModule = build({
 // import "./generated/schemas.aot.js"
 ```
 
-Probed on `rc.116`: the generated module installed and decoded correctly with `globalThis.Function` blocked, at a speed comparable to JIT. Regenerate the file whenever a schema definition or the Effect version changes; installation trusts that the ASTs match what was compiled. Bundler configurations that mark modules side-effect free must keep the generated import.
+The generated module installs and decodes correctly with `globalThis.Function` blocked, at a speed comparable to JIT. Regenerate the file whenever a schema definition or the Effect version changes; installation trusts that the ASTs match what was compiled. Bundler configurations that mark modules side-effect free must keep the generated import.
 
 **Reach for it when** you want compiled decoders where `new Function` is unavailable (strict CSP, locked-down runtimes) or you want no code generation at startup. It trades a build step and a regenerate-on-change rule for that.
 
@@ -1243,9 +1248,9 @@ Probed on `rc.116`: the generated module installed and decoded correctly with `g
 
 A `Getter<T, E, R>` is one direction of a conversion: takes an optional encoded value and returns an optional decoded value, possibly failing with an issue or requiring services. Getters are the atoms of the v4 transformation model.
 
-**Mental model.** A validating, possibly-effectful `map` for one leg of a codec. Built-in getters: `transform` (pure map), `transformEffect` (map that can reject or use services; `transformOrFail` before `rc.113`), `forbiddenEncoding` (the encode leg of a decode-only conversion), `transformOptional` (operate on the `Option` of presence — key to optional-field migrations), `checkEffect` (async validation), `passthrough`/`required`/`omit`, and ready-made conversions `String()`, `Number()`, `trim()`, `parseJson()`, `encodeBase64()`. When a getter must see a missing value *and* run an Effect, use `transformOptionalEffect((option, parseOptions) => Effect<Option>)`.
+**Mental model.** A validating, possibly-effectful `map` for one leg of a codec. Built-in getters: `transform` (pure map), `transformEffect` (map that can reject or use services), `forbiddenEncoding` (the encode leg of a decode-only conversion), `transformOptional` (operate on the `Option` of presence — key to optional-field migrations), `checkEffect` (async validation), `passthrough`/`required`/`omit`, and ready-made conversions `String()`, `Number()`, `trim()`, `parseJson()`, `encodeBase64()`. When a getter must see a missing value *and* run an Effect, use `transformOptionalEffect((option, parseOptions) => Effect<Option>)`.
 
-**Getters are data, operated on by functions (`rc.116`).** A `Getter` is a tagged union (`Passthrough`, `Transform`, `TransformOptional`, `TransformEffect`, `TransformOptionalEffect`) whose values expose only `pipe`. Chain and run them with the dual functions `SchemaGetter.map`, `SchemaGetter.compose`, and `SchemaGetter.run`; the former `getter.map`, `getter.compose`, and `getter.run` members, the public `new SchemaGetter.Getter(...)` constructor, and `SchemaGetter.onSome` / `onNone` are gone (use `transformEffect` for present values and `transformOptionalEffect` when the missing case matters).
+**Getters are data, operated on by functions.** A `Getter` is a tagged union (`Passthrough`, `Transform`, `TransformOptional`, `TransformEffect`, `TransformOptionalEffect`) whose values expose only `pipe`. Chain and run them with the dual functions `SchemaGetter.map`, `SchemaGetter.compose`, and `SchemaGetter.run` (there are no `getter.map`, `getter.compose`, or `getter.run` members, no public `new SchemaGetter.Getter(...)` constructor, and no `SchemaGetter.onSome` / `onNone` — use `transformEffect` for present values and `transformOptionalEffect` when the missing case matters).
 
 ```ts
 import { Effect, Option, SchemaGetter } from "effect"
@@ -1340,7 +1345,7 @@ const TitleCased = Schema.String.pipe(
 
 **Ready-made codecs, so you do not rebuild them:** text — `Schema.Trim`, `StringFromBase64`, `StringFromBase64Url`, `StringFromHex`, `StringFromUriComponent`; numbers — `FiniteFromString`, `NumberFromString`, `BigIntFromString`, `BigDecimalFromString`; bytes — `Uint8ArrayFromBase64`, `Uint8ArrayFromHex`; time and web — `DateFromString`, `DateFromMillis`, `DateTimeUtcFromString`, `DateTimeUtcFromMillis`, `URLFromString`. Case codecs are assembled the way `TitleCased` is above: a checked target (`Schema.isLowercased()`, ...) plus `SchemaTransformation.toLowerCase()`, `toUpperCase()`, `capitalize()`, or `uncapitalize()`; `snakeToCamel()` serves key and identifier conversion.
 
-**Composing and wrapping (`rc.116` names).** Chain two transformations with the dual `SchemaTransformation.composeTransformation(first, second)` or `first.pipe(SchemaTransformation.composeTransformation(second))`: decoding runs `first` then `second`, encoding runs them in reverse. The `first.compose(second)` method is gone. Pair two existing getters with `SchemaTransformation.makeTransformation({ decode, encode })` (formerly `SchemaTransformation.make`). `Transformation` and `Middleware` values are `Pipeable`.
+**Composing and wrapping.** Chain two transformations with the dual `SchemaTransformation.composeTransformation(first, second)` or `first.pipe(SchemaTransformation.composeTransformation(second))`: decoding runs `first` then `second`, encoding runs them in reverse. There is no `first.compose(second)` method. Pair two existing getters with `SchemaTransformation.makeTransformation({ decode, encode })`. `Transformation` and `Middleware` values are `Pipeable`.
 
 ```ts
 import { Schema, SchemaTransformation } from "effect"
@@ -1386,7 +1391,7 @@ if (firstCode) {
 }
 ```
 
-`fromRepresentation(document, { revivers })` reconstructs a runtime schema; no declaration/check revivers are installed implicitly. The multi-root twin is `fromRepresentations`. Persisted documents using the legacy representation format are not wire-compatible; regenerate them or perform an explicit migration before loading them with the current pipeline. That includes documents written before `rc.113` that contain a `oneOf` union: the union mode moved from a top-level field to `{ options: { mode: "oneOf" } }` (and `SchemaAST.Union.mode` to `SchemaAST.Union.options?.mode`); the public `Schema.Union(members, { mode })` call is unchanged. Importing external JSON Schema patterns also requires an explicit trust choice: the default is to reject them, `{ patterns: "apply" }` evaluates patterns from a trusted document, and `{ patterns: "ignore" }` knowingly weakens validation.
+`fromRepresentation(document, { revivers })` reconstructs a runtime schema; no declaration/check revivers are installed implicitly. The multi-root twin is `fromRepresentations`. Persisted documents using an older representation format are not wire-compatible; regenerate them or perform an explicit migration before loading them with the current pipeline. That includes older documents containing a `oneOf` union, whose mode now lives at `{ options: { mode: "oneOf" } }` (`SchemaAST.Union.options?.mode`, not a top-level field); the public `Schema.Union(members, { mode })` call is unaffected. Importing external JSON Schema patterns also requires an explicit trust choice: the default is to reject them, `{ patterns: "apply" }` evaluates patterns from a trusted document, and `{ patterns: "ignore" }` knowingly weakens validation.
 
 **Reach for it when** you need code generation, JSON Schema compilation/import, or a deliberately persisted schema representation with shared references.
 
@@ -1515,7 +1520,7 @@ const closed = Schema.toJsonSchemaDocument(CompBand, { onExcessProperty: "error"
 // closed.schema.additionalProperties === false
 ```
 
-Two generation defaults changed in `rc.113` for documents you generate yourself with `Schema.toJsonSchemaDocument`. (OpenAPI documents derived by `HttpApi` are a separate path: probed on `rc.116`, `OpenApi.fromApi` still emits **closed** objects, `"additionalProperties": false` — see [HTTP API](../interfaces/http-api).)
+Two things to know about documents you generate yourself with `Schema.toJsonSchemaDocument`. (OpenAPI documents derived by `HttpApi` are a separate path: `OpenApi.fromApi` emits **closed** objects, `"additionalProperties": false` — see [HTTP API](../interfaces/http-api).)
 
 - **Objects are open by default.** Generation now mirrors Effect decoding, which ignores excess properties unless told otherwise, so a `Struct` emits `"additionalProperties": true`. The old `{ additionalProperties }` generation option is gone: use `{ onExcessProperty: "ignore" }` (the default) or `{ onExcessProperty: "error" }` for a closed object, and model a schema-valued "rest" with `Schema.Record` or `Schema.StructWithRest` rather than an option. If a consumer relied on the previous closed default — a strict validator, a generated client, a structured-output provider — opt back in explicitly.
 - **Check constraints and annotations are compacted** into the node when no keyword collides (`"type": "integer", "description": …`) instead of being wrapped in `allOf`. `allOf` still appears when merging would overwrite a keyword. Snapshot tests of generated documents need refreshing.
@@ -1552,13 +1557,13 @@ const draft07 = JsonSchema.toDocumentDraft07(orgDoc) // also toDocumentDraft04, 
 
 **Which model owns which artifact.** A value schema knows a shape. It does not know methods, paths, parameter locations, status codes, per-endpoint errors, security, or media types; those facts live on the assembled `HttpApi`. So **derive JSON Schema from `Schema` for value contracts, and derive the OpenAPI document from the API** with [`OpenApi.fromApi`](../interfaces/http-api#openapi). Point a generator at the wrong model and its output silently lacks everything that only the other model records.
 
-Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) (it documents an `additionalProperties` generation option and closed-by-default output; `rc.116` uses `onExcessProperty` and is open by default).
+Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) (it documents an `additionalProperties` generation option and closed-by-default output; 4.0.0 uses `onExcessProperty` and is open by default).
 
 **Reach for it when** you need a machine-readable *value* contract for external consumers: JSON Schema config validation, cross-language codegen of a payload, or structured-output LLM prompting. For an HTTP API description, generate OpenAPI from `HttpApi` instead.
 
 ## StandardSchema
 
-`effect/StandardSchema` — stable (new in `rc.112`)
+`effect/StandardSchema` — stable
 
 The **type definitions** of the [Standard Schema](https://standardschema.dev) V1 specification — `StandardSchemaV1`, `StandardTypedV1`, and the experimental `StandardJSONSchemaV1` — vendored verbatim so `effect` no longer depends on `@standard-schema/spec`. The module is types only; the conversion lives on `Schema`.
 
@@ -1635,7 +1640,7 @@ import { JsonPointer } from "effect"
 JsonPointer.escapeToken("eng/backend~ic5")   // "eng~1backend~0ic5"
 JsonPointer.unescapeToken("eng~1backend~0ic5") // "eng/backend~ic5"
 
-// Whole-pointer URI fragments, as used by "$ref" (added in rc.113).
+// Whole-pointer URI fragments, as used by "$ref".
 JsonPointer.formatUriFragment(["$defs", "eng/backend"]) // "#/$defs/eng~1backend"
 JsonPointer.parseUriFragment("#/$defs/eng~1backend")    // ["$defs", "eng/backend"]
 JsonPointer.parseUriFragment("#/%")                     // undefined: not a valid fragment
@@ -1645,16 +1650,17 @@ JsonPointer.parseUriFragment("#/%")                     // undefined: not a vali
 
 ## Model
 
-`effect/unstable/schema/Model` — unstable
+`effect/schema/Model` — unstable
 
 Define a domain model once and derive operation-specific variants: `select`, `insert`, `update` (database-facing) and `json`, `jsonCreate`, `jsonUpdate` (API-facing). Field declaration helpers encode per-variant behavior: `Model.GeneratedByDb` (omit on insert, present on select), `Model.DateTimeInsertFromDate` (set on insert), `Model.DateTimeUpdateFromDate` (set on update), `Model.Sensitive` (hidden from JSON), `Model.FieldOption` (nullable column ↔ `Option`).
 
 ```ts
 import { Schema } from "effect"
-import { Model } from "effect/unstable/schema"
+import { Model } from "effect/schema"
 
 export const EmployeeId = Schema.Int.check(Schema.isGreaterThan(0)).pipe(Schema.brand("EmployeeId"))
 
+// Every Model helper below is part of the unstable `effect/schema/Model` module.
 export class Employee extends Model.Class<Employee>("Employee")({
   id: Model.GeneratedByDb(EmployeeId),       // omitted on insert, present on select
   name: Schema.String,
@@ -1681,7 +1687,7 @@ class EmployeeJson extends Schema.Class<EmployeeJson>("EmployeeJson")(Employee.j
 
 ## VariantSchema
 
-`effect/unstable/schema/VariantSchema` — unstable
+`effect/schema/VariantSchema` — unstable
 
 The general "one definition, many variants" mechanism that `Model` is built on. `VariantSchema.make({ variants, defaultVariant })` produces a toolkit — `Struct`, `Class`, `Union`, `Field`, `FieldOnly`, `FieldExcept`, `fieldEvolve`, `extract` — specialized to your variant names. `Model` is `VariantSchema.make({ variants: ["select","insert","update","json","jsonCreate","jsonUpdate"], defaultVariant: "select" })`.
 
@@ -1689,7 +1695,7 @@ The general "one definition, many variants" mechanism that `Model` is built on. 
 
 ```ts
 import { Schema } from "effect"
-import { VariantSchema } from "effect/unstable/schema"
+import { VariantSchema } from "effect/schema"
 
 // Define your own variant axis — what an employee sees vs. what an HRBP sees.
 const { Class, Field, FieldExcept } = VariantSchema.make({
@@ -1714,7 +1720,7 @@ CompProfile.hrbp // the "hrbp" variant, including rating
 
 ## Testing schemas with TestSchema
 
-`effect/testing/TestSchema` — stable
+`effect/testing/TestSchema` — unstable
 
 Assertion helpers for testing schemas. `new TestSchema.Asserts(schema)` groups checks: decoding succeeds/fails as expected, encoding round-trips, `make` behaves, and the derived arbitrary generates valid values. `Decoding` and `Encoding` are also exported standalone.
 
@@ -1730,6 +1736,7 @@ const EquityGrant = Schema.Struct({
   vestingMonths: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 48 }))
 })
 
+// TestSchema is unstable end to end — every member used below is too.
 const asserts = new TestSchema.Asserts(EquityGrant)
 
 // Decoding: succeed (optionally asserting the transformed output) and fail-with-message.
@@ -1762,4 +1769,4 @@ Two limits of derived generators shape the rest: `Arbitrary.schema` produces val
 
 Official guide: [Schema to Arbitrary](https://effect.website/docs/v4/schema/arbitrary).
 
-**Reach for it when** writing tests for schemas — especially custom transformations and refinements. `verifyGeneration(options?)` runs a native `Arbitrary.checkEffect` property (20 runs by default) that generated values satisfy `Schema.is`; `verifyLosslessTransformation(options?)` checks decode∘encode round trips. Both take `Arbitrary.CheckOptions` (`{ seed, runs, maxDiscards, maxShrinks, replay }`) directly, bound unsuccessful generation, and report the shrunk input and replay token on failure. `decoding().fail(input, message)` pins down error messages.
+**Reach for it when** writing tests for schemas — especially custom transformations and refinements. `verifyGeneration(options?)` runs a native `Arbitrary.checkEffect` property (20 runs by default) that generated values satisfy `Schema.is`; `verifyRoundTrip(options?)` (with an Effect-returning `verifyRoundTripEffect` twin) checks decode∘encode round trips. Both take `Arbitrary.CheckOptions` (`{ seed, runs, maxDiscards, maxShrinks, replay }`) directly, bound unsuccessful generation, and report the shrunk input and replay token on failure. `decoding().fail(input, message)` pins down error messages; `decoding().failEffect` / `encoding().succeedEffect` / `encoding().failEffect` are the lazy-`Effect` twins of `fail` / `succeed`.

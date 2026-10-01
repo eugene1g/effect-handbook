@@ -2,9 +2,9 @@
 
 `Stream<A, E, R>` is a pull-based source: the consumer requests the next chunk, the stream computes it (possibly failing with `E`, needing services `R`), emits the chunk, and waits. This pull loop provides automatic back-pressure. `Sink<A, In, L, E, R>` folds chunks into a final answer. `Channel` is the bidirectional primitive both are built from. In practice: live in `Stream` 95% of the time; reach for `Channel` only when authoring a new operator.
 
-> **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
+> **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
 >
-> **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
 
 ## Stream
 
@@ -142,10 +142,10 @@ Official guide: [Creating Streams](https://effect.website/docs/v4/stream/creatin
 
 | Need | Operators | Semantics that decide the choice |
 |---|---|---|
-| Per element, pure | `map` / `as` / `filter` / `filterMap` | `as(value)` (new in rc.116) replaces every element with a constant. `filterMap` takes a `Filter` (returns a `Result`), not an `Option`-returning function. |
+| Per element, pure | `map` / `as` / `filter` / `filterMap` | `as(value)` replaces every element with a constant. `filterMap` takes a `Filter` (returns a `Result`), not an `Option`-returning function. |
 | Per element, effectful | `mapEffect` / `tap` | `mapEffect` accepts `{ concurrency, unordered }`; ordered output is the default. |
 | Fan out per element | `flatMap` / `switchMap` / `flattenIterable` | `flatMap` runs every inner stream to completion. `switchMap` interrupts the previous inner stream when the outer emits again — stale work is cancelled, not queued. `flattenIterable` is the inverse of `grouped`. |
-| Carry state | `scan` / `mapAccum` (`scanEffect`, `mapAccumEffect`) | `scan(() => initial, f)` emits the seed and every intermediate value; since rc.116 its seed (and `scanEffect`'s) is a thunk, like `mapAccum`'s. `mapAccum(() => initial, (state, a) => [next, outputs])` returns an *array* of outputs, so one input can emit zero, one, or many; `{ onHalt }` flushes leftover state at the end. Both keep bounded state. |
+| Carry state | `scan` / `mapAccum` (`scanEffect`, `mapAccumEffect`) | `scan(() => initial, f)` emits the seed and every intermediate value; its seed (and `scanEffect`'s) is a thunk, like `mapAccum`'s. `mapAccum(() => initial, (state, a) => [next, outputs])` returns an *array* of outputs, so one input can emit zero, one, or many; `{ onHalt }` flushes leftover state at the end. Both keep bounded state. |
 | Stop early | `take` / `takeWhile` / `takeUntil` / `takeRight` / `haltWhen` / `interruptWhen` | `takeWhile` stops *before* the first failing element; `takeUntil` *includes* the element that matched unless `{ excludeLast: true }`. `takeRight(n)` must see the end, so it buffers `n` and never emits on an infinite source. `haltWhen(effect)` stops before the next pull; `interruptWhen(effect)` also interrupts the pull in progress. |
 | Batch | `grouped(n)` / `groupedWithin(n, duration)` / `rechunk(n)` | `grouped` flushes only when `n` elements arrived or the stream ended. `groupedWithin` flushes on size **or** elapsed time, whichever is first — the right shape for live feeds. `rechunk` resizes the internal chunks without changing the element type. |
 | Rate control | `throttle` / `debounce(duration)` / `schedule(schedule)` | `throttle` is a token bucket charged per *chunk* via `cost(chunk)`: `"shape"` delays, `"enforce"` drops the whole over-budget chunk (`rechunk(1)` first for per-element dropping), `burst` raises the bucket to `units + burst`. `debounce` emits only the last value after a quiet period. `schedule` spaces every element by a `Schedule`. |
@@ -217,7 +217,7 @@ declare const auditEvents: Stream.Stream<{ readonly id: string }>
 const auditBatches = auditEvents.pipe(Stream.groupedWithin(200, "2 seconds"))
 ```
 
-Official guide: [Stream operations](https://effect.website/docs/v4/stream/operations) (its "mergeWith" heading and the `switch` option it mentions for `flatMap` are not rc.116 APIs — use `Stream.merge` over mapped inputs and `Stream.switchMap`).
+Official guide: [Stream operations](https://effect.website/docs/v4/stream/operations) (its "mergeWith" heading and the `switch` option it mentions for `flatMap` are not current APIs — use `Stream.merge` over mapped inputs and `Stream.switchMap`).
 
 ### 3. Running streams
 
@@ -312,7 +312,7 @@ Official guide: [Consuming Streams](https://effect.website/docs/v4/stream/consum
 | Pair with neighbors | `zipWithIndex` / `zipWithPrevious` / `zipWithNext` | The neighbor is an `Option`; no manual counter or `mapAccum` needed. |
 | Alternate deterministically | `interleave` | Unlike `merge`, the order does not depend on timing. |
 | Every combination | `cross` | Re-runs the right stream once per left element — expensive if the right side does I/O. |
-| Two branches by a rule | `partition(filter)` / `partitionEffect(filter)` | Returns a scoped `Effect` of two queue-backed streams. Both yield `[passes, fails]` and take a `capacity` option: default 16 for `partition`, 4096 for `partitionEffect`. rc.116 flipped `partition`'s tuple order (it was `[excluded, satisfying]`) and renamed its `bufferSize` option, so check the destructuring when upgrading — swapped names still type-check when both branches share a type. |
+| Two branches by a rule | `partition(filter)` / `partitionEffect(filter)` | Returns a scoped `Effect` of two queue-backed streams. Both yield `[passes, fails]` (the passing branch first) and take a `capacity` option: default 16 for `partition`, 4096 for `partitionEffect`. Swapped names still type-check when both branches share a type, so double-check the destructuring order against the tuple position, not the variable name. |
 | Same elements to several consumers | `broadcastN({ n, capacity })` / `broadcast` / `share` | Running one `Stream` value twice runs its source twice. These run it once behind a `PubSub`: with the default `"suspend"` strategy the source advances at most `capacity` chunks ahead of the **slowest** consumer. `share` is the ref-counted variant: upstream starts with the first subscriber and is finalized after the last. |
 
 ```ts
@@ -359,14 +359,14 @@ A stream failure is **terminal for the failed region**. Recovery never resumes t
 | Operator | Recovers from | Notes |
 |---|---|---|
 | `catch` | every typed failure | Removes `E`; the handler returns the fallback stream. |
-| `catchTag` / `catchTags` | tagged failures by `_tag` | Other failures stay in `E`. Since rc.116 `catchTags` rejects keys that are not tags of `E`, as `Effect.catchTags` does. |
+| `catchTag` / `catchTags` | tagged failures by `_tag` | Other failures stay in `E`. `catchTags` rejects keys that are not tags of `E`, as `Effect.catchTags` does. |
 | `catchIf` / `catchFilter` | failures selected by a predicate, refinement, or `Filter` | Optional trailing `orElse` for the rest, as on `Effect.catchIf`. |
 | `catchCause` / `catchCauseFilter` | the full `Cause`, defects included | Use when defects must be handled too. |
 | `catchDefect` | defects only | Typed failures and interruption pass through untouched — the narrow tool for "a parser threw". |
 | `orElseSucceed` / `orElseIfEmpty` | any typed failure / an empty stream | Append one element computed from the error, or switch streams when nothing was emitted. |
-| `mapError` / `mapBoth` / `orDie` | — | Translate the error (`mapBoth({ onElement, onError })` maps elements too; rc.116 renamed its `onSuccess` / `onFailure` keys), or turn it into a defect. |
-| `onError` / `tapError` / `tapErrorTag` / `tapCause` / `tapDefect` | — | Observation only: run an effect, then re-raise. `tapErrorTag` and `tapDefect` are new on `Stream` in rc.116, matching their `Effect` namesakes. |
-| `unwrapReason(tag)` | — | New in rc.116: replaces a tagged error with its nested `reason`, so `catchTag` can target each reason, as `Effect.unwrapReason` does. |
+| `mapError` / `mapBoth` / `orDie` | — | Translate the error (`mapBoth({ onElement, onError })` maps elements too), or turn it into a defect. |
+| `onError` / `tapError` / `tapErrorTag` / `tapCause` / `tapDefect` | — | Observation only: run an effect, then re-raise. `tapErrorTag` and `tapDefect` mirror their `Effect` namesakes. |
+| `unwrapReason(tag)` | — | Replaces a tagged error with its nested `reason`, so `catchTag` can target each reason, as `Effect.unwrapReason` does. |
 | `retry(schedule)` | typed failures the schedule accepts | Re-runs the **entire upstream region**, re-acquiring its resources. The schedule resets as soon as the restarted stream emits one element, so `upTo({ times: 5 })` means five *consecutive* failed attempts, not five over the feed's lifetime. |
 | `timeout(duration)` | — | **Ends the stream with no error** when one pull waits longer than `duration`. |
 | `timeoutOrElse({ duration, orElse })` | — | Switches to `orElse()` instead: `Stream.fail(...)` makes silence a typed failure; any other stream is a fallback source. |
@@ -408,11 +408,11 @@ const resilientApprovals = liveApprovals.pipe(
 
 Two placement rules follow from "retry re-runs the upstream region". **Place `retry` directly after the source it should reconnect**, upstream of any non-idempotent write — everything above it in the pipe runs again on each attempt (see the [streaming deep dive](../deep-dives/streaming-ingestion-without-accidental-buffering)). **Put per-element recovery inside the element's effect** — `Stream.mapEffect((row) => write(row).pipe(Effect.catchTag(...)))` keeps the stream alive, whereas a `Stream.catch*` after it can only replace the rest of the stream. Retry classification and backoff policy are ordinary [`Schedule`](./scheduling-time#schedule) material.
 
-Official guide: [Error handling in streams](https://effect.website/docs/v4/stream/error-handling) (its "timeoutFail", "timeoutFailCause", and "timeoutTo" headings are stale names; the code under them, and rc.116, use `Stream.timeoutOrElse`).
+Official guide: [Error handling in streams](https://effect.website/docs/v4/stream/error-handling) (its "timeoutFail", "timeoutFailCause", and "timeoutTo" headings are stale names; the code under them uses `Stream.timeoutOrElse`).
 
 ### 6. Owning resources inside a stream
 
-A file handle, database cursor, or subscription behind a stream must stay open until the *consumer* stops pulling — and must close on completion, failure, interruption, **and early stop**. **Acquire inside the stream, never before it**: a handle opened outside and closed "when the consumer is done" leaks on the first `take(n)` or decode failure. There is no `Stream.acquireRelease` in rc.116; compose `Effect.acquireRelease` with one of these:
+A file handle, database cursor, or subscription behind a stream must stay open until the *consumer* stops pulling — and must close on completion, failure, interruption, **and early stop**. **Acquire inside the stream, never before it**: a handle opened outside and closed "when the consumer is done" leaks on the first `take(n)` or decode failure. There is no `Stream.acquireRelease`; compose `Effect.acquireRelease` with one of these:
 
 | Tool | Shape | Scope lifetime |
 |---|---|---|
@@ -652,7 +652,7 @@ const bytes = Channel.mkUint8Array(
 )
 ```
 
-Two details for code that runs channels directly. **`Channel.runDrain` returns the channel's done value** (`Effect<OutDone, OutErr, Env>`); the separate `Channel.runDone` was removed in `rc.113`, so use `runDrain` when only the terminal value matters. **`Channel.catchDefect`** (and `Stream.catchDefect` above it) recovers from defects only — typed failures and interruption pass through — which keeps a throwing codec step from taking down a long-lived channel without hiding real cancellation.
+Two details for code that runs channels directly. **`Channel.runDrain` returns the channel's done value** (`Effect<OutDone, OutErr, Env>`); there is no separate `Channel.runDone` — use `runDrain` when only the terminal value matters. **`Channel.catchDefect`** (and `Stream.catchDefect` above it) recovers from defects only — typed failures and interruption pass through — which keeps a throwing codec step from taking down a long-lived channel without hiding real cancellation.
 
 The Web Streams interop set is complete at this level: `fromReadableStream`, `fromWritableStream`, and `fromTransformStream` adapt host streams, while `pullIntoWritableStream` exposes a channel that writes into an existing target. Each constructor takes an explicit host-error mapper so failures stay typed and interruption cancels outstanding I/O.
 
@@ -664,7 +664,7 @@ The Web Streams interop set is complete at this level: `fromReadableStream`, `fr
 
 `effect/ChannelSchema` — stable
 
-Adapter layer that attaches a `Schema` to a channel boundary. `ChannelSchema.encode(schema)()` converts typed values to the schema's encoded form; `ChannelSchema.decode(schema, parseOptions?)()` validates the inverse, and since rc.116 takes optional `SchemaAST.ParseOptions` such as `{ onExcessProperty: "error" }` (as does `decodeUnknown`). `duplex` wraps a bidirectional channel so callers see typed I/O while the inner channel speaks the wire format.
+Adapter layer that attaches a `Schema` to a channel boundary. `ChannelSchema.encode(schema)()` converts typed values to the schema's encoded form; `ChannelSchema.decode(schema, parseOptions?)()` validates the inverse, and takes optional `SchemaAST.ParseOptions` such as `{ onExcessProperty: "error" }` (as does `decodeUnknown`). `duplex` wraps a bidirectional channel so callers see typed I/O while the inner channel speaks the wire format.
 
 Schema failures surface as `SchemaError` in the error channel. Encoding/decoding service requirements propagate as channel requirements. The `Ndjson.decodeSchema` and `Sse.decodeDataSchema` helpers stack `ChannelSchema.decode` internally — typically consumed transitively. `SchemaBinary` is different: it compiles its own binary layout from the schema instead of validating an already-parsed value.
 
@@ -722,17 +722,17 @@ const _ = Effect.runSync(step)
 
 **Wire codecs: streaming bytes ↔ typed values.**
 
-All three modules below are under `effect/unstable/encoding` and are **unstable** (API may change). Each is a channel spliced via `Stream.pipeThroughChannel`. Decode: bytes/text in, typed objects out. Encode: objects in, bytes/text out. Each has a plain variant and a `*Schema*` variant that validates against a `Schema` at the boundary.
+All three modules below are under `effect/encoding` and are **unstable** (API may change). Each is a channel spliced via `Stream.pipeThroughChannel`. Decode: bytes/text in, typed objects out. Encode: objects in, bytes/text out. Each has a plain variant and a `*Schema*` variant that validates against a `Schema` at the boundary.
 
 ## Ndjson
 
-`effect/unstable/encoding/Ndjson` — unstable
+`effect/encoding/Ndjson` — unstable
 
 Newline-delimited JSON codecs as channels. `Ndjson.decodeString()` splits on newlines and `JSON.parse`s each line. `Ndjson.decode()` takes `Uint8Array` input (handles UTF-8). Failures are a tagged `NdjsonError` with `kind: "Pack"` (encoding) or `"Unpack"` (decoding). `decodeSchemaString(Schema)()` fuses split → parse → validate in one channel.
 
 ```ts
 import { DateTime, Schema, Stream } from "effect"
-import { Ndjson } from "effect/unstable/encoding"
+import { Ndjson } from "effect/encoding"
 
 // An equity-grant record exported by the EquityLedger as NDJSON.
 class EquityGrant extends Schema.Class<EquityGrant>("EquityGrant")({
@@ -781,13 +781,13 @@ Both text lines and UTF-8 code points may straddle incoming chunks: the decoder 
 
 ## Sse
 
-`effect/unstable/encoding/Sse` — unstable
+`effect/encoding/Sse` — unstable
 
-Server-Sent Events codec. `Sse.decode()` parses SSE text chunks into `Event` values with `id`, `event`, and `data` fields. An SSE `retry:` directive surfaces as a `Retry` failure in the error channel, making reconnect logic straightforward error handling. `Sse.encode()` renders `Event`s as SSE wire text. `Sse.decodeDataSchema(schema)` JSON-decodes the `data` payload while preserving `event` name and `id`. `Sse.decodeSchema(schema, options?, parseOptions?)` validates the whole `{ event, data, id? }` envelope; the third argument (new in rc.116) passes Schema parse options.
+Server-Sent Events codec. `Sse.decode()` parses SSE text chunks into `Event` values with `id`, `event`, and `data` fields. An SSE `retry:` directive surfaces as a `Retry` failure in the error channel, making reconnect logic straightforward error handling. `Sse.encode()` renders `Event`s as SSE wire text. `Sse.decodeDataSchema(schema)` JSON-decodes the `data` payload while preserving `event` name and `id`. `Sse.decodeSchema(schema, options?, parseOptions?)` validates the whole `{ event, data, id? }` envelope; the third argument passes Schema parse options.
 
 ```ts
 import { Schema, Stream } from "effect"
-import { Sse } from "effect/unstable/encoding"
+import { Sse } from "effect/encoding"
 
 // Parse a raw SSE stream of merit-cycle approval events.
 const approvalEvents = Stream.make(
@@ -819,11 +819,11 @@ const meritApprovals = Stream.make(
 )
 ```
 
-An omitted or empty `event:` field decodes as the standard event type `"message"`. Since rc.116, `Sse.decodeSchema` omits the `id` key when an event carries no ID, so declare it as `Schema.optional(Schema.String)`: a `Schema.UndefinedOr(Schema.String)` field now fails with a missing-key error. Under `{ onExcessProperty: "error" }`, the schema must also declare `event` (it is always present) and `id` whenever the stream sends IDs, including IDs inherited from an earlier event.
+An omitted or empty `event:` field decodes as the standard event type `"message"`. `Sse.decodeSchema` omits the `id` key when an event carries no ID, so declare it as `Schema.optional(Schema.String)`: a `Schema.UndefinedOr(Schema.String)` field fails with a missing-key error. Under `{ onExcessProperty: "error" }`, the schema must also declare `event` (it is always present) and `id` whenever the stream sends IDs, including IDs inherited from an earlier event.
 
 ```ts
 import { Schema, Stream } from "effect"
-import { Sse } from "effect/unstable/encoding"
+import { Sse } from "effect/encoding"
 
 // A strict envelope schema: every key the decoder can produce is declared.
 const PayrollRunEvent = Schema.Struct({
@@ -847,9 +847,9 @@ const runEvents = payrollRunFeed.pipe(
 
 ## SchemaBinary
 
-`effect/unstable/encoding/SchemaBinary` — unstable
+`effect/encoding/SchemaBinary` — unstable
 
-A compact binary codec **derived from a Schema** rather than from the runtime shape of a value. It replaced the MessagePack codec (`Msgpack`, `RpcSerialization.layerMsgPack`, and the `msgpackr` dependency were removed in `rc.113`), and it is now what EventLog persistence, EventLog remote messages, and TCP cluster transports put on the wire.
+A compact binary codec **derived from a Schema** rather than from the runtime shape of a value. It replaced the MessagePack codec (`Msgpack`, `RpcSerialization.layerMsgPack`, and the `msgpackr` dependency have been removed), and it is now what EventLog persistence, EventLog remote messages, and TCP cluster transports put on the wire.
 
 The layout is compiled once from the *encoded* side of the schema, so field names are not repeated per value: an array of structs is written as a row run that declares its shape once and back-references repeated strings. There are two wire modes:
 
@@ -858,7 +858,7 @@ The layout is compiled once from the *encoded* side of the schema, so field name
 
 ```ts
 import { Schema, Stream } from "effect"
-import { SchemaBinary } from "effect/unstable/encoding"
+import { SchemaBinary } from "effect/encoding"
 
 // Payroll-run telemetry frame: compact binary between internal services.
 const PayrollFrame = Schema.Struct({
@@ -901,7 +901,7 @@ Every failure is a `Schema.SchemaError` — there is no separate codec error typ
 
 Two ownership details matter in practice. Encoded results are arena-backed views that may share a larger buffer, so call `bytes.slice()` before retaining a frame beyond the current step. And for one long-lived connection, `SchemaBinary.encoder(schema, { dictionary: true })` with the matching `SchemaBinary.parser(...)` shares a string dictionary across frames: repeated strings cost one reference after first use, but frames no longer stand alone and must be decoded in order by the parser that saw the earlier ones.
 
-> **Warning:** Because the layout comes from the schema, the schema *is* the wire contract. In the default mode, evolve it compatibly (add optional fields, pin ids before renaming). In fingerprint mode, deploy both peers together. Data persisted by a pre-`rc.113` EventLog journal is MessagePack and is not readable by the SchemaBinary codec.
+> **Warning:** Because the layout comes from the schema, the schema *is* the wire contract. In the default mode, evolve it compatibly (add optional fields, pin ids before renaming). In fingerprint mode, deploy both peers together. Data persisted by a pre-SchemaBinary EventLog journal is MessagePack and is not readable by the SchemaBinary codec.
 
 **Use when** you need a compact, schema-validated binary frame format over a socket, worker, or file where human readability is not required and both ends share Effect schemas. Prefer `Ndjson` when the other side is not an Effect program or when frames must be inspectable.
 
@@ -911,12 +911,12 @@ Two ownership details matter in practice. Encoded results are arena-backed views
 
 ## Ini
 
-`effect/unstable/encoding/Ini` — unstable
+`effect/encoding/Ini` — unstable
 
 A small, dependency-free INI decoder used by the CLI configuration-file primitive. `Ini.parse(text)` returns a null-prototype record: dotted section names become nested records, `key[]` repetitions become arrays, and `true`, `false`, and `null` become scalars. Other values — including numbers — remain strings.
 
 ```ts
-import { Ini } from "effect/unstable/encoding"
+import { Ini } from "effect/encoding"
 
 const config = Ini.parse(`
 enabled=true
@@ -934,12 +934,12 @@ Use for conventional INI configuration input. Parse is synchronous and deliberat
 
 ## Toml
 
-`effect/unstable/encoding/Toml` — unstable
+`effect/encoding/Toml` — unstable
 
 A focused TOML parser covering tables, dotted keys, arrays and inline tables, arrays of tables, multiline strings, numeric formats, and TOML date/time forms. Tables are null-prototype records. Offset date-times become JavaScript `Date`s; local dates and times remain strings. Duplicate or malformed keys throw `SyntaxError`.
 
 ```ts
-import { Toml } from "effect/unstable/encoding"
+import { Toml } from "effect/encoding"
 
 const config = Toml.parse(`
 title = "Merit service"
@@ -954,12 +954,12 @@ Use when the CLI or another trusted boundary accepts TOML. Wrap `Toml.parse` wit
 
 ## Yaml
 
-`effect/unstable/encoding/Yaml` — unstable
+`effect/encoding/Yaml` — unstable
 
-A focused YAML 1.2 configuration parser. It supports block and flow collections, quoted and block scalars, anchors, and aliases. Invalid indentation, duplicate keys, malformed collections, and unknown aliases throw `SyntaxError`. Since rc.116 the parser also rejects three inputs it used to accept: a plain (unquoted) scalar with a colon followed by a space or the end of the value (`description: Use when: deploy`, `description: Deploy:`), a compact nested sequence (`- - value`), and a stream of several documents separated by `---`. Colons without a following space, as in `url: http://x.com` or `time: 12:30`, still parse as plain text.
+A focused YAML 1.2 configuration parser. It supports block and flow collections, quoted and block scalars, anchors, and aliases. Invalid indentation, duplicate keys, malformed collections, and unknown aliases throw `SyntaxError`. The parser rejects three inputs that resemble valid YAML but are not: a plain (unquoted) scalar with a colon followed by a space or the end of the value (`description: Use when: deploy`, `description: Deploy:`), a compact nested sequence (`- - value`), and a stream of several documents separated by `---`. Colons without a following space, as in `url: http://x.com` or `time: 12:30`, still parse as plain text.
 
 ```ts
-import { Yaml } from "effect/unstable/encoding"
+import { Yaml } from "effect/encoding"
 
 const config = Yaml.parse(`
 name: merit-service
@@ -972,7 +972,7 @@ database:
 ```
 
 ```ts
-import { Yaml } from "effect/unstable/encoding"
+import { Yaml } from "effect/encoding"
 
 // Quote any value that contains ": " — unquoted, this line throws SyntaxError.
 const reviewStep = Yaml.parse(`

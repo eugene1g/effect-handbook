@@ -1,12 +1,12 @@
 # Building a Production AI Capability
 
-Audited against `effect@4.0.0-rc.116`, the matching `ai-docs` examples, and the implementation of `effect/unstable/ai` on 2026-09-19.
+Audited against `effect@4.0.0`, the matching `ai-docs` examples, and the implementation of `effect/ai` on 2026-09-19.
 
 A production AI feature is not a prompt wrapped in an HTTP handler. It is a normal application capability with a typed input boundary, an injectable model, narrowly authorized tools, validated output, explicit limits, observable cost, and a deterministic test seam.
 
 This guide builds a policy assistant that answers an HR partner's question from an authorized policy catalog. It keeps the model behind a service so the rest of the application never depends on a provider SDK.
 
-The AI APIs are unstable in `rc.116`. Pin Effect and the matching provider packages together, and re-audit before upgrading.
+The AI APIs are tagged `@stability unstable`. Pin Effect and the matching provider packages together, and re-audit before upgrading.
 
 ## Define the product contract before the prompt
 
@@ -60,7 +60,7 @@ Do not let a tool accept an arbitrary database predicate, URL, file path, or ten
 
 ```ts
 import { Context, Effect, Schema } from "effect"
-import { AiError, Tool, Toolkit } from "effect/unstable/ai"
+import { AiError, Tool, Toolkit } from "effect/ai"
 
 const PolicyExcerpt = Schema.Struct({
   policyId: Schema.String,
@@ -120,8 +120,8 @@ Business code should depend on `LanguageModel.LanguageModel`, not `OpenAiClient`
 ```ts
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
 import { Config, Context, Effect, Layer, Schedule, Schema } from "effect"
-import { AiError, LanguageModel } from "effect/unstable/ai"
-import { FetchHttpClient } from "effect/unstable/http"
+import { AiError, LanguageModel } from "effect/ai"
+import { FetchHttpClient } from "effect/http"
 import { PolicyToolkit, PolicyToolkitLive } from "./policy-tools.js"
 
 const PolicyCitation = Schema.Struct({
@@ -224,7 +224,7 @@ A read-only retrieval tool can often execute automatically. A tool that changes 
 <!-- effect-example id=ai.approval-gated-tool check=pseudocode -->
 ```ts
 import { Schema } from "effect"
-import { Tool } from "effect/unstable/ai"
+import { Tool } from "effect/ai"
 
 export const SubmitPolicyException = Tool.make("SubmitPolicyException", {
   description: "Submit a policy exception after an authorized human approves it",
@@ -249,7 +249,7 @@ Once a human decision exists, the application appends a `tool-approval-response`
 
 ```ts
 import { Context, Effect, Schema, Stream } from "effect"
-import { LanguageModel, Tool, Toolkit } from "effect/unstable/ai"
+import { LanguageModel, Tool, Toolkit } from "effect/ai"
 
 class ActionRefused extends Schema.TaggedError<ActionRefused>()("ActionRefused", {
   toolCallId: Schema.String,
@@ -343,7 +343,7 @@ The mutation is a protocol with a ledger, not a function call:
 
 Every server layer must declare the protocol versions it accepts, for example `protocols: [McpProtocol.v2025_06_18]`; do not silently accept an unspecified or future wire contract. A stdio layer owns the process stream lifecycle. An HTTP layer owns an HTTP server route and must be deployed with its origin and media checks intact: requests carrying `Origin` are rejected unless the exact origin is allowlisted, POST requires `Content-Type: application/json`, and `Accept` must allow both JSON and event-stream responses. Put authentication, tenant binding, tool authorization, rate limits, audit logging, and request-size limits outside or inside the handlers as appropriate—protocol negotiation does not supply product authorization.
 
-Treat MCP handlers like any other externally reachable Effect service. Decode arguments through Schema, expose the smallest safe capability, provide their Layers once for the server lifetime, and make consequential operations idempotent. Every failed call reaches the client as an `isError: true` result. A declared failure is part of the tool's contract and is sent as written: its `message` for an `Error` under `failureMode: "error"`, otherwise its schema-encoded payload (always the payload under `"return"`), so keep internal detail out of declared failures. Undeclared failures, `AiError`s, defects, and results that fail their own schema reach the client only as a fixed internal-error text, and are logged **and** handed to the configured `ErrorReporter`s, so wire a reporter if tool faults should page someone. Arguments that fail the parameter schema become a JSON-RPC `InvalidParams` error on protocols up to `2025-06-18` and an `isError` result on `2025-11-25` and later. Mark a tool `Tool.Strict` when unexpected arguments should be rejected rather than dropped. See the concise [MCP server reference](../systems/ai-language-models#mcpserver) for the full outcome table, layer configuration, and transport details.
+Treat MCP handlers like any other externally reachable Effect service. Decode arguments through Schema, expose the smallest safe capability, provide their Layers once for the server lifetime, and make consequential operations idempotent. Every failed call reaches the client as an `isError: true` result. A declared failure is part of the tool's contract and is sent as written: its `message` for an `Error` under `failureMode: "error"`, otherwise its schema-encoded payload (always the payload under `"return"`), so keep internal detail out of declared failures. Undeclared failures, `AiError`s, defects, and results that fail their own schema reach the client only as a fixed internal-error text, and are logged **and** handed to the configured `ErrorReporter`s, so wire a reporter if tool faults should page someone. Arguments that fail the parameter schema become a JSON-RPC `InvalidParams` error on protocols up to `2025-06-18` and an `isError` result on `2025-11-25` and later. Mark a tool `Tool.Strict` when unexpected arguments should be rejected rather than dropped. See the concise [MCP server reference](../systems/ai-language-models#mcpserver) for the full outcome table, layer configuration, and transport details. For the full server architecture — protocol eras, OAuth resource-server middleware, human-in-the-loop round trips, idempotency, and in-process tests — read [Exposing an Effect Application over MCP](exposing-an-effect-application-over-mcp).
 
 ## Bound every agentic loop
 
@@ -353,7 +353,7 @@ Treat MCP handlers like any other externally reachable Effect service. Decode ar
 
 ```ts
 import { Effect, Schema } from "effect"
-import { Chat, Tool, Toolkit } from "effect/unstable/ai"
+import { Chat, Tool, Toolkit } from "effect/ai"
 
 class AgentTurnLimit extends Schema.TaggedError<AgentTurnLimit>()(
   "AgentTurnLimit",
@@ -397,7 +397,7 @@ A turn limit bounds iterations; it does not bound cost. Treat the budget as data
 
 ```ts
 import { Effect, Ref, Schema } from "effect"
-import { Chat, Tokenizer, Tool, Toolkit } from "effect/unstable/ai"
+import { Chat, Tokenizer, Tool, Toolkit } from "effect/ai"
 
 class BudgetRejected extends Schema.TaggedError<BudgetRejected>()("BudgetRejected", {
   limit: Schema.Literals(["policy", "turns", "tokens"]),
@@ -488,7 +488,7 @@ Rules the example encodes, and the ones it leaves to the surrounding service:
 
 ```ts
 import { Stream } from "effect"
-import { LanguageModel, type Response } from "effect/unstable/ai"
+import { LanguageModel, type Response } from "effect/ai"
 
 export const streamPolicyDraft = (question: string) =>
   LanguageModel.streamText({
@@ -521,11 +521,11 @@ Do not collect the stream into an array or one string before sending it to the c
 
 Make prompt assembly, authorization, retrieval, citation verification, and output policy ordinary pure or Effect code. Those tests should not depend on a network model. At the AI boundary, provide a deterministic `LanguageModel` made from encoded response parts.
 
-**Runnable.** This fake is the `rc.116` test seam used by Effect's own AI tests. `LanguageModel.make` also stamps the service's `[TypeId]` brand, which a hand-written object literal would have to add itself.
+**Runnable.** This fake is the same test seam used by Effect's own AI tests. `LanguageModel.make` also stamps the service's `[TypeId]` brand, which a hand-written object literal would have to add itself.
 
 ```ts
 import { Effect, Layer, Stream } from "effect"
-import { LanguageModel } from "effect/unstable/ai"
+import { LanguageModel } from "effect/ai"
 
 export const FakeLanguageModel = Layer.effect(
   LanguageModel.LanguageModel,
@@ -555,7 +555,7 @@ A single canned answer proves little about an agent. A **scripted** model replay
 
 ```ts
 import { Effect, Layer, Ref, Schema, Stream } from "effect"
-import { Chat, LanguageModel, Tool, Toolkit, type Prompt, type Response } from "effect/unstable/ai"
+import { Chat, LanguageModel, Tool, Toolkit, type Prompt, type Response } from "effect/ai"
 
 const usage = { inputTokens: { total: 12 }, outputTokens: { total: 8 } }
 

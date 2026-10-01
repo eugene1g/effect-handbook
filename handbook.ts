@@ -48,6 +48,7 @@ const pageDescriptions = {
   "deep-dives/streaming-ingestion-without-accidental-buffering.md": "End-to-end streaming ingestion with bounded memory, backpressure, batching, resource safety, and failure handling.",
   "deep-dives/durability-and-distribution-ladder.md": "A decision-oriented progression from persistence through event history, workflows, and clustered entities.",
   "deep-dives/building-a-production-ai-capability.md": "A production AI architecture using provider-neutral models, schemas, tools, telemetry, retries, and explicit MCP boundaries.",
+  "deep-dives/exposing-an-effect-application-over-mcp.md": "Serving an Effect application to AI clients over MCP: transports and protocol eras, catalog shaping, OAuth resource-server authorization, human-in-the-loop round trips, idempotency, and in-process tests.",
   "deep-dives/anatomy-of-a-real-effect-application.md": "A complete application composition from domain schemas and services through resources, observability, entrypoint, shutdown, and tests.",
   "deep-dives/schema-from-external-input-to-domain-and-back.md": "Schema boundaries from encoded input to domain types and back across HTTP, RPC, SQL, persistence, evolution, and tests.",
   "deep-dives/failure-retry-fallback-and-interruption.md": "A connected model of typed failure, defects, Cause, retry, fallback, interruption, and cleanup.",
@@ -57,6 +58,7 @@ const pageDescriptions = {
 }
 
 const pageRelated = Object.freeze({
+  "deep-dives/exposing-an-effect-application-over-mcp.md": ["systems/ai-language-models.md", "interfaces/http-server.md", "interfaces/rpc.md", "deep-dives/building-a-production-ai-capability.md"],
   "deep-dives/index.md": ["reference/choosing-effect-primitives.md", "reference/cheat-sheet-index.md"],
   "deep-dives/reactivity-from-atoms-to-mastery.md": ["systems/reactivity-atom.md", "data/schema.md", "interfaces/http-api.md", "tooling/testing-dev-tooling.md"],
   "deep-dives/anatomy-of-a-real-effect-application.md": ["foundations/core-runtime-execution.md", "foundations/services-context-layers.md", "foundations/configuration-secrets.md", "operations/observability.md"],
@@ -199,7 +201,8 @@ export const deepDiveGroups = [
       page("Testing an Effect Application", "deep-dives/testing-an-effect-application.md"),
       page("Streaming Ingestion Without Accidental Buffering", "deep-dives/streaming-ingestion-without-accidental-buffering.md"),
       page("The Durability and Distribution Ladder", "deep-dives/durability-and-distribution-ladder.md"),
-      page("Building a Production AI Capability", "deep-dives/building-a-production-ai-capability.md")
+      page("Building a Production AI Capability", "deep-dives/building-a-production-ai-capability.md"),
+      page("Exposing an Effect Application over MCP", "deep-dives/exposing-an-effect-application-over-mcp.md")
     ]
   }
 ]
@@ -209,6 +212,7 @@ export const siteGroups = [...handbookGroups, ...deepDiveGroups]
 export const sitePages = siteGroups.flatMap((group) => group.items)
 
 export const deepDiveAgentSummaries = Object.freeze({
+  "deep-dives/exposing-an-effect-application-over-mcp.md": "Architecture: McpServer is an external boundary over an existing Toolkit, not the agent loop; one server declares its protocol eras and serves stateless and session clients alike; the catalog is shaped with annotations, Tool.Strict, and EnabledWhen; HttpRouter middleware makes the server an OAuth resource server that derives tenant and scopes from token claims; human approval uses elicit on session eras and an HMAC-sealed InputRequired round trip on the stateless era; retried calls are idempotent; the server is tested in-process through HttpRouter.toWebHandler.",
   "deep-dives/adopting-effect-in-an-existing-codebase.md": "Architecture: audit each function for hidden failure, dependency, lifetime, and cancellation behavior; pin current behavior with characterization tests; migrate leaf-first behind an unchanged external contract; keep exactly one seam where Promise meets Effect; make adapters cancellable before adding retry or timeout policy; take early test wins with provideService.",
   "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md": "Architecture: every resource and fiber has one named owner scope; startup is a transaction that either completes or releases what it acquired; readiness and draining are explicit states separate from liveness; one shutdown operation closes intake, drains, then releases in reverse order; callback bridges into host frameworks carry cancellation and never outlive their owner.",
   "deep-dives/reactivity-from-atoms-to-mastery.md": "Architecture: AtomRegistry owns the reactive graph and lifecycle; Atom.runtime supplies Effect services; Reactivity keys drive targeted invalidation; Hydration crosses the SSR boundary; framework bindings consume AsyncResult without hiding typed failures.",

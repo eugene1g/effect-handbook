@@ -196,6 +196,14 @@ The items describe Effect `4.0.0`. They are deliberately short; the owning pages
 - Does each cross-cutting policy — time, recurrence, configuration, capacity, execution, export, atomicity — have exactly one owning value? [One owner per policy](../deep-dives/anatomy-of-a-real-effect-application#one-owner-per-policy)
 - Do lifetime tests assert live state before close and terminal state after, including a failed startup? [Test the lifetime, not just the behavior](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#test-the-lifetime-not-just-the-behavior)
 
+## MCP servers
+
+- Does every server layer list the protocol revisions it accepts, with at most one stateless revision, and is the Streamable HTTP endpoint deployed with its `allowedOrigins`, content-type, and accept checks intact? [McpServer](../systems/ai-language-models#mcpserver)
+- Is the MCP endpoint an OAuth resource server — bearer token verified in router middleware, tenant and scopes taken from token claims only, per-tool scope checks in handlers, and no client token forwarded downstream? [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp)
+- Does each tool declare its failure schema, carry honest `Readonly` / `Destructive` / `Idempotent` annotations, use `Tool.Strict` where unexpected arguments must be rejected, and stay hidden from clients that cannot use it via `McpSchema.EnabledWhen`? [McpServer](../systems/ai-language-models#mcpserver)
+- Does every consequential tool confirm with the user — `McpServer.elicit` on session protocols, an `InputRequired` round trip on the stateless protocol — and is any `requestState` sealed with an HMAC, bound to the caller, and given a TTL before it is trusted on the way back? [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp)
+- Can a retried `tools/call` (a broken stream, a resumed round trip) run twice without a second side effect, and is an `ErrorReporter` wired so undeclared tool failures page someone? [McpServer](../systems/ai-language-models#mcpserver)
+
 ## Upgrading Effect versions
 
 - Are `effect` and every `@effect/*` package pinned to one exact version, with a single installed copy of `effect`? [Incompatible unstable package versions](../troubleshooting/troubleshooting-and-anti-patterns#incompatible-unstable-package-versions)

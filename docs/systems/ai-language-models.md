@@ -964,6 +964,79 @@ Tool input schemas follow `Tool.Strict`: a strict tool advertises `additionalPro
 - **Server identity can carry icons.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `icons: ReadonlyArray<McpSchema.Icon>` (`src`, optional `mimeType`, `sizes`, `theme`). The `McpSchema.Resource`, `ResourceTemplate`, `Prompt`, and `Tool` schemas have the same optional field for entries registered through the lower-level `McpServer` registry service.
 - **Prompt and resource callbacks receive decoded values.** `McpServer.prompt` / `registerPrompt` pass `content` the *decoded* type of each `parameters` schema, and resource templates resolve over both stdio and Streamable HTTP.
 - **Tool annotation titles survive `tools/list`.** On the `2025-06-18` and `2025-11-25` protocol revisions, a tool's annotation `title` is reported in `tools/list` responses alongside its top-level `title` and behavioral hints.
+- **Server `extensions` are advertised, not implemented.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `extensions`, a record keyed `vendor/name` with JSON settings, reported in the server capabilities of `initialize` and `server/discover`. `2026-07-28` discovery lists only object-valued settings. Behavior behind an extension is your code; 4.0.0 ships no extension helpers and no MCP client.
+
+### Request context, client gating, and human input
+
+- **`McpSchema.McpRequestContext`** is provided to every tool handler, resource `content`, and prompt `content`: `clientId`, `protocolVersion`, `clientCapabilities`, optional `clientInfo` and `requestMetadata`, and, on a continued `2026-07-28` call, `inputResponses` and `requestState`. Read it with `yield* McpSchema.McpRequestContext` or `McpSchema.McpRequestContext.useSync(f)`; `McpServer.clientCapabilities` reads just the capabilities. A toolkit tool declares it with `dependencies: [McpSchema.McpRequestContext]`, and `McpServer.toolkit` leaves it out of the Layer's requirements because each call supplies it. Everything in it is self-reported by the client.
+- **`McpSchema.McpServerClient`** exists only for initialized session-era clients. It is what server-to-client requests need; `2026-07-28` requests never have it.
+- **`McpSchema.EnabledWhen`** is an annotation holding a predicate over `{ protocolVersion, capabilities, clientInfo }`: `.annotate(McpSchema.EnabledWhen, predicate)` on a `Tool`, or `annotations: Context.make(McpSchema.EnabledWhen, predicate)` on `addTool`, `prompt`, and `registerResource`. A false predicate removes the entry from that client's list, and a direct call fails as not found. It trims the catalog per client; it does not authorize.
+- **`McpServer.elicit({ message, schema })`** returns `Effect<S["Type"], McpSchema.ElicitationDeclined, McpServerClient | S["DecodingServices"]>`. It sends a form-mode `elicitation/create` built from `schema` to the current session client, then decodes the accepted content with `schema`. A decline fails with `ElicitationDeclined`, and so does a client or revision without form elicitation (the reason is in `cause`); a cancel interrupts the handler. Session eras only, so hide the tool from `2026-07-28` clients:
+
+```ts
+import { Effect, Schema } from "effect"
+import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai"
+
+declare const applyBandTable: (tableId: string) => Effect.Effect<void>
+const Confirm = Schema.Struct({ confirm: Schema.Boolean })
+
+const ApplyBandTable = Tool.make("comp_apply_band_table", {
+  parameters: Schema.Struct({ tableId: Schema.String }),
+  success: Schema.Struct({ applied: Schema.Boolean }),
+  dependencies: [McpSchema.McpServerClient] // supplied per call to session clients
+}).annotate(McpSchema.EnabledWhen, (client) => client.protocolVersion !== "2026-07-28")
+
+const BandToolkit = Toolkit.make(ApplyBandTable)
+export const BandHandlers = BandToolkit.toLayer({
+  comp_apply_band_table: Effect.fn("comp_apply_band_table")(function*({ tableId }) {
+    const message = `Apply band table ${tableId} to every open cycle?`
+    const { confirm } = yield* McpServer.elicit({ message, schema: Confirm }).pipe(
+      Effect.catchTag("ElicitationDeclined", () => Effect.succeed({ confirm: false }))
+    )
+    if (confirm) yield* applyBandTable(tableId)
+    return { applied: confirm }
+  })
+})
+```
+
+- **`McpServer.McpServer.addTool` and `McpSchema.InputRequired`** are the stateless way to ask for input. A toolkit handler must return the tool's success type, so a tool that pauses for input is registered on the `McpServer.McpServer` service with a hand-written `McpSchema.Tool` descriptor (`inputSchema` must have an object root). Its `handle(payload)` receives the raw arguments and returns `CallToolResult | InputRequired`, failing only with `McpSchema.InternalError | McpSchema.InvalidParams` and requiring only `McpRequestContext`. `new McpSchema.InputRequired({ inputRequests, requestState })` needs at least one of the two; each keyed request is `elicitation/create`, `sampling/createMessage`, or `roots/list`. The client calls again with the same arguments, the answers in `inputResponses` under your keys, and `requestState` echoed unchanged. A missing client capability fails the call with protocol error `-32021` and `data.requiredCapabilities`; a session-era client that receives `InputRequired` gets a protocol error; `InvalidParams` on a continued call becomes JSON-RPC `-32602`. `requestState` returns from the client, so seal it (HMAC, expiry, caller binding) before trusting it.
+
+```ts
+import { Context, Effect, Layer, Schema } from "effect"
+import { McpSchema, McpServer } from "effect/ai"
+
+declare const lockCycle: Effect.Effect<void>
+const requestedSchema = { type: "object", properties: { confirm: { type: "boolean" } }, required: ["confirm"] }
+const isConfirmed = Schema.is(Schema.Struct({
+  action: Schema.Literal("accept"),
+  content: Schema.Struct({ confirm: Schema.Literal(true) })
+}))
+const text = (text: string) => new McpSchema.CallToolResult({ content: [{ type: "text", text }] })
+
+export const LockCycle = Layer.effectDiscard(McpServer.McpServer.use((server) =>
+  server.addTool({
+    tool: new McpSchema.Tool({ name: "comp_lock_cycle", inputSchema: { type: "object" } }),
+    annotations: Context.make(McpSchema.EnabledWhen, (client) => client.protocolVersion === "2026-07-28"),
+    handle: () =>
+      Effect.gen(function*() {
+        const answer = (yield* McpSchema.McpRequestContext).inputResponses?.["confirm"]
+        if (answer === undefined) {
+          const message = "Lock FY27-merit? Managers can no longer edit proposals."
+          return new McpSchema.InputRequired({
+            inputRequests: { confirm: { method: "elicitation/create", params: { mode: "form", message, requestedSchema } } }
+          })
+        }
+        if (!isConfirmed(answer)) return text("Not locked.")
+        yield* lockCycle
+        return text("Locked.")
+      })
+  })
+))
+```
+
+- **Authenticate by wrapping the HTTP layer.** `layerHttp` does not authenticate. Provide typed route middleware to it — `McpServer.layerHttp({ ... }).pipe(Layer.provide(BearerAuth.layer))`, where `BearerAuth = HttpRouter.middleware<{ provides: Principal }>()(...)` — and its routes are wrapped, because `router.add` applies the route middleware found where a route is registered; routes merged beside it (a public metadata route) are not. A service the middleware provides reaches tool, resource, and prompt handlers, which run with the HTTP request's services. Read it with `Effect.serviceOption` rather than as a tool `dependency` (that would make it a requirement of the toolkit Layer), and never provide it in the Layer graph: the server merges the toolkit's build-time context over each call's context.
+
+For the full architecture — protocol eras, catalog design, OAuth resource-server middleware, sealed `requestState`, a dual-era confirmation gate, idempotency, and in-process tests — read [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp).
 
 **Reach for it when** you want capabilities usable from Claude Desktop, an IDE, or any MCP client — without writing JSON-RPC by hand.
 

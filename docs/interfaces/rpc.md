@@ -176,7 +176,7 @@ const HttpLive = HttpRouter.serve(RpcRoute).pipe(
 NodeRuntime.runMain(Layer.launch(HttpLive))
 ```
 
-Additional protocol layers: `layerProtocolWebsocket`, `layerProtocolSocketServer` (raw TCP), `layerProtocolStdio` (CLIs and MCP-style servers), `layerProtocolWorkerRunner` (server half of a Worker). Compose `RpcServer.layer(group)` with any of them to use the engine without the HTTP router.
+Additional protocol layers: `layerProtocolWebsocket`, `layerProtocolSocketServer` (raw TCP), `layerProtocolStdio` (CLIs; for a Model Context Protocol server use `McpServer.layerStdio` from `effect/ai`, which builds on this RPC machinery — see [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp)), `layerProtocolWorkerRunner` (server half of a Worker). Compose `RpcServer.layer(group)` with any of them to use the engine without the HTTP router.
 
 > **Warning:** `layerHttp` and `layerProtocolHttp` register their route on whichever `HttpRouter` is in context when their Layer is built — they don't bring their own router. [`HttpRouter.serve`](http-server#httprouter) builds a *fresh* router in a forked layer memo map for each entrypoint, so that route is only reachable when `RpcRoute` (or the layer wrapping it) is passed directly into `serve`'s own argument, as above. Pulling `RpcRoute` out from under `serve` and providing it to a router built elsewhere — for example via a separate `Layer.provide(HttpRouter.layer)` — builds against a private router that `serve` never mounts, so the route silently goes unserved.
 

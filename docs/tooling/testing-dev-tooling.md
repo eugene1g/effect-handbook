@@ -2,9 +2,9 @@
 
 Effect's test services make time, console output, randomness, and dependencies deterministic; `@effect/vitest` integrates those services with a test runner. The repository's documentation tools then compile and validate examples so docs can be treated like code rather than inert prose.
 
-> **Official companions:** Browse the release-matched authored [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src) for executable examples across Effect. [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/LLMS.md) is its generated single-file aggregate and begins with Effect's coding conventions.
+> **Official companions:** Browse the release-matched authored [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src) for executable examples across Effect. [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0/LLMS.md) is its generated single-file aggregate and begins with Effect's coding conventions.
 
-> **Official guides:** [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than this handbook's pinned `4.0.0` release, so where they differ, this page and the tagged source win.
 
 **Pick the tool by the claim you need to prove.** Each row is evidence for one kind of statement and for nothing beyond it; [Testing an Effect Application](../deep-dives/testing-an-effect-application) turns the table into a full strategy.
 
@@ -41,7 +41,7 @@ Semantics worth knowing before a test hangs:
 | **`adjust` and `setTime` give already-forked fibers one scheduling turn, then move time**, waking sleepers in timestamp order and yielding once after each. | A fiber that needs several turns to reach its `sleep` registers it *after* the adjustment and then waits forever. Synchronize on a signal from the fiber instead of counting turns — see [Drive time instead of waiting](../deep-dives/testing-an-effect-application#drive-time-instead-of-waiting). |
 | **A zero or negative sleep returns immediately.** | It never becomes a scheduled wake-up, so there is nothing to adjust past. |
 | **A sleep that nobody advances logs a warning** after `warningDelay` of *live* time (default `"1 second"`). | The message "A test is using time, but is not advancing the test clock" means a missing `adjust`, not a slow test. Tune it with `TestClock.layer({ warningDelay })`. |
-| **Adjustments keep nanosecond precision**, including after very large jumps (fixed in `rc.109`). | `Clock.currentTimeNanos` is exact: a `"365 days"` adjust followed by `1.5` ms reads `31536000001500000n`. |
+| **Adjustments keep nanosecond precision**, including after very large jumps. | `Clock.currentTimeNanos` is exact: a `"365 days"` adjust followed by `1.5` ms reads `31536000001500000n`. |
 | **`TestClock.withLive(effect)`** runs one effect on the real clock. | Use it for a wall-clock guard around a join (`Effect.timeoutOption`) or for a real fixture's readiness wait inside an otherwise virtual test. |
 
 ```ts
@@ -204,15 +204,14 @@ Use when Effect code emits structured diagnostics via `Console.*` and you want t
 
 ## Arbitrary
 
-`effect/unstable/arbitrary/Arbitrary` — unstable (new in `rc.113`)
+`effect/Arbitrary` — unstable
 
-Effect's native, **Schema-first** property-testing engine. It replaced the fast-check bridge: `effect/testing/FastCheck`, `Schema.toArbitrary`, and the `fastCheck` options in `@effect/vitest` were all removed in `rc.113`, and the `effect` package no longer depends on fast-check.
+Effect's native, **Schema-first** property-testing engine. It is not a fast-check bridge: `effect/testing/FastCheck`, `Schema.toArbitrary`, and the `fastCheck` options in `@effect/vitest` do not exist, and the `effect` package does not depend on fast-check.
 
 **Mental model.** You do not assemble generators from primitives. You describe the domain once as a `Schema` and derive the generator from it with `Arbitrary.schema(schema)`; checks such as `isBetween` and `isPattern` become *constructive* constraints rather than rejection filters. Generated values are the schema's decoded `Type`. The small combinator set — `map`, `filter`, `filterMap`, `flatMap` (dependent generation), `all` (tuples, iterables, records), and `Constant` — composes derived arbitraries without introducing a second catalog of primitive constructors.
 
 ```ts
-import { Effect, Schema } from "effect"
-import { Arbitrary } from "effect/unstable/arbitrary"
+import { Arbitrary, Effect, Schema } from "effect"
 
 // Describe a raise recommendation as a Schema; the generator is derived from it.
 const RaiseRecommendation = Schema.Struct({
@@ -259,15 +258,16 @@ const _ = [samples, report]
 
 Generation is **size-scaled**. `size` is a local complexity budget that a check grows toward as runs complete, and at the default an *unconstrained* `Schema.Int` stays within roughly ±100 and an unconstrained `Schema.String` within about ten characters. Explicit Schema bounds are always honored regardless of size. So if a bug only appears for large values, say so in the schema (`isBetween`, `isMinLength`) or raise `size` — more `runs` alone will not reach it.
 
-Three rules keep properties trustworthy. Treat generated values as **immutable** — the runner does not clone them, so mutation corrupts shrinking and replay. Make the property **deterministic for a given input**, because it may be evaluated repeatedly; a stateful property should acquire and release its own fixture inside each evaluation. And record a failure as an **explicit regression test**: a `replay` token reproduces the current failure, but it is an unstable-module artifact that is not guaranteed across upgrades, and it is unrelated to fast-check seeds and paths. `rc.116` changed it in practice: better shrinking (arrays also drop prefixes and interior blocks, composed values keep candidates they used to lose) and wider `BigInt`/`BigDecimal` generation (wider magnitude, precision, and exponent coverage, with shrinking toward numeric boundaries) mean shrunk results and replay paths can differ from `rc.115`, so re-record any saved replay token.
+Three rules keep properties trustworthy. Treat generated values as **immutable** — the runner does not clone them, so mutation corrupts shrinking and replay. Make the property **deterministic for a given input**, because it may be evaluated repeatedly; a stateful property should acquire and release its own fixture inside each evaluation. And record a failure as an **explicit regression test**: a `replay` token reproduces the current failure, but it is an unstable-module artifact that is not guaranteed across upgrades, and it is unrelated to fast-check seeds and paths. Array shrinking drops prefixes and interior blocks while keeping the order of what remains, and composed values keep shrink candidates where possible. `BigInt` and `BigDecimal` generation covers a wide range of magnitude, precision, and exponent, with shrinking toward numeric boundaries.
+
+`Arbitrary.configureGlobal({ check, sample })` replaces the defaults `checkEffect` and `sampleEffect` fall back to, for executions that start after the call — set it once, outside any concurrent test, rather than per test. Pass `{}` to reset it. A `replay` token always keeps control of its own run regardless of configured defaults.
 
 When a custom `Schema.declare`/`instanceOf` type is opaque to derivation, annotate it with `toCodecArbitrary` (a `Schema.link` to a generatable representation) — but first check whether it already has a `toCodecJson`/`toCodec`, which derivation falls back to automatically. A selective custom filter can contribute an `arbitraryConstraint` (for example `{ order: Order.Number, minimum: 0, exclusiveMinimum: true }`) so generation constructs valid values instead of discarding invalid ones; the predicate stays authoritative.
 
 ### Shrinking, composition, and wire-side samples
 
 ```ts
-import { Effect, Schema } from "effect"
-import { Arbitrary } from "effect/unstable/arbitrary"
+import { Arbitrary, Effect, Schema } from "effect"
 
 const GrantShares = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 1_000_000 }))
 
@@ -308,14 +308,13 @@ const _ = [grantShares, bandAndSalary, fuzzInputs, validPayloads]
 ```
 
 - **Reach for a custom `shrink` only when the derived counterexample is not meaningful in the domain.** The callback returns the immediate simplifications of a failing value; every candidate is re-validated against the schema, invalid ones are skipped and still count against `maxShrinks`, and the function must be synchronous, deterministic, terminating, and free of mutation. It replaces derived shrinking rather than refining it: for the property `shares < 1_000` over this schema, the derived shrinker reports the exact boundary `1000`, while the halving shrinker above stops at `1953`.
-- **Derivation is eager; discards are lazy.** `Arbitrary.schema` throws at the call site when it cannot build a generator — a bare `Schema.Never`, contradictory bounds such as `isBetween({ minimum: 10, maximum: 5 })`, a declaration without a generatable representation, or a recursive schema with no finite path. Since `rc.116`, `Never` nested where another finite path exists is treated as an uninhabited branch instead of an error: `Schema.optionalKey(Schema.Never)` leaves the key out, `Schema.Union([Schema.Never, S])` generates `S`, and `Schema.Array(Schema.Never)` generates `[]`. A generator that *can* be built but rejects too many candidates fails later, as `Exhausted` from `checkEffect` or `SampleError` from `sampleEffect`. The first is a schema problem; the second is a filter problem.
+- **Derivation is eager; discards are lazy.** `Arbitrary.schema` throws at the call site when it cannot build a generator — a bare `Schema.Never`, contradictory bounds such as `isBetween({ minimum: 10, maximum: 5 })`, a declaration without a generatable representation, or a recursive schema with no finite path. A `Never` nested where another finite path exists is treated as an uninhabited branch instead of an error: `Schema.optionalKey(Schema.Never)` leaves the key out, `Schema.Union([Schema.Never, S])` generates `S`, and `Schema.Array(Schema.Never)` generates `[]`. A generator that *can* be built but rejects too many candidates fails later, as `Exhausted` from `checkEffect` or `SampleError` from `sampleEffect`. The first is a schema problem; the second is a filter problem.
 - **`size` is local, not global.** Every unconstrained string, collection, and object property observes the same size independently, so a wide struct still produces a large value at a small size; recursive branches share one recursion allowance.
 
-**Sequences of custom values use `Arbitrary.array(item, { minLength?, maxLength? })`** (new in `rc.116`). It shrinks by removing blocks, including prefixes and interior runs, while keeping the order and values of what remains, then shrinks individual elements, which suits command sequences for state-machine properties. Invalid length bounds throw a `RangeError` at the call. Probed on `rc.116`, this approval-workflow property is falsified with the minimal history `["Reject", "Approve"]`:
+**Sequences of custom values use `Arbitrary.array(item, { minLength?, maxLength? })`.** It shrinks by removing blocks, including prefixes and interior runs, while keeping the order and values of what remains, then shrinks individual elements, which suits command sequences for state-machine properties. Invalid length bounds throw a `RangeError` at the call. This approval-workflow property is falsified with the minimal history `["Reject", "Approve"]`:
 
 ```ts
-import { Effect, Schema } from "effect"
-import { Arbitrary } from "effect/unstable/arbitrary"
+import { Arbitrary, Effect, Schema } from "effect"
 
 const reviewAction = Arbitrary.schema(Schema.Literals(["Approve", "Reject", "Reopen"]))
 const reviewHistory = Arbitrary.array(reviewAction, { minLength: 1, maxLength: 20 })
@@ -380,11 +379,11 @@ it.effect.prop(
 
 `prop` accepts either an array of schemas/arbitraries (positional) or an object record (named destructuring). Prefer a constructive check such as `Schema.isBetween` over an opaque `Schema.makeFilter` predicate for generated domains: an opaque filter works, but only as a bounded residual filter that can exhaust its discard budget.
 
-> **Migrating from the fast-check bridge:** replace `Schema.toArbitrary(schema)(FastCheck)` with `Arbitrary.schema(schema)`; `FastCheck.sample` with `Arbitrary.sampleEffect` (`numRuns` → `count`); `FastCheck.assert(FastCheck.property(...))` with `Arbitrary.checkEffect` and handle the result (`numRuns` → `runs`, `path` → `replay`, `maxSkipsPerRun` → `maxDiscards`, `endOnFailure` → `maxShrinks: 0`); and `{ fastCheck: { numRuns } }` with `{ arbitrary: { runs } }`. Raw fast-check arbitraries are no longer accepted by `@effect/vitest`. Seeds, distributions, and shrink results are not compatible, so re-record any saved failure. If a test truly needs fast-check, install it yourself and use it directly with Vitest. Effect's release-matched [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/packages/effect/ARBITRARY.md) goes deeper.
+> **Migrating from the fast-check bridge:** replace `Schema.toArbitrary(schema)(FastCheck)` with `Arbitrary.schema(schema)`; `FastCheck.sample` with `Arbitrary.sampleEffect` (`numRuns` → `count`); `FastCheck.assert(FastCheck.property(...))` with `Arbitrary.checkEffect` and handle the result (`numRuns` → `runs`, `path` → `replay`, `maxSkipsPerRun` → `maxDiscards`, `endOnFailure` → `maxShrinks: 0`); and `{ fastCheck: { numRuns } }` with `{ arbitrary: { runs } }`. Raw fast-check arbitraries are no longer accepted by `@effect/vitest`. Seeds, distributions, and shrink results are not compatible, so re-record any saved failure. If a test truly needs fast-check, install it yourself and use it directly with Vitest. Effect's release-matched [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/effect/ARBITRARY.md) goes deeper.
 
 Use when testing pure transformations, codecs, data-structure invariants, or any function where the claim is "this holds for all valid inputs."
 
-Official guide: [Schema to Arbitrary](https://effect.website/docs/v4/schema/arbitrary) (its `checkEffect` option list is shorter than `rc.116`'s, which also accepts `size`, `maxDiscards`, and `maxShrinks`).
+Official guide: [Schema to Arbitrary](https://effect.website/docs/v4/schema/arbitrary) (its `checkEffect` option list is shorter than this module's, which also accepts `size`, `maxDiscards`, and `maxShrinks`).
 
 ## TestSchema
 
@@ -392,7 +391,7 @@ Official guide: [Schema to Arbitrary](https://effect.website/docs/v4/schema/arbi
 
 A class-based helper wrapping a `Schema` with ergonomic methods for asserting decoding, encoding, construction (`make`), and property-based round-trip verification.
 
-**Mental model.** Create `new TestSchema.Asserts(MySchema)` as your test handle. It exposes `.decoding()`, `.encoding()`, `.make()`, and `.arbitrary()` — each returning an object with `succeed(input, expected?)` and `fail(input, message)` methods that are `async` and use `assert.deepStrictEqual` internally. `verifyLosslessTransformation()` runs a full property-based round-trip.
+**Mental model.** Create `new TestSchema.Asserts(MySchema)` as your test handle. It exposes `.decoding()`, `.encoding()`, and `.make()` — each returning an object with `succeed(input, expected?)` / `fail(input, message)` Promise methods, plus `succeedEffect` / `failEffect` Effect-returning variants that preserve required decoding or encoding services — all comparing with `assert.deepStrictEqual` internally. `.arbitrary()` returns generation-check helpers. `verifyRoundTrip()` (and its Effect variant `verifyRoundTripEffect()`) runs a full property-based round-trip.
 
 ```ts
 import { Schema } from "effect"
@@ -419,7 +418,7 @@ await enc.succeed(95000, "95000")
 
 // --- round-trip property test: encode → decode is lossless ---
 const ta = new TestSchema.Asserts(SalaryFromString)
-await ta.verifyLosslessTransformation()
+await ta.verifyRoundTrip()
 
 // --- arbitrary generation sanity check ---
 new TestSchema.Asserts(PerformanceRating).arbitrary().verifyGeneration()
@@ -429,9 +428,9 @@ new TestSchema.Asserts(PerformanceRating).arbitrary().verifyGeneration()
 
 When the schema's decoder requires a service, pass a `Context.Key` and its implementation to `.decoding().provide(key, impl)` to inject the service into the decoding context before running assertions.
 
-The static `TestSchema.Asserts.ast.fields.equals(a, b)` and `TestSchema.Asserts.ast.elements.equals(a, b)` compare the *ASTs* of two struct-field records or two tuple-element lists with `deepStrictEqual`. Use them to prove that a schema-building helper — a field mapper, a `pick`/`omit` wrapper, a generated model — yields the same definition as the hand-written schema. Since `rc.113` the field comparison walks every own key, including symbol and non-enumerable keys, and compares by AST rather than by schema instance: two separately constructed but equivalent field schemas are equal, while differing ASTs or distinct symbol keys are not.
+The static `TestSchema.Asserts.ast.fields.equals(a, b)` and `TestSchema.Asserts.ast.elements.equals(a, b)` compare the *ASTs* of two struct-field records or two tuple-element lists with `deepStrictEqual`. Use them to prove that a schema-building helper — a field mapper, a `pick`/`omit` wrapper, a generated model — yields the same definition as the hand-written schema. The field comparison walks every own key, including symbol and non-enumerable keys, and compares by AST rather than by schema instance: two separately constructed but equivalent field schemas are equal, while differing ASTs or distinct symbol keys are not.
 
-**Keep named encoded fixtures beside the generated checks.** `verifyLosslessTransformation()` and `arbitrary()` start from valid decoded values; a `.decoding().fail(...)` case per rejection rule is what proves the decoder says no.
+**Keep named encoded fixtures beside the generated checks.** `verifyRoundTrip()` and `arbitrary()` start from valid decoded values; a `.decoding().fail(...)` case per rejection rule is what proves the decoder says no.
 
 Use when authoring a new schema to pin down exactly what inputs decode or encode to — especially useful for custom transformations and branded types.
 
@@ -449,7 +448,26 @@ The official Effect test runner adapter for Vitest. It requires Vitest 5 (`>=5.0
 - `layer(L)` — builds a layer once for a block of tests, sharing state across them, tears down in `afterAll`.
 - `assert` — Vitest's Chai-style `assert`, re-exported with the rest of `vitest` (`assert.strictEqual`, `assert.deepStrictEqual`, `assert.isTrue`, …); repo convention prefers this over Vitest's `expect`.
 - `@effect/vitest/utils` — structural helpers built on Node's `assert` and Effect's `Equal`: `assertEquals` (`Equal.equals` with a diff), `assertSome` / `assertNone`, `assertSuccess` / `assertFailure` for `Result`, and `assertExitSuccess` / `assertExitFailure(exit, cause)` for `Exit`.
+- `makeMethods(it)` — rebuilds `it.effect` / `it.live` / `it.prop` / `layer` on top of a Vitest test API extended with fixtures, so fixture values flow into Effect tests too.
 - Everything else Vitest exports, including `expectTypeOf` for [type-level contract tests](#prove-laziness-and-the-static-contract).
+
+**Vitest fixtures work with Effect tests via `makeMethods`.** A test receives the fixtures it destructures from its context; Vitest sets them up before the test and tears them down after the test's scope closes:
+
+```ts
+import { assert, makeMethods, test } from "@effect/vitest"
+import { Effect } from "effect"
+
+const it = makeMethods(
+  test.extend("config", { scope: "file" }, () => ({ port: 3000 }))
+)
+
+it.effect("reads the config fixture", ({ config }) =>
+  Effect.sync(() => {
+    assert.strictEqual(config.port, 3000)
+  }))
+```
+
+Vitest parses the destructured parameter names to decide which fixtures to set up, so a test that takes the whole context as one plain parameter (`(ctx) => ...`) once any fixture is defined fails with a `FixtureParseError` — destructure the fixture names instead. Property tests (`it.prop`, `it.effect.prop`) receive only the base test context and cannot request fixtures, though auto fixtures still run. `it.effect.each` passes the fixture-bearing context after the test case; named and anonymous `it.layer` blocks keep the fixtures too.
 
 Runner behavior that affects what a result means:
 
@@ -464,7 +482,7 @@ Tester modifiers (`it.effect.*` and `it.live.*`):
 
 | Modifier | Use | Watch for |
 | --- | --- | --- |
-| `.each(cases)` | one body per case; the case is the first argument | — |
+| `.each(cases)` | one body per case; the case is the first argument, the test context (and any fixtures) is the second | — |
 | `.only`, `.skip` | focus or park a test locally | never commit `.only` |
 | `.skipIf(condition)`, `.runIf(condition)` | gate on an environment fact | a silently skipped lane is reported green with zero evidence; make required infrastructure fail loudly instead |
 | `.fails` | passes only when the Effect fails | asserts *that* it fails, not *how*; prefer an `Exit` assertion |
@@ -746,7 +764,7 @@ Several modules ship their own test harness. Each removes one piece of infrastru
 | [`RpcTest.makeClient`](../interfaces/rpc#rpctest) (unstable) | client and server protocol machinery: streams, acknowledgements, interrupts, headers, middleware | transport **and serialization** | that payloads survive a real codec and wire |
 | `NodeHttpServer.layerTest` | a real HTTP server on an ephemeral port plus a client pointed at it | the fixed address | deployment concerns: proxies, TLS, production configuration |
 | [`TestRunner.layer`](../systems/cluster-sharding#testrunner) (unstable) | sharding, entity registration, mailbox persistence logic | storage (in-memory), runner transport (no-op), health checks | multi-runner rebalancing, durable storage behavior |
-| [`Entity.makeTestClient`](../systems/cluster-sharding#entity) (unstable) | one entity's handlers behind an in-memory RPC client | the cluster transport | routing across runners. Since `rc.113` it honors the entity layer's `disableFatalDefects`, so with that option a handler defect fails only its own call instead of every pending call on the client |
+| [`Entity.makeTestClient`](../systems/cluster-sharding#entity) (unstable) | one entity's handlers behind an in-memory RPC client | the cluster transport | routing across runners. It honors the entity layer's `disableFatalDefects` option: with that option set, a handler defect fails only its own call instead of every pending call on the client |
 | `WorkflowEngine.layerMemory`, `Persistence.layerMemory`, `KeyValueStore.layerMemory`, `EventJournal.layerMemory` (unstable) | the orchestration or storage *contract* | the durable backend | durability across a restart, backend-specific limits |
 | `ConfigProvider.fromUnknown(...)` via `ConfigProvider.layer` | `Config` parsing, defaults, redaction | environment variables | that the deployed environment sets those names |
 
@@ -792,7 +810,7 @@ npx @effect/tsgo setup --help
 | Dedicated CLI | `effect-tsgo diagnostics --project tsconfig.json --strict --format text` | Needs no patch. `--strict` treats warnings as errors; `--format` is `json`, `pretty`, `text`, or `github-actions`; `--file` checks one file. This is the command that validates every example in this handbook. |
 | Oxlint | `effect-tsgo patch --oxlint` | Experimental type-aware lint integration; presets ship under `@effect/tsgo/oxlint-presets` (`recommended`, `correctness`, `antipattern`, `effect-native`, `style`). The official Devtools guide covers this and the VS Code / Cursor extension. |
 
-The rules fall into four groups, and **many are not errors until you raise them**: of the 113 rules in `0.45.0`, 13 default to `error`, 17 to `warning`, 47 to `suggestion`, and 36 to `off`. The ones below map directly onto failures described elsewhere in this handbook:
+The rules fall into four groups (`0.47.2` ships 118: 23 correctness, 20 anti-pattern, 22 Effect-native, 53 style), and **many are not errors until you raise them** — most style and Effect-native rules default to `suggestion` or `off`, and `effect-tsgo config` shows every rule's current level. The ones below map directly onto failures described elsewhere in this handbook:
 
 | Group | Examples (default severity) | What it catches |
 | --- | --- | --- |
@@ -801,7 +819,7 @@ The rules fall into four groups, and **many are not errors until you raise them*
 | Effect-native | `globalDateInEffect`, `globalTimersInEffect`, `globalRandomInEffect`, `globalFetchInEffect`, `processEnvInEffect`, `globalConsoleInEffect` (all `off`) | ambient `Date.now()`, `setTimeout`, `Math.random()`, `fetch`, `process.env`, and `console` inside Effect code — exactly the dependencies `TestClock`, `Random`, `HttpClient`, `Config`, and `TestConsole` exist to control. Turn these on for application code that must be deterministic under test. |
 | Style | `unnecessaryEffectGen`, `catchAllToMapError`, `effectFnOpportunity`, `schemaStructWithTag` (`suggestion`) | simplifications with a mechanical fix |
 
-Severity is per rule: `diagnosticSeverity` maps a rule name to `"off"`, `"suggestion"`, `"message"`, `"warning"`, or `"error"`; `overrides` applies different levels to file globs; and an `@effect-diagnostics` or `@effect-diagnostics-next-line` comment adjusts one file or one line. `effect-tsgo config` opens an interactive rule picker for an existing `tsconfig.json`.
+Severity is per rule: `diagnosticSeverity` maps a rule name to `"off"`, `"suggestion"`, `"message"`, `"warning"`, or `"error"`; `overrides` applies different levels to file globs; and an `@effect-diagnostics` or `@effect-diagnostics-next-line` comment adjusts one file or one line. `effect-tsgo config` opens an interactive rule picker for an existing `tsconfig.json`. One rule deserves a project-level decision up front: `unstableApiUsage` warns on every API tagged `@stability unstable`, which in `4.0.0` is every call into `effect/http`, `effect/sql`, `effect/rpc`, `effect/ai`, and the other area families. A project that builds on those modules sets `"diagnosticSeverity": { "unstableApiUsage": "off" }` (this handbook's validation does exactly that); a library that wants to stay inside the semver-covered surface leaves it on.
 
 - **Run the diagnostics on test code too.** `floatingEffectInVitest` is the static counterpart of the false green described under [`@effect/vitest`](#effect-vitest): `it("…", () => Effect.fail("boom"))` passes at runtime and fails this check.
 - **Pin it like any other toolchain dependency.** Each release is built against specific TypeScript (and Oxlint) versions listed in its README; upgrade it together with TypeScript rather than independently.
@@ -857,7 +875,7 @@ export default defineConfig({
 })
 ```
 
-The assertion transform handles a complete expression statement or a single initialized `const`; it does not implicitly await promises, run Effects, or consume iterators. Do those operations explicitly. `@effect/doctest` requires Vitest 5 and Vite 8.1.5+ at this release.
+The assertion transform handles a complete expression statement or a single initialized `const`; it does not implicitly await promises, run Effects, or consume iterators. Do those operations explicitly. `@effect/doctest` requires Vitest 5 and Vite 8.1.5+.
 
 **Other repository tools.**
 

@@ -1,6 +1,6 @@
 # The Durability and Distribution Ladder
 
-Audited against `effect@4.0.0-rc.116` and the matching Effect repository source on 2026-09-19.
+Audited against `effect@4.0.0` and the matching Effect repository source on 2026-09-19.
 
 An Effect application does not become durable by moving a fiber to another machine. It also does not become distributed merely because a value is in a database. Durability and distribution are separate axes:
 
@@ -9,7 +9,7 @@ An Effect application does not become durable by moving a fiber to another machi
 
 This guide follows one business operation—applying an approved compensation change—up the ladder. Each rung adds a specific guarantee and a specific operational cost. Stop at the lowest rung that meets the failure model.
 
-All workflow, persistence, event-log, and cluster APIs in this guide are unstable in `rc.116`. Pin the version and re-audit before upgrading — two of the rungs below changed their **stored or wire format** between `rc.108` and `rc.113` (event-log payloads and cluster runner traffic), which makes those upgrades deployment events rather than dependency bumps.
+All workflow, persistence, event-log, and cluster APIs in this guide are tagged `@stability unstable`. Pin the version and re-audit before upgrading — event-log payloads and cluster runner traffic are `SchemaBinary`-encoded on the wire and in storage, so a future change to that encoding makes an upgrade a deployment event rather than a dependency bump.
 
 ## Begin with the failure boundary
 
@@ -117,7 +117,7 @@ Use `PersistedQueue` when the durable unit is an independent FIFO job. Producers
 
 ```ts
 import { Context, Effect, Layer, Schema } from "effect"
-import { PersistedQueue } from "effect/unstable/persistence"
+import { PersistedQueue } from "effect/persistence"
 
 const RaiseJob = Schema.Struct({
   approvalId: Schema.String,
@@ -135,7 +135,7 @@ class Payroll extends Context.Service<Payroll, {
 
 export const enqueueAndConsume = Effect.gen(function*() {
   const payroll = yield* Payroll
-  // The retry policy belongs to the queue definition (rc.113+), not to take().
+  // The retry policy belongs to the queue definition, not to take().
   const queue = yield* PersistedQueue.make({
     name: "approved-raises",
     schema: RaiseJob,
@@ -188,7 +188,7 @@ The activity can still run more than once if the worker is interrupted after the
 
 ```ts
 import { Effect, Schema } from "effect"
-import { Activity, DurableClock, Workflow } from "effect/unstable/workflow"
+import { Activity, DurableClock, Workflow } from "effect/workflow"
 
 class PayrollUnavailable extends Schema.TaggedError<PayrollUnavailable>()(
   "PayrollUnavailable",
@@ -252,7 +252,7 @@ Workflow entities also passivate after a fixed ten seconds of idleness under `Cl
 
 ## Rung four: make immutable events authoritative
 
-Use `effect/unstable/eventlog` when the durable unit is a domain fact and current state must be reproducible from history. An event log is not merely a queue with long retention. Events are immutable business facts, handlers update projections, and replay or replication can rebuild those projections.
+Use `effect/eventlog` when the durable unit is a domain fact and current state must be reproducible from history. An event log is not merely a queue with long retention. Events are immutable business facts, handlers update projections, and replay or replication can rebuild those projections.
 
 Effect's `EventLog` is handler-first: it runs the matching handler and only commits the journal entry if the handler succeeds. With `SqlEventJournal`, SQL-backed handler work using the supplied `SqlClient` can share the journal transaction. IndexedDB cannot make arbitrary handler work and its later journal write one transaction, so backend choice changes the atomicity boundary.
 
@@ -261,7 +261,7 @@ Effect's `EventLog` is handler-first: it runs the matching handler and only comm
 <!-- effect-example id=eventlog.compensation-event-contract check=pseudocode -->
 ```ts
 import { Schema } from "effect"
-import { EventGroup, EventLog } from "effect/unstable/eventlog"
+import { EventGroup, EventLog } from "effect/eventlog"
 
 export const CompensationEvents = EventGroup.empty.add({
   tag: "RaiseApplied",
@@ -278,7 +278,7 @@ export const CompensationEventSchema = EventLog.schema(CompensationEvents)
 
 Choose the event log when audit, offline replication, rebuildable projections, or event-sourced domain decisions are product requirements. Do not add it only to obtain background retries; `PersistedQueue` is smaller for that job. Keep event tags, primary keys, and payload schemas compatible with stored history.
 
-> **Upgrade warning:** Journal entries and remote sync messages are `SchemaBinary`-encoded from `rc.113`. Journals written by `rc.112` or earlier contain MessagePack bytes that the current codec cannot read, and no compatibility reader ships. "Authoritative history" is only as durable as your ability to decode it: plan a one-off re-encode (or a new store id with the old journal kept read-only on the old release) before upgrading, and move clients and servers together. The event payload Schema is the persisted contract from then on.
+Journal entries and remote sync messages are `SchemaBinary`-encoded, and no compatibility reader ships for a different wire format. "Authoritative history" is only as durable as your ability to decode it: the event payload Schema is the persisted contract from the moment you write it, so changing its wire representation later needs a one-off re-encode (or a new store id with the old journal kept read-only), with clients and servers moved together.
 
 Replication is at-least-once. The sync loop retries a failed remote write indefinitely on a capped backoff, re-authenticates and retries when the server answers `Forbidden`, and skips the remote call entirely when nothing is uncommitted; the receiving side de-duplicates by entry id. Design projections so that seeing an entry twice is harmless.
 
@@ -291,8 +291,8 @@ Cluster entities are addressable actors whose ids are mapped to shards and owned
 <!-- effect-example id=cluster.employee-entity-contract check=pseudocode -->
 ```ts
 import { Schema } from "effect"
-import { ClusterSchema, Entity } from "effect/unstable/cluster"
-import { Rpc } from "effect/unstable/rpc"
+import { ClusterSchema, Entity } from "effect/cluster"
+import { Rpc } from "effect/rpc"
 
 const ApplyRaise = Rpc.make("ApplyRaise", {
   payload: {
@@ -314,9 +314,9 @@ export const Employee = Entity.make("Employee", [
 
 Entity handlers run sequentially per live instance unless a handler opts into concurrent execution. In-memory state held by an entity disappears when it is passivated or moved. Persist authoritative state elsewhere, reconstruct it on activation, or derive it from an event log. Persisted messages make delivery durable; they do not automatically make a handler's arbitrary external effects exactly once. For a volatile RPC sent with `discard: true`, success acknowledges delivery to the owning runner rather than an entity reply; delivery failures still propagate and may be retried. A persisted discard is recoverable from storage and is not coupled to the immediate notification transport result.
 
-Persisted delivery also changes what a caller sees during a rebalance. If the entity moves or is shut down before replying, the caller simply keeps waiting and receives the reply from message storage once the next owner has processed the request; if the caller's **own** runner is shutting down, the call is *interrupted* rather than failed with `EntityNotAssignedToRunner`, because the request is already durable. Do not translate that interrupt into a domain error or a retry. A volatile send has no storage behind it and still fails fast — including with `MailboxFull` when the target runner is at its `maxResidentEntities` cap (10,000 by default), a limit that delays persisted work instead of rejecting it. From `rc.116` an interruptible volatile request is also tied to its caller's connection: if the calling runner disconnects, the remote handler is interrupted and its mailbox slot freed, so a lost volatile call may have stopped partway. Work that must finish regardless of the caller belongs in a persisted request.
+Persisted delivery also changes what a caller sees during a rebalance. If the entity moves or is shut down before replying, the caller simply keeps waiting and receives the reply from message storage once the next owner has processed the request; if the caller's **own** runner is shutting down, the call is *interrupted* rather than failed with `EntityNotAssignedToRunner`, because the request is already durable. Do not translate that interrupt into a domain error or a retry. A volatile send has no storage behind it and still fails fast — including with `MailboxFull` when the target runner is at its `maxResidentEntities` cap (10,000 by default), a limit that delays persisted work instead of rejecting it. An interruptible volatile request is also tied to its caller's connection: if the calling runner disconnects, the remote handler is interrupted and its mailbox slot freed, so a lost volatile call may have stopped partway. Work that must finish regardless of the caller belongs in a persisted request.
 
-> **Upgrade warning — runner wire format:** Runner-to-runner traffic is serialized with `SchemaBinary` by default from `rc.113` (`serialization: "binary"` on `NodeClusterSocket.layer` / `NodeClusterHttp.layer` and the Bun and Deno equivalents); the previous default, MessagePack, is gone. A cluster cannot mix `rc.108`-era and `rc.113`+ runners on default settings. Either stop the cluster and start it on the new release, or pin every node to `serialization: "ndjson"` — the one format both generations offer — before and during the rollout, and rehearse that mixed pair in staging first. See [Cluster & Sharding](../systems/cluster-sharding#transport-options).
+**Runner wire format is a cluster-wide contract.** Runner-to-runner traffic is serialized with `SchemaBinary` by default (`serialization: "binary"` on `NodeClusterSocket.layer` / `NodeClusterHttp.layer` and the Bun and Deno equivalents); `serialization: "ndjson"` is the text-based alternative both generations of a rolling upgrade can share. A cluster cannot mix runners on different serialization settings, so a rollout that changes the default must pin every node to the same `serialization` option throughout the rollout and rehearse a mixed-version pair in staging first. See [Cluster & Sharding](../systems/cluster-sharding#transport-options).
 
 Use entities when many keys need single-owner logic spread across machines. Use a singleton for one cluster-wide process. Distribution may sit below a workflow engine, host workers for a persisted queue, or expose an event-sourced aggregate, but those are compositions—not substitutes for one another.
 

@@ -1,6 +1,6 @@
 # Schema — From External Input to Domain and Back
 
-Effect Schema is most useful when it owns a complete boundary, not just an isolated validation call. This guide follows one value from untrusted JSON, form, or query input into a domain model, through application logic, and back to a JSON-safe representation. It targets `effect@4.0.0-rc.116`.
+Effect Schema is most useful when it owns a complete boundary, not just an isolated validation call. This guide follows one value from untrusted JSON, form, or query input into a domain model, through application logic, and back to a JSON-safe representation. It targets `effect@4.0.0`.
 
 Use [Schema](../data/schema) for the complete module reference, [Errors, Option & Result](../foundations/errors-option-result) for failure modeling, [Configuration & Secrets](../foundations/configuration-secrets) for StringTree-backed configuration, and [HttpApi](../interfaces/http-api), [RPC](../interfaces/rpc), [SQL](../interfaces/sql), and [Persistence](../tooling/persistence) for the boundaries that consume Schemas.
 
@@ -283,7 +283,7 @@ This same StringTree model powers `Config.schema`. For plain JSON input, use `fr
 
 A codec has a decode and an encode direction. A transformation that lowercases an email address on decode but cannot reconstruct the original spelling is not an isomorphism. That may be fine for an ingress-only parser, but it is a poor choice for a Schema later used to persist or round-trip the value.
 
-Use `Schema.decodeTo(target, transformation)` for explicit two-way conversion. `SchemaTransformation.transform` is for total conversion; `SchemaGetter.transformEffect` (named `transformOrFail` before `rc.113`) is for a direction that may reject or needs a service. When a conversion is honestly decode-only — a digest, a lowercased lookup key — say so with `SchemaGetter.forbiddenEncoding` as the encode leg, so encoding fails with a clear issue instead of inventing a value. Test both directions for every custom transformation.
+Use `Schema.decodeTo(target, transformation)` for explicit two-way conversion. `SchemaTransformation.transform` is for total conversion; `SchemaGetter.transformEffect` is for a direction that may reject or needs a service. When a conversion is honestly decode-only — a digest, a lowercased lookup key — say so with `SchemaGetter.forbiddenEncoding` as the encode leg, so encoding fails with a clear issue instead of inventing a value. Test both directions for every custom transformation.
 
 > **Example status — Runnable:** a two-way floating-point conversion, not a lossless codec over its full accepted domain.
 
@@ -310,7 +310,7 @@ The sample round-trips, but `Schema.Int` alone does not make division and multip
 
 The same ownership question applies to every carrier narrower than its `Type`: `Schema.DurationFromMillis` cannot round-trip a nanosecond-precision duration, while `DurationFromNanos` and `DurationFromString` can. Pick the codec by the precision you promise ([Effect data types at the boundary](../data/schema#16-effect-data-types-at-the-boundary)).
 
-Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it still spells `transformEffect` as `transformOrFail`). The official guides track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it may still spell `transformEffect` as `transformOrFail`). The official guides track Effect's `main` branch rather than a specific tagged release, so where they differ, this page and the tagged `effect@4.0.0` source win.
 
 ## Make error reporting a boundary concern
 
@@ -398,7 +398,7 @@ Official guides: [Error Messages](https://effect.website/docs/v4/schema/error-me
 The same Schema can produce more than a decoder:
 
 - `Schema.toJsonSchemaDocument` for *value* contracts: config validation, structured-output prompts, cross-language codegen of a payload;
-- `Arbitrary.schema` (from `effect/unstable/arbitrary`) for generated test inputs;
+- `Arbitrary.schema` (from `effect/Arbitrary`) for generated test inputs;
 - `Schema.toEquivalence` for domain-aware equality;
 - `Schema.toFormatter` for readable values;
 - `Schema.toIso` for an optic between a Schema value and its isomorphic representation;
@@ -408,11 +408,10 @@ Annotations such as title, description, examples, and constraints should live on
 
 **Derive each artifact from the model that owns its facts.** A value schema knows a shape; it does not know methods, paths, parameter locations, status codes, per-endpoint errors, security, or media types. Those live on the assembled `HttpApi`, so the OpenAPI document is projected from it with [`OpenApi.fromApi`](../interfaces/http-api#openapi), which reuses your schemas for the payload parts. JSON Schema describes the `Encoded` side, is open to extra properties by default, and names `$defs` after `identifier` annotations — see [JsonSchema](../data/schema#jsonschema).
 
-> **Example status — Contextual:** it uses `CreateGrantRequest` from the first example. Generation uses Effect's native `Arbitrary` module; the fast-check bridge (`Schema.toArbitrary`) was removed in `rc.113`.
+> **Example status — Contextual:** it uses `CreateGrantRequest` from the first example. Generation uses Effect's native `Arbitrary` module; there is no `fast-check` bridge.
 
 ```ts
-import { Effect, Schema } from "effect"
-import { Arbitrary } from "effect/unstable/arbitrary"
+import { Arbitrary, Effect, Schema } from "effect"
 
 const jsonSchema = Schema.toJsonSchemaDocument(CreateGrantRequest)
 const equivalent = Schema.toEquivalence(CreateGrantRequest)
@@ -583,8 +582,7 @@ The claim a codec makes is about round trips, and three different laws hide unde
 > **Example status — Runnable:** a property over schema-derived values; `checkEffect` returns a structured result instead of throwing.
 
 ```ts
-import { Effect, Equal, Schema } from "effect"
-import { Arbitrary } from "effect/unstable/arbitrary"
+import { Arbitrary, Effect, Equal, Schema } from "effect"
 
 class ReviewLink extends Schema.Class<ReviewLink>("handbook/ReviewLink")({
   employeeId: Schema.NonEmptyString,

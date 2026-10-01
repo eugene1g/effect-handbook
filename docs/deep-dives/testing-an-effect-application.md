@@ -1,6 +1,6 @@
 # Testing an Effect Application
 
-> Audited **2026-09-19** against `effect@4.0.0-rc.116`. This guide uses `@effect/vitest@4.0.0-rc.116`, Vitest 5, TypeScript 7 strict mode, and the test services shipped by the same Effect release.
+> Audited **2026-09-19** against `effect@4.0.0`. This guide uses `@effect/vitest@4.0.0`, Vitest 5, TypeScript 7 strict mode, and the test services shipped by the same Effect release.
 
 An Effect test should exercise the same program description as production while replacing only its boundary Layers. That means testing values, typed failures, required services, time, interruption, and resource lifetime without putting `runPromise`, global mocks, or real sleeps inside application code.
 
@@ -558,7 +558,7 @@ it.effect("interrupting a child runs its finalizer", () =>
 
 For scoped services, test through the Layer that owns the resource. `it.effect` already supplies a test Scope; adding `Effect.scoped` around the whole test changes the lifecycle being tested and is normally unnecessary.
 
-Two `rc.116` guarantees are worth a test of their own when a resource matters. A `use` callback that *throws synchronously* — before it returns an Effect — still triggers the release, and the exception stays a defect (`rc.113`). And when the body fails *and* the finalizer fails, the resulting `Cause` keeps both reasons — for example a `Fail` and a `Die` — instead of letting the cleanup failure replace the original one (`rc.111`), so assert on the reason you care about with `Cause.hasFails` or `Exit.findErrorOption`, not on "the" error.
+Two guarantees are worth a test of their own when a resource matters. A `use` callback that *throws synchronously* — before it returns an Effect — still triggers the release, and the exception stays a defect. And when the body fails *and* the finalizer fails, the resulting `Cause` keeps both reasons — for example a `Fail` and a `Die` — instead of letting the cleanup failure replace the original one, so assert on the reason you care about with `Cause.hasFails` or `Exit.findErrorOption`, not on "the" error.
 
 ### Test lifetimes, not just values
 

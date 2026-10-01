@@ -5,14 +5,14 @@ Define the capability once, keep implementations in Layers, and let the program�
 ## Contract
 
 - **Classification:** Runnable example; complete `service-and-layers.ts`.
-- **Install:** `pnpm add effect@4.0.0-rc.116`
+- **Install:** `pnpm add effect@4.0.0`
 - **Run:** Node 26+: `node service-and-layers.ts`
 - **Expected output:** two lines: `Hello, Ada!` and `[test] Ada`.
 - **Before provision:** `greet("Ada")` is `Effect<string, never, GreetingService>`.
 - **After provision:** each runnable program is `Effect<string, never, never>`.
 - **Required Layers:** exactly one implementation of `GreetingService`; no platform Layer is needed.
 - **Lifetime and interruption:** these Layers contain plain values and own no resources. If construction later uses `Effect.acquireRelease`, its finalizer is owned by the Layer scope and runs on failure or interruption.
-- **Build frequency:** each `Effect.provide` below is its own Layer build. With `Layer.succeed` that costs nothing; once a Layer acquires a resource, two sibling provides mean two acquisitions, so a real application provides its composed graph once at the edge. See [What is shared, and what is rebuilt](../foundations/services-context-layers#what-is-shared-and-what-is-rebuilt).
+- **Build frequency:** each `Effect.provide` below is its own Layer build — sibling provides never share a memo map, so each call to `Effect.provide(GreetingService.layer)` builds that Layer again, independent of any other call. With `Layer.succeed` that costs nothing; once a Layer acquires a resource, two sibling provides mean two acquisitions, so a real application provides its composed graph once at the edge. See [What is shared, and what is rebuilt](../foundations/services-context-layers#what-is-shared-and-what-is-rebuilt).
 - **Service contract:** `greet` returns an `Effect` with `R = never` and no typed failure. Any implementation — live or test — must keep that shape: construction needs go into the Layer, expected failures go into `E`, and nothing throws.
 
 ## Complete file
@@ -25,15 +25,17 @@ import { Context, Effect, Layer } from "effect"
 
 class GreetingService extends Context.Service<GreetingService, {
   readonly greet: (name: string) => Effect.Effect<string>
-}>()("app/GreetingService") {}
+}>()("app/GreetingService") {
+  // The primary implementation lives on a static `layer`; a variant gets a
+  // descriptive suffix (`layerTest`, `layerConfig`, …) rather than a new name.
+  static readonly layer = Layer.succeed(this)({
+    greet: (name) => Effect.succeed(`Hello, ${name}!`)
+  })
 
-const GreetingLive = Layer.succeed(GreetingService)({
-  greet: (name) => Effect.succeed(`Hello, ${name}!`)
-})
-
-const GreetingTest = Layer.succeed(GreetingService)({
-  greet: (name) => Effect.succeed(`[test] ${name}`)
-})
+  static readonly layerTest = Layer.succeed(this)({
+    greet: (name) => Effect.succeed(`[test] ${name}`)
+  })
+}
 
 const greet = (name: string): Effect.Effect<string, never, GreetingService> =>
   Effect.gen(function*() {
@@ -42,11 +44,11 @@ const greet = (name: string): Effect.Effect<string, never, GreetingService> =>
   })
 
 const liveProgram: Effect.Effect<string> = greet("Ada").pipe(
-  Effect.provide(GreetingLive)
+  Effect.provide(GreetingService.layer)
 )
 
 const testProgram: Effect.Effect<string> = greet("Ada").pipe(
-  Effect.provide(GreetingTest)
+  Effect.provide(GreetingService.layerTest)
 )
 
 console.log(await Effect.runPromise(liveProgram))
@@ -58,6 +60,8 @@ console.log(await Effect.runPromise(testProgram))
 `Context.Service` gives the capability one stable type-level key; `Layer` describes how an implementation is constructed and, when necessary, released. Business code depends on the capability, not a global singleton or a concrete client. Tests replace the Layer without changing the program.
 
 `Layer.succeed` is enough here because both implementations are finished values. Reach for `Layer.effect` as soon as an implementation needs configuration, another service, state, or a resource with a finalizer; for a one-off value in a single test, `Effect.provideService(GreetingService, fake)` skips the Layer entirely. [Providing one value or building a graph](../foundations/services-context-layers#providing-one-value-or-building-a-graph) has the decision table, and [Designing a service contract](../foundations/services-context-layers#designing-a-service-contract) covers what belongs in the shape.
+
+When the live implementation is itself an Effect (needs other services, Config, or a resource), the two-argument form `Context.Service<Self>()(id, { make })` stores that constructor Effect on the class and infers the shape from it, so the usual Layer is `Layer.effect(this, this.make)` — see [Declaring the constructor with `make`](../foundations/services-context-layers#declaring-the-constructor-with-make). Both forms produce the same kind of key; this recipe uses the explicit-shape form because `GreetingService` never needs a constructor Effect.
 
 Official guide: [Managing Layers](https://effect.website/docs/v4/requirements-management/layers) extends this pattern to services with dependencies and to test injection (it names the dependency-free Layer `layerWithoutDependencies`; this handbook uses `layerNoDeps`).
 
@@ -112,7 +116,7 @@ Do not call `Effect.runPromise` inside `greet`, hide a client in a module-global
 
 Two quieter versions of the same mistake:
 
-- **Providing the live Layer inside business logic** — `greet(name).pipe(Effect.provide(GreetingLive))` inside a reusable function makes `R` look clean while hard-wiring the production implementation. Tests can no longer substitute it, and every call is a separate Layer build. Provide live implementations at the application edge and fakes at the test edge, nowhere else.
+- **Providing the live Layer inside business logic** — `greet(name).pipe(Effect.provide(GreetingService.layer))` inside a reusable function makes `R` look clean while hard-wiring the production implementation. Tests can no longer substitute it, and every call is a separate Layer build. Provide live implementations at the application edge and fakes at the test edge, nowhere else.
 - **A fake that throws** — `greet: () => { throw new Error("down") }` produces a defect, which no `Effect.catchTag` in the program under test can see. If the contract has an expected failure, declare it in `E` and have the fake return `Effect.fail(...)`, so tests exercise the same channel as production.
 
 For a component Layer that itself needs another service, use `Layer.provide(dependency)` beneath that component. Use `Layer.provideMerge` only when the dependency must also remain visible to sibling/top-level consumers.

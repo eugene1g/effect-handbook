@@ -2,9 +2,9 @@
 
 `Effect` is not a running program — it's a description. The runtime spins up **fibers** to execute descriptions, **scopes** bound resource lifetimes, and a finished computation returns an **Exit** carrying a full **Cause**. Build a value of type `Effect<A, E, R>` by composing combinators; nothing runs until you execute it. Running forks a root fiber that may fork children, await deferreds, race siblings, or open scopes. When it finishes it produces an `Exit<A, E>` — either `Success<A>` or `Failure` holding a `Cause<E>` recording everything that went wrong (typed errors, defects, interruptions).
 
-> **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/04_integration).
+> **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/04_integration).
 
-> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; rc.116 returns `Fiber`). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; `Effect.runFork` returns `Fiber`). These guides track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
 
 ## Effect
 
@@ -34,7 +34,7 @@ Pull values, sync code, promises, nullables, and callback APIs into the Effect w
 | "Building the next effect is itself work" — recursion, a mutable read, branches of different effect types | `Effect.suspend(() => effect)` | a **defect** if the thunk throws |
 | An `Option`, `Result`, or nullable value | `Effect.fromOption`, `Effect.fromResult`, `Effect.fromNullishOr` | not applicable |
 
-`Effect.promise(() => fetch(url))` is the classic misuse: it claims the network cannot fail and silently moves every outage out of the typed channel. For `Effect.try` and `Effect.tryPromise`, the bare-thunk form always has `E = Cause.UnknownError` and the `{ try, catch }` form has exactly the type `catch` returns; since rc.113 an explicit two-type-argument call on the bare form, or an argument that is a union of both forms, no longer compiles — write `{ try, catch }` with a real mapper instead.
+`Effect.promise(() => fetch(url))` is the classic misuse: it claims the network cannot fail and silently moves every outage out of the typed channel. For `Effect.try` and `Effect.tryPromise`, the bare-thunk form always has `E = Cause.UnknownError` and the `{ try, catch }` form has exactly the type `catch` returns; there is no overload for an explicit two-type-argument call on the bare form, nor for an argument that is a union of both forms — write `{ try, catch }` with a real mapper instead.
 
 > **Warning:** **Arguments are evaluated before the call.** `Effect.succeed(Date.now())`, `Effect.succeed(counter.next())`, and `Effect.fail(buildError())` do their work while the program is being *built*, and every run — and every retry — replays that one captured value. Symptoms: stale timestamps, work that "already happened" before anything ran, retries that reuse the first result. Use `Effect.sync` / `Effect.try` when the work must happen at run time, and `Effect.suspend` when even *choosing* the next effect must wait. The same trap applies to any helper that takes a value instead of a thunk. A cheap regression test: build the effect, assert the spy count is 0, run it, assert 1.
 
@@ -133,13 +133,13 @@ export const drawDownBudget = Effect.fn("drawDownBudget")(
 | --- | --- | --- | --- |
 | `Effect.map(f)` | a plain function `A => B` | `B` | passing an effect-returning function: the result is a nested `Effect` that never runs |
 | `Effect.flatMap(f)` | `A => Effect<B>` | `B` | — |
-| `Effect.andThen(next)` | an effect, or `A => Effect<B>` | `B` | passing a plain value, Promise, `Option`, or `Result` — rc.116 accepts only the two forms on the left |
+| `Effect.andThen(next)` | an effect, or `A => Effect<B>` | `B` | passing a plain value, Promise, `Option`, or `Result` — only the two forms on the left have overloads |
 | `Effect.tap(f)` | an effect, or `A => Effect<X>` | the original `A` (a failing tap still fails the pipeline) | using `tap` to "change" the value: it is silently unchanged |
 | `Effect.as(value)` / `Effect.asVoid` | a constant / nothing | `value` / `void` | — |
 
 An effect that is created inside a callback but neither returned nor chained is silently dropped — the pipeline form of [“My Effect never ran”](../troubleshooting/troubleshooting-and-anti-patterns).
 
-> **Note:** **Yield descriptions, not handles.** Inside `Effect.gen` you can `yield*` an `Effect`, an `Exit`, a `Context.Service` key or `Context.Reference`, a `Config`, and a yieldable error (`Schema.TaggedError`, `Data.TaggedError`, the built-in `Cause.*Error` classes). Runtime handles and plain data types are **not** effects in rc.116: for a `Fiber`, `Ref`, `Deferred`, `Option`, or `Result` use `Fiber.join`, `Ref.get`, `Deferred.await`, `Effect.fromOption`, or `Effect.fromResult`. `yield* someOption` is a type error, and forcing it past the compiler dies with `Not a valid effect`. (`Option` and `Result` keep their iterators for `Option.gen` / `Result.gen`.)
+> **Note:** **Yield descriptions, not handles.** Inside `Effect.gen` you can `yield*` an `Effect`, an `Exit`, a `Context.Service` key or `Context.Reference`, a `Config`, and a yieldable error (`Schema.TaggedError`, `Data.TaggedError`, the built-in `Cause.*Error` classes). Runtime handles and plain data types are **not** effects: for a `Fiber`, `Ref`, `Deferred`, `Option`, or `Result` use `Fiber.join`, `Ref.get`, `Deferred.await`, `Effect.fromOption`, or `Effect.fromResult`. `yield* someOption` is a type error, and forcing it past the compiler dies with `Not a valid effect`. (`Option` and `Result` keep their iterators for `Option.gen` / `Result.gen`.)
 
 Generator functions do not inherit `this`. In a class method, bind it with the options overload instead of aliasing `const self = this`: `Effect.gen({ self: this }, function*() { return this.cycleId })`.
 
@@ -165,7 +165,7 @@ const viaGen = Effect.gen(function*() {
 })
 ```
 
-Official guides: [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it says `Option` and `Result` can be yielded inside `Effect.gen`; on rc.116 they cannot), [Simplifying Excessive Nesting](https://effect.website/docs/v4/code-style/do).
+Official guides: [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it says `Option` and `Result` can be yielded inside `Effect.gen`; they cannot), [Simplifying Excessive Nesting](https://effect.website/docs/v4/code-style/do).
 
 ### 3. Error handling
 
@@ -242,7 +242,7 @@ const unwrapped = fetchRoster.pipe(
 
 This section is a summary. The full recovery toolkit — accumulation, folding with `Effect.match`, `mapError`, fallbacks, `ignore` versus `ignoreCause`, and when an outcome is a result rather than a failure — lives in [Errors, Option & Result](../foundations/errors-option-result#effect-error-handling). One fact belongs here because it is about the runtime's `Cause`: typed handlers such as `Effect.catch`, `catchTag`, and `orDie` act on the *first* typed failure they find and replace the **whole** cause with the handler's result, so a defect or interruption recorded next to that failure is dropped — see [recovering from a mixed Cause](#recovering-from-a-mixed-cause).
 
-Official guide: [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors) (it defines errors with `Data.TaggedError`; the handbook's house style is `Schema.TaggedError`, and both exist in rc.116).
+Official guide: [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors) (it defines errors with `Data.TaggedError`; the handbook's house style is `Schema.TaggedError`, and both are valid constructors).
 
 ### 4. Concurrency
 
@@ -275,7 +275,7 @@ const bundle = Effect.all([loadCompBand("emp_1"), loadCompBand("emp_2")], { conc
 | Default mode | **Fail-fast, no partial results.** Sequentially, members after the first failure never start; concurrently, the first failure interrupts the siblings still running. The resulting `Cause` holds that first failure only. |
 | `{ mode: "result" }` | Runs every member and returns a `Result` per slot, so the combined effect has `E = never`. The only modes are `"default"` and `"result"`. |
 | `{ discard: true }` | Side effects only: the result is `void` and no collection is built. |
-| Accumulating over a collection | `Effect.partition(items, f)` never fails and returns `[failures, successes]`; `Effect.validate(items, f)` fails with a non-empty array of *every* error. Both are covered in [Errors, Option & Result](../foundations/errors-option-result#effect-error-handling). |
+| Accumulating over a collection | `Effect.partition(items, f)` never fails and returns `[successes, failures]`; `Effect.validate(items, f)` fails with a non-empty array of *every* error. Both are covered in [Errors, Option & Result](../foundations/errors-option-result#effect-error-handling). |
 
 ```ts
 import { Effect } from "effect"
@@ -297,7 +297,7 @@ const announce = Effect.all([Effect.log("cycle open"), Effect.log("budget loaded
 
 For exactly two effects, `Effect.zip(a, b)` returns the pair and `Effect.zipWith(a, b, f)` combines them; both are sequential unless you pass `{ concurrent: true }` (a boolean — not the `concurrency` option used elsewhere). `Effect.zipLeft` / `zipRight` no longer exist; see [section 9](#9-branching-and-looping).
 
-Official guide: [Basic Concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency) (its printed `Cause` output shows nested `Parallel` / `Sequential` nodes; rc.116 causes are flat). The guide for `zip`, `forEach`, and `all` shapes is linked from [section 9](#9-branching-and-looping).
+Official guide: [Basic Concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency) (its printed `Cause` output shows nested `Parallel` / `Sequential` nodes; a `Cause` here is flat — see [Cause](#cause)). The guide for `zip`, `forEach`, and `all` shapes is linked from [section 9](#9-branching-and-looping).
 
 ### 5. Racing & timeouts
 
@@ -329,7 +329,7 @@ const guarded = livePayBand.pipe(
 | `Effect.race(a, b)` / `Effect.raceAll([...])` | the first **success** — an early failure does not end the race | fails with one flat `Cause` holding every contender's failure reasons | interrupted, and the race result is delivered only after their finalizers finish |
 | `Effect.raceFirst(a, b)` / `Effect.raceAllFirst([...])` | the first **completion**, success or failure | not applicable — the first failure already won | same as above |
 
-`race` is `raceAll` with two members, and `raceFirst` is `raceAllFirst` with two. Because losers are *interrupted*, a branch that owns a resource must be interruptible and finalizer-backed, and a slow loser finalizer delays the winner's result. Every race function accepts `{ onWinner }`, a purely observational callback receiving `{ fiber, index, parentFiber }` — useful for a "which replica answered" metric. Wrap each side in `Effect.result` when you want the first *settled* outcome as a value.
+`race` is `raceAll` with two members, and `raceFirst` is `raceAllFirst` with two. Because losers are *interrupted*, a branch that owns a resource must be interruptible and finalizer-backed, and a slow loser finalizer delays the winner's result. Interruption reaches every loser even if the race settles (or is itself interrupted) while some contenders are still starting — none are left running unsupervised. Every race function accepts `{ onWinner }`, a purely observational callback receiving `{ fiber, index, parentFiber }` — useful for a "which replica answered" metric. Wrap each side in `Effect.result` when you want the first *settled* outcome as a value.
 
 **Timeout semantics.** All three operators interrupt the source when the deadline passes and wait for that interruption — including the source's finalizers — before continuing. `Effect.timeoutOrElse` evaluates its fallback only after the source has finished interrupting, in the caller's fiber, so the fallback never overlaps the source's cleanup. A source failure that happens before the deadline is preserved as-is by all three, and `Effect.timeoutOption` maps *only* the timeout to `Option.none()` — typed failures stay in `E`, so it is not a failure suppressor. There is no `timeoutFail` / `timeoutFailCause` / `timeoutTo`: to surface a domain error, fail from `orElse` (reserve `Effect.die` there for invariant violations).
 
@@ -359,7 +359,7 @@ const bounded = fastestBand.pipe(
 
 > **Warning:** A deadline can only fire where the fiber can be interrupted. A long synchronous section (a tight loop, a large `JSON.parse`) runs to completion — and can even beat the deadline it overran — before `Effect.timeout` can act, and an interrupted adapter that ignores its `AbortSignal` leaves the foreign work running — see [section 8](#8-cancellable-adapters-for-promises-and-callbacks).
 
-Official guides: [Timing Out](https://effect.website/docs/v4/error-management/timing-out), [Basic Concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency) (it says an all-failing `raceAll` fails with the last error; rc.116 collects every contender's failure reasons).
+Official guides: [Timing Out](https://effect.website/docs/v4/error-management/timing-out), [Basic Concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency) (it says an all-failing `raceAll` fails with the last error; it instead fails with one `Cause` collecting every contender's failure reasons).
 
 ### 6. Interruption & resource safety
 
@@ -438,7 +438,7 @@ Facts that decide correctness:
 - **Finalizers of a scope run in reverse registration order**, so a dependent resource closes while the thing it depends on is still alive (`Scope.make("parallel")` opts into concurrent finalization).
 - **The acquire step is uninterruptible by default** (`{ interruptible: true }` opts out), so a resource is never half-acquired without its finalizer registered. Finalizers also run uninterruptibly: an unbounded finalizer is an unbounded shutdown.
 - **Release is registered only after `acquire` succeeds.** If one acquire effect allocates two things and fails on the second, nothing releases the first. Give each allocation its own `acquireRelease` (the earlier one then unwinds when the later one fails) or make the acquire effect roll back its own partial work. The same applies inside a `Layer.effect` build.
-- **`Effect.acquireUseRelease` releases even when `use` throws synchronously** before returning an effect (since rc.113); the throw becomes a defect.
+- **`Effect.acquireUseRelease` releases even when `use` throws synchronously** before returning an effect; the throw becomes a defect.
 - **Cleanup attached with `Effect.tap` or `Effect.andThen` is success-only.** It passes every happy-path test and leaks on failure and interruption.
 - **Compare interrupted exits with `Exit.hasInterrupts(exit)`**, not structural equality — the cause carries a fiber id. `Effect.interrupt` is how a fiber cancels itself.
 
@@ -538,9 +538,9 @@ The host side of the same chain — turning a request's `AbortSignal` into fiber
 
 ### 9. Branching and looping
 
-Effect 4 keeps the control-flow surface small: **branch with ordinary `if` / ternaries and loop with ordinary `for` / `while` inside `Effect.gen` or `Effect.fn`**, and reach for an operator only when the *condition* is itself an effect. Coding agents routinely emit the operators below, which do not exist in `rc.116`.
+Effect 4 keeps the control-flow surface small: **branch with ordinary `if` / ternaries and loop with ordinary `for` / `while` inside `Effect.gen` or `Effect.fn`**, and reach for an operator only when the *condition* is itself an effect. Coding agents routinely emit the operators below, which do not exist in Effect 4.
 
-| Not in `rc.116` | Write instead |
+| Not in Effect 4 | Write instead |
 | --- | --- |
 | `Effect.if`, `Effect.unless` | a JavaScript conditional inside `Effect.gen`, or `Effect.suspend(() => cond ? a : b)` |
 | `Effect.whenEffect`, `Effect.unlessEffect` | `Effect.when(self, conditionEffect)`; negate the condition for "unless" |
@@ -573,11 +573,11 @@ const maybeNotified: Effect.Effect<Option.Option<void>> = notifyManager.pipe(
 )
 ```
 
-Official guide: [Control Flow Operators](https://effect.website/docs/v4/code-style/control-flow) (its `whileLoop` signature block shows an `Effect.loop`-style shape; rc.116's `whileLoop` has no state, no result array, and no `discard`).
+Official guide: [Control Flow Operators](https://effect.website/docs/v4/code-style/control-flow) (its `whileLoop` signature block shows an `Effect.loop`-style shape; the real `whileLoop` takes `{ while, body, step }`, has no state, no result array, and no `discard`).
 
 ### 10. When cleanup can fail
 
-In rc.116 the finalizer of `Effect.acquireRelease`, `Effect.ensuring`, `Effect.onError`, and `Effect.addFinalizer` must have error type `never`. **Finalizers are infallible by type, so a fallible `close()` forces you to decide what a failed teardown means** — before it compiles.
+The finalizer of `Effect.acquireRelease`, `Effect.ensuring`, `Effect.onError`, and `Effect.addFinalizer` must have error type `never`. **Finalizers are infallible by type, so a fallible `close()` forces you to decide what a failed teardown means** — before it compiles.
 
 | Policy | Shape | Choose when |
 | --- | --- | --- |
@@ -702,7 +702,7 @@ const selectedEndpoint = Effect.runSync(program) // "https://backup.example"
 
 `effect/Effectable` — stable
 
-The low-level toolkit for making custom values behave like effects — so they can be `yield*`-ed inside `Effect.gen` and evaluated by the runtime. It exposes three entry points: `Effectable.Class<A, E, R>` (abstract base class), `Effectable.Mixin(Base)` (insert the Effect prototype into an *existing* class hierarchy; new in `rc.113`), and `Effectable.Prototype` (class-free builder). With `Class` and `Mixin` you implement one abstract method, `asEffect()`, returning the `Effect` your value stands for. The runtime calls it **on the instance for each execution**, so it sees current receiver state and the services provided at that point. This explains why non-Effect types (e.g. a `Context.Service` key) are still yieldable.
+The low-level toolkit for making custom values behave like effects — so they can be `yield*`-ed inside `Effect.gen` and evaluated by the runtime. It exposes three entry points: `Effectable.Class<A, E, R>` (abstract base class), `Effectable.Mixin(Base)` (insert the Effect prototype into an *existing* class hierarchy), and `Effectable.Prototype` (class-free builder). With `Class` and `Mixin` you implement one abstract method, `asEffect()`, returning the `Effect` your value stands for. The runtime calls it **on the instance for each execution**, so it sees current receiver state and the services provided at that point. This explains why non-Effect types (e.g. a `Context.Service` key) are still yieldable.
 
 ```ts
 import { Clock, Effect, Effectable } from "effect"
@@ -849,7 +849,7 @@ const recoverCleanFailure = <A, E, R>(self: Effect.Effect<A, E, R>, fallback: A)
   )
 ```
 
-`Effect.sandbox(self)` is the other route: it moves the whole `Cause<E>` into the error channel so ordinary typed combinators (`catch`, `mapError`, `result`) see it. rc.116 has no `unsandbox`; restore the normal model with `Effect.catch(Effect.failCause)`. For a single recovery step `catchCause` is simpler. The operator-by-operator treatment is in [Errors, Option & Result](../foundations/errors-option-result#effect-error-handling).
+`Effect.sandbox(self)` is the other route: it moves the whole `Cause<E>` into the error channel so ordinary typed combinators (`catch`, `mapError`, `result`) see it. There is no `unsandbox`; restore the normal model with `Effect.catch(Effect.failCause)`. For a single recovery step `catchCause` is simpler. The operator-by-operator treatment is in [Errors, Option & Result](../foundations/errors-option-result#effect-error-handling).
 
 ## Fiber
 
@@ -876,9 +876,9 @@ const program = Effect.gen(function*() {
 })
 ```
 
-A fork returns a **handle, not a result**, and in rc.116 a `Fiber` is not yieldable — `yield* fiber` does not compile. Turn handles back into effects and then use ordinary combinators: `Fiber.join` for one, `Fiber.joinAll(fibers)` for an array of results, `Fiber.awaitAll(fibers)` for an array of exits, `Fiber.interruptAll(fibers)` to cancel a group. Low-level integrations that read a fiber's derived state use `fiber.cache` (`scheduler`, `span`, `logLevel`, `minimumLogLevel`, `maxOpsBeforeYield`, ...); the `current*` fields of earlier release candidates are gone.
+A fork returns a **handle, not a result**, and a `Fiber` is not yieldable — `yield* fiber` does not compile. Turn handles back into effects and then use ordinary combinators: `Fiber.join` for one, `Fiber.joinAll(fibers)` for an array of results, `Fiber.awaitAll(fibers)` for an array of exits, `Fiber.interruptAll(fibers)` to cancel a group. Low-level integrations that read a fiber's derived state use `fiber.cache` (`scheduler`, `span`, `logLevel`, `minimumLogLevel`, `maxOpsBeforeYield`, ...); there is no separate family of `current*` fields.
 
-Official guide: [Fibers](https://effect.website/docs/v4/concurrency/fibers) (its prose calls `Effect.yieldNow()`; in rc.116 `Effect.yieldNow` is a value, and the guide does not mention `startImmediately`).
+Official guide: [Fibers](https://effect.website/docs/v4/concurrency/fibers) (its prose calls `Effect.yieldNow()`; `Effect.yieldNow` is a value, not a function, and the guide does not mention `startImmediately`).
 
 **Reach for it when** you need manual control over a background task — fork work, keep the handle, and await or interrupt on your own schedule. For fixed bundles of work, prefer `Effect.all`/`forEach` with `{ concurrency }`.
 
@@ -913,7 +913,7 @@ const meritCycleServer = Effect.scoped(Effect.gen(function*() {
 
 ### When a forked fiber starts
 
-**Forking returns the handle immediately; the child is only *scheduled* and does not run until the current fiber yields or suspends.** Code that forks a listener — a `PubSub` or `SubscriptionRef.changes` consumer, a queue taker, a latch waiter — and then publishes straight away can therefore lose the first events. Letting the parent yield (`yield* Effect.yieldNow`, a value in rc.116) usually helps but is not a hard ordering guarantee. When the child must register before the parent continues, pass `{ startImmediately: true }`: the child runs synchronously up to its first suspension before the fork returns. The same option removes "has it started yet?" guesses from tests.
+**Forking returns the handle immediately; the child is only *scheduled* and does not run until the current fiber yields or suspends.** Code that forks a listener — a `PubSub` or `SubscriptionRef.changes` consumer, a queue taker, a latch waiter — and then publishes straight away can therefore lose the first events. Letting the parent yield (`yield* Effect.yieldNow`, a value, not a function) usually helps but is not a hard ordering guarantee. When the child must register before the parent continues, pass `{ startImmediately: true }`: the child runs synchronously up to its first suspension before the fork returns. The same option removes "has it started yet?" guesses from tests.
 
 ```ts
 import { Effect, Fiber, Ref } from "effect"
@@ -1074,7 +1074,7 @@ const main = Effect.fail(new CompConfigInvalid({ key: "MERIT_BUDGET" }))
 // NodeRuntime.runMain(main)
 ```
 
-The entry-point recipe is [Recipe: A Graceful Node Entrypoint](../recipes/graceful-entrypoint-and-shutdown). Official guide: [Platform Runtime](https://effect.website/docs/v4/platform/runtime) (it describes exit codes as only `0` and `1` and names only `SIGINT`; rc.116 also uses `130` and listens for `SIGTERM`).
+The entry-point recipe is [Recipe: A Graceful Node Entrypoint](../recipes/graceful-entrypoint-and-shutdown). Official guide: [Platform Runtime](https://effect.website/docs/v4/platform/runtime) (it describes exit codes as only `0` and `1` and names only `SIGINT`; the runtime also uses `130` for interruption-only failures and listens for `SIGTERM` as well as `SIGINT`).
 
 **Reach for it when** writing a platform adapter or needing bespoke exit-code logic for a process entry point. For ordinary apps, use `NodeRuntime.runMain`.
 
@@ -1149,7 +1149,7 @@ Official guide: [Scope](https://effect.website/docs/v4/resource-management/scope
 
 `effect/Scheduler` — stable
 
-Decides *when* queued fiber work runs on the JavaScript thread, and when a long-running fiber should yield. The default is a `MixedScheduler` in `"async"` mode, installed as a `Context.Reference` so it can be swapped: it batches queued tasks by priority (FIFO within a priority) and dispatches each batch with `setImmediate`, or `setTimeout(0)` where `setImmediate` does not exist. Since rc.113 it falls back to a Promise microtask when setting that timer throws — Cloudflare Workers forbid timers in global scope — so an effect run at module load can still yield. `new MixedScheduler("sync")` dispatches through microtasks. Effect's fibers are cooperative — they run in bursts and periodically yield to keep the event loop responsive. Two useful knobs: `Scheduler.MaxOpsBeforeYield` (operations before yielding, default 2048) and `PreventSchedulerYield` (disable yielding for controlled workloads).
+Decides *when* queued fiber work runs on the JavaScript thread, and when a long-running fiber should yield. The default is a `MixedScheduler` in `"async"` mode, installed as a `Context.Reference` so it can be swapped: it batches queued tasks by priority (FIFO within a priority) and dispatches each batch with `setImmediate`, or `setTimeout(0)` where `setImmediate` does not exist. It falls back to a Promise microtask when setting that timer throws — Cloudflare Workers forbid timers in global scope — so an effect run at module load can still yield. `new MixedScheduler("sync")` dispatches through microtasks. Effect's fibers are cooperative — they run in bursts and periodically yield to keep the event loop responsive. Two useful knobs: `Scheduler.MaxOpsBeforeYield` (operations before yielding, default 2048) and `PreventSchedulerYield` (disable yielding for controlled workloads).
 
 ```ts
 import { Effect, Scheduler } from "effect"
@@ -1260,7 +1260,7 @@ const rollOver = Effect.fn("rollOver")(function*(current: Ref.Ref<SyncGeneration
 })
 ```
 
-Official guide: [Deferred](https://effect.website/docs/v4/concurrency/deferred) (its intro calls a `Deferred` a subtype of `Effect`; in rc.116 it is not yieldable, and `Deferred.poll` returns an effect of an `Option`).
+Official guide: [Deferred](https://effect.website/docs/v4/concurrency/deferred) (its intro calls a `Deferred` a subtype of `Effect`; it is not yieldable, and `Deferred.poll` returns an `Effect<Option<Effect<A, E>>>` — `None` while unresolved, `Some` wrapping the completed effect once it is).
 
 **Reach for it when** one fiber must signal a single value or completion to others — bridging callbacks, gating on an approved result, or building single-flight/memoization.
 

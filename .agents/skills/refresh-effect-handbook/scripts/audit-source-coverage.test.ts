@@ -15,16 +15,18 @@ test("gates manifest-scoped modules, collisions, package front doors, and new ex
   const docs = path.join(root, "docs")
   const effect = path.join(root, "effect")
   const effectSource = path.join(effect, "packages/effect/src")
-  await mkdir(path.join(effectSource, "unstable/alpha"), { recursive: true })
+  await mkdir(path.join(effectSource, "alpha"), { recursive: true })
   await mkdir(path.join(effect, "packages/satellite/src"), { recursive: true })
   await mkdir(docs, { recursive: true })
 
   await write(path.join(effect, "packages/effect/package.json"), JSON.stringify({
     name: "effect",
-    version: "4.1.0-beta.1",
+    version: "4.1.0",
     exports: {
       ".": "./src/index.ts",
-      "./unstable/alpha": "./src/unstable/alpha/index.ts"
+      "./alpha": "./src/alpha/index.ts",
+      "./*": "./src/*.ts",
+      "./internal/*": null
     }
   }))
   await write(path.join(effectSource, "index.ts"), [
@@ -33,12 +35,12 @@ test("gates manifest-scoped modules, collisions, package front doors, and new ex
   ].join("\n"))
   await write(path.join(effectSource, "Shared.ts"), "export const stable = true\n")
   await write(path.join(effectSource, "StableOnly.ts"), "export const stable = true\n")
-  await write(path.join(effectSource, "unstable/alpha/index.ts"), [
+  await write(path.join(effectSource, "alpha/index.ts"), [
     'export * as Shared from "./Shared.ts"',
-    'export * as UnstableOnly from "./UnstableOnly.ts"'
+    'export * as AreaOnly from "./AreaOnly.ts"'
   ].join("\n"))
-  await write(path.join(effectSource, "unstable/alpha/Shared.ts"), "export const unstable = true\n")
-  await write(path.join(effectSource, "unstable/alpha/UnstableOnly.ts"), "export const unstable = true\n")
+  await write(path.join(effectSource, "alpha/Shared.ts"), "export const area = true\n")
+  await write(path.join(effectSource, "alpha/AreaOnly.ts"), "export const area = true\n")
   await write(path.join(effect, "packages/satellite/package.json"), JSON.stringify({
     name: "@effect/satellite",
     version: "4.1.0-beta.1"
@@ -57,11 +59,11 @@ test("gates manifest-scoped modules, collisions, package front doors, and new ex
     "",
     "## Shared",
     "",
-    "`effect/unstable/alpha` — unstable",
+    "`effect/alpha` — unstable",
     "",
-    "## UnstableOnly",
+    "## AreaOnly",
     "",
-    "`effect/unstable/alpha/UnstableOnly` — unstable",
+    "`effect/alpha/AreaOnly` — unstable",
     "",
     "## Packages",
     "",
@@ -79,7 +81,8 @@ test("gates manifest-scoped modules, collisions, package front doors, and new ex
   assert.equal(pass.exitCode, 0, pass.stderr)
   const report = JSON.parse(await readFile(output, "utf8"))
   assert.equal(report.stableModules, 2)
-  assert.equal(report.unstableModules, 2)
+  assert.equal(report.areaModules, 2)
+  assert.equal(report.areaFamilies, 1)
   assert.equal(report.publicPackages, 2)
   assert.deepEqual(report.conciseCollisionEvidenceGaps, [])
   assert.deepEqual(report.missingConcisePackages, [])

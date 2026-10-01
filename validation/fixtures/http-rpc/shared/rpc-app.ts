@@ -1,5 +1,5 @@
 import { BigDecimal, Context, Effect, Layer, Schema } from "effect"
-import { Rpc, RpcClient, RpcGroup, RpcMiddleware } from "effect/unstable/rpc"
+import { Rpc, RpcClient, RpcGroup, RpcMiddleware } from "effect/rpc"
 
 export class EmployeeNotFound extends Schema.TaggedError<EmployeeNotFound>()("EmployeeNotFound", {
   employeeId: Schema.String

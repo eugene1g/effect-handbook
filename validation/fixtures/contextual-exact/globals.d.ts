@@ -57,8 +57,6 @@ declare const firstResult: import("effect").Ordering.Ordering
 declare const secondResult: import("effect").Ordering.Ordering
 declare const org: { readonly departments: ReadonlyArray<{ readonly headcount: number }> }
 declare const employee: { readonly managerId?: string }
-declare const someBytes: Uint8Array<ArrayBuffer>
-declare const someStr: string
 
 declare const runMeritBatch: import("effect").Effect.Effect<void>
 declare const calculateAllRaises: import("effect").Effect.Effect<void>

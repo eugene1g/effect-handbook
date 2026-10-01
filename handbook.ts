@@ -77,11 +77,11 @@ const pageRelated = Object.freeze({
 
 export const handbookRelease = Object.freeze({
   package: "effect",
-  version: "4.0.0-rc.116",
-  tag: "effect@4.0.0-rc.116",
-  commit: "d62dd0d65252e5d3635538f0e41adc7c08aa9beb",
-  publishedAt: "2026-09-18T20:02:01.599Z",
-  auditedAt: "2026-09-19"
+  version: "4.0.0",
+  tag: "effect@4.0.0",
+  commit: "67ba4e46a11ccda0b6761578bfd22c04ae00167d",
+  publishedAt: "2026-10-01T03:11:28.537Z",
+  auditedAt: "2026-10-01"
 })
 
 export const handbookGroups = [

@@ -127,7 +127,7 @@ The API is deliberately small — `make`, `makeUnsafe`, `get`, `set`, `update`, 
 
 `effect/TxChunk` — stable
 
-A transactional growable sequence — a `Chunk` wrapped in a `TxRef` — with `append`, `prepend`, `take`, `drop`, `slice`, `map`, `filter`, all transactional.
+A transactional growable sequence — a `Chunk` wrapped in a `TxRef` — with `append`, `prepend`, `take`, `drop`, `slice`, `map`, `filter`, `isEmpty`/`isNonEmpty`, all transactional. `TxChunk.isTxChunk` narrows an unknown value.
 
 **Mental model.** Transactional analog of `Chunk`/array. Storage layer beneath `TxQueue`; use directly when you want ordered, indexable transactional state without queue semantics.
 
@@ -186,7 +186,7 @@ const program = Effect.gen(function*() {
 
 `effect/TxHashSet` — stable
 
-Transactional set of unique values with `add`, `remove`, `has`, and set algebra: `union`, `intersection`, `difference`, `isSubset`.
+Transactional set of unique values with `add`, `remove`, `has`, `isEmpty`/`isNonEmpty`, and set algebra: `union`, `intersection`, `difference`, `isSubset`.
 
 **Mental model.** Transactional analog of `HashSet`. Use for shared membership state that is concurrently mutated.
 
@@ -210,7 +210,7 @@ const program = Effect.gen(function*() {
 
 `effect/TxQueue` — stable
 
-Transactional FIFO queue with `bounded`, `unbounded`, `dropping`, and `sliding` strategies. Interface-segregated into `TxEnqueue` (write-only) and `TxDequeue` (read-only).
+Transactional FIFO queue with `bounded`, `unbounded`, `dropping`, and `sliding` strategies. Interface-segregated into `TxEnqueue` (write-only) and `TxDequeue` (read-only). `isEmpty`/`isNonEmpty` check depth without blocking.
 
 **Mental model.** Transactional analog of `Queue`. `TxQueue.take` on an empty queue internally calls `Effect.txRetry`, blocking (by suspend-and-wake, not spin) until an item arrives. `offer` on a full bounded queue similarly blocks. Operations compose transactionally — debit the budget pool and enqueue atomically.
 
@@ -244,7 +244,7 @@ const program = Effect.gen(function*() {
 
 `effect/TxPubSub` — stable
 
-Transactional publish/subscribe hub. Publishers call `publish`; each subscriber gets a scoped `TxQueue` receiving messages sent after subscription. Strategies: `bounded`, `unbounded`, `dropping`, `sliding`. Subscriptions are scope-bound — leaving the scope cleans up the subscriber queue.
+Transactional publish/subscribe hub. Publishers call `publish`; each subscriber gets a scoped `TxQueue` receiving messages sent after subscription. Strategies: `bounded`, `unbounded`, `dropping`, `sliding`. Subscriptions are scope-bound — leaving the scope cleans up the subscriber queue. `size`, `isEmpty`/`isNonEmpty`, and `isFull` read the publish buffer without blocking.
 
 **Mental model.** Transactional analog of `PubSub`. Fan-out broadcast where the publish step can be part of a larger transaction.
 
@@ -362,7 +362,7 @@ const program = Effect.gen(function*() {
 
 `effect/TxPriorityQueue` — stable
 
-Transactional priority queue ordered by an `Order`. `take` returns the smallest element by that order. Constructors (`empty`, `make`, `fromIterable`) take the `Order` up front. Also `peek`, `takeUpTo`, `removeIf`, `retainIf`.
+Transactional priority queue ordered by an `Order`. `take` returns the smallest element by that order. Constructors (`empty`, `make`, `fromIterable`) take the `Order` up front. `offer`/`offerAll` insert in priority order (`offerAll` merges the batch in rather than re-sorting the whole queue). Also `peek`, `takeUpTo`, `removeIf`, `retainIf`, `isEmpty`/`isNonEmpty`.
 
 **Mental model.** Transactional analog of a priority queue/heap. Use for scheduling where the next item to process is the highest-priority one and atomic offer/take across coordinated state is required.
 

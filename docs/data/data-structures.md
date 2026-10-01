@@ -2,7 +2,7 @@
 
 Effect's data structure modules share a common design: immutable, `pipe`-first dual APIs, and structural `Equal`/`Hash` throughout. Once familiar with one module, the rest follow the same pattern.
 
-> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is a stale name; `rc.116` spells it `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is a stale name; 4.0.0 spells it `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than the pinned 4.0.0 release, so where they differ, this page and the tagged source win.
 
 ## Array
 
@@ -61,7 +61,8 @@ const bands: Record<number, { min: number; max: number }> = {
   4: { min: 130_000, max: 160_000 },
   5: { min: 155_000, max: 200_000 },
 }
-const [outOfBand, inBand] = Array.partition(employees, (e) => {
+// partition returns [passes, fails] — matches, then non-matches
+const [inBand, outOfBand] = Array.partition(employees, (e) => {
   const band = bands[e.level]
   return band && e.baseSalary >= band.min && e.baseSalary <= band.max
     ? Result.succeed(e)
@@ -160,7 +161,7 @@ const program = pipe(
 
 Use when accumulating many small pieces and avoiding repeated array copies — especially in stream processing, recursive algorithms, or custom collectors.
 
-Official guide: [Chunk](https://effect.website/docs/v4/data-types/chunk) (it says `fromIterable` copies its input; in `rc.116` that is only true for non-array iterables).
+Official guide: [Chunk](https://effect.website/docs/v4/data-types/chunk) (it says `fromIterable` copies its input; in 4.0.0 that is only true for non-array iterables).
 
 ## HashMap
 
@@ -444,9 +445,9 @@ const diagram = Graph.toMermaid(orgGraph, {
 
 - **Export** — `toGraphViz` for DOT format, `toMermaid` for Mermaid diagram syntax — great for org-chart docs and debugging.
 
-- **Typing a parameter** — accept any immutable graph as `Graph.Graph<N, E, Graph.Kind>`. The `Graph.Proto` interface was removed in `rc.113`.
+- **Typing a parameter** — accept any immutable graph as `Graph.Graph<N, E, Graph.Kind>`. There is no separate `Graph.Proto` interface to name.
 
-> **Warning:** Graph functions are synchronous and **throw** `Graph.GraphError` (a `Data.TaggedError`) instead of returning it: a missing node index, a kind mismatch (`degree` on a directed graph, `maximumFlow` on an undirected one), a negative or `NaN` Dijkstra cost, arithmetic that leaves the finite number range, or — since `rc.110` — a negative cycle that affects the `bellmanFord` target (`floydWarshall` rejects any negative cycle). `Option.none()` is reserved for "unreachable". At an Effect boundary, wrap the call in `Effect.try` and keep the `GraphError` as a typed failure.
+> **Warning:** Graph functions are synchronous and **throw** `Graph.GraphError` (a `Data.TaggedError`) instead of returning it: a missing node index, a kind mismatch (`degree` on a directed graph, `maximumFlow` on an undirected one), a negative or `NaN` Dijkstra cost, arithmetic that leaves the finite number range, or a negative cycle that affects the `bellmanFord` target (`floydWarshall` rejects any negative cycle). `Option.none()` is reserved for "unreachable". At an Effect boundary, wrap the call in `Effect.try` and keep the `GraphError` as a typed failure.
 
 ### Witnesses, reductions, and matchings
 
@@ -612,8 +613,8 @@ const summary = Record.collect(budgets, (dept, budget) =>
 // ["Engineering: $250,000", "Design: $120,000", ...]
 
 // Partition: split into under-budget and over-budget departments
-// (budget ceiling = $150k)
-const [overBudget, withinCeiling] = Record.partition(budgets, (b) =>
+// (budget ceiling = $150k). partition returns [passes, fails].
+const [withinCeiling, overBudget] = Record.partition(budgets, (b) =>
   b <= 150_000 ? Result.succeed(b) : Result.fail(b)
 )
 

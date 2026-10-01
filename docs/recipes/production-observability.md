@@ -5,14 +5,14 @@ Instrument business work once with structured logs, metrics, and spans; select a
 ## Contract
 
 - **Classification:** Runnable example; complete `observability.ts`.
-- **Install:** `pnpm add effect@4.0.0-rc.116`
+- **Install:** `pnpm add effect@4.0.0`
 - **Run locally:** Node 26+: `OTEL_EXPORTER_OTLP_ENDPOINT= node observability.ts`
 - **Run with an OTLP collector:** `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 node observability.ts`
 - **Expected local output:** one JSON log event containing `order accepted`, `service=orders`, and `orderId=ord-42`, followed by `{"orderId":"ord-42","status":"accepted"}`. Timestamp and fiber/span identifiers vary.
 - **Program type:** after the observability Layer is supplied, `Effect<OrderResult, Config.ConfigError, never>`; configuration-provider or string-decoding failures remain typed startup failures. This example does not validate URL syntax.
 - **Required Layers:** local mode installs `Logger.consoleJson` plus `Logger.tracerLogger` and runtime metrics. OTLP mode additionally provides `FetchHttpClient.layer` internally.
 - **Lifetime and interruption:** OTLP log/metric/span exporters are scoped. Layer shutdown flushes registered exporters, and each flush is bounded by `shutdownTimeout` (3 seconds here, which is also the default): with an unreachable collector the process still exits about three seconds after the work finishes instead of hanging, and whatever was still buffered is dropped. Process interruption reaches Layer finalizers. The local JSON logger has no acquired resource.
-- **Local collector:** the official [Tracing guide](https://effect.website/docs/v4/observability/tracing) shows a single-container Grafana stack that accepts OTLP on port 4318 and how to find the trace in it. The guide tracks Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this recipe and the tagged source win.
+- **Local collector:** the official [Tracing guide](https://effect.website/docs/v4/observability/tracing) shows a single-container Grafana stack that accepts OTLP on port 4318 and how to find the trace in it. Where that guide and the tagged `effect@4.0.0` source disagree, this recipe and the source win.
 
 ## Complete file
 
@@ -21,8 +21,8 @@ Instrument business work once with structured logs, metrics, and spans; select a
 <!-- effect-example id=production-observability check=run runtime=production-observability -->
 ```ts
 import { Config, Effect, Layer, Logger, Metric } from "effect"
-import { FetchHttpClient } from "effect/unstable/http"
-import { Otlp } from "effect/unstable/observability"
+import { FetchHttpClient } from "effect/http"
+import { Otlp } from "effect/observability"
 
 interface OrderResult {
   readonly orderId: string
@@ -89,7 +89,7 @@ console.log(JSON.stringify(await Effect.runPromise(main)))
 
 ## Why these primitives?
 
-Logs, spans, and metrics are fiber-aware Effect operations, so annotations and parent spans propagate without parameter plumbing. The exporter remains a Layer: tests can omit it, local runs can use JSON, and production can install OTLP without changing business logic. `Otlp.layerJson` is the compact default for all three signals and owns batching, HTTP export, retry behavior, and shutdown flush.
+Logs, spans, and metrics are fiber-aware Effect operations, so annotations and parent spans propagate without parameter plumbing. The exporter remains a Layer: tests can omit it, local runs can use JSON, and production can install OTLP without changing business logic. `Otlp.layerJson` is the compact default for all three signals and owns batching, HTTP export, retry behavior, and shutdown flush. Reach for the separate `@effect/opentelemetry` package's `NodeSdk` instead only when an existing OpenTelemetry setup (its SDK config, its exporters, its instrumentation) is already in place; new projects use `effect/observability`'s `Otlp`.
 
 Define metric values at module scope so updates with the same name/attributes share one registry entry. Avoid sensitive identifiers in annotations unless the telemetry policy explicitly permits them.
 
@@ -97,7 +97,8 @@ Three details in the file are deliberate:
 
 - **The span name is the operation, the order id is an attribute.** `orders.accept` stays one operation in every backend view; `order.id` rides along as a span attribute and a log annotation, where per-event detail belongs. The counter has no order label at all — every distinct attribute value on a metric is a separate time series, so metric attributes must come from a small, fixed vocabulary (see [Cardinality](../operations/observability#cardinality-names-and-attribute-sets-are-bounded)).
 - **`Logger.layer([...])` replaces the active logger set**, which by default is `Logger.defaultLogger` plus `Logger.tracerLogger`. Listing only `Logger.consoleJson` would silently stop log calls from becoming span events; the local branch therefore lists `tracerLogger` again. The OTLP branch needs no such care because `Otlp.layerJson` adds its logger with `loggerMergeWithExisting: true` by default, which is also why the default text logger keeps printing there.
-- **The exporter has one owner and a deadline.** One `Otlp` Layer is provided at the root, and `shutdownTimeout` bounds how long its scope may hold the process open. Export is best effort: after repeated failures the exporter drops its buffer and pauses for a minute, so treat telemetry as explanation, never as an audit trail or a readiness signal.
+- **The exporter has one owner and a deadline.** One `Otlp` Layer is provided at the root, and `shutdownTimeout` bounds how long its scope may hold the process open. Export is best effort: after a failed export the exporter drops its buffer and disables itself for 60 seconds, so treat telemetry as explanation, never as an audit trail or a readiness signal.
+- **This example reads one variable by hand to pick a branch, not to configure the exporter.** `Otlp.layerFromConfig` reads `OTEL_EXPORTER_OTLP_ENDPOINT` (and the per-signal `OTEL_EXPORTER_OTLP_{LOGS,METRICS,TRACES}_ENDPOINT`/`_HEADERS` variants) itself; reach for it instead of `Otlp.layer`/`layerJson` when the deployment already follows the OpenTelemetry environment-variable convention.
 
 ## Before production
 

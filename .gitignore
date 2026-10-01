@@ -9,3 +9,4 @@ node_modules/
 /public/effect-4-examples.json
 /public/effect-4-*.md
 /public/llms.txt
+.vitepress/.temp/

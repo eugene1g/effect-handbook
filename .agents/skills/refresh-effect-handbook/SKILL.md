@@ -97,7 +97,7 @@ The report separates concise-agent coverage from complete-site coverage so a dee
 Review at least:
 
 - every stable namespace exported by `effect`;
-- every `effect/unstable/*` family and namespace export;
+- every `effect/<area>` family front door (the explicit `./<area>` entries in the package `exports` map, such as `./http`, `./http-api`, `./testing`) and its namespace exports — since `effect@4.0.0` stability is declared per API with `@stability unstable` / `@stability experimental` JSDoc tags rather than by an `unstable/` path segment, so also inventory those tags;
 - nested public modules and package export maps;
 - every public `effect` and `@effect/*` package;
 - platform, SQL, AI, Atom, OpenTelemetry, testing, docgen/doctest, generators, and adapters;
@@ -230,7 +230,7 @@ Report:
 - baseline and target versions, tags, commits, and publication dates;
 - changelog/PR range reviewed;
 - canonical pages and deep dives reviewed;
-- stable/unstable module and public-package coverage totals;
+- root-barrel module, `effect/<area>` module, `@stability` tag, and public-package coverage totals;
 - fence totals by `compile` / `contextual` / `run` / `pseudocode` / `invalid`, named fixtures used, strict TypeScript and Effect results, doctests, expected-negative checks, and runtime probes;
 - root and non-root VitePress/browser results;
 - generated artifact path and hash;

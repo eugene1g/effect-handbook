@@ -2,11 +2,11 @@
 
 For a connected, application-oriented treatment of these modules, see [Reactivity — From Atoms to Mastery](../deep-dives/reactivity-from-atoms-to-mastery).
 
-> **Note:** Eight core modules under `effect/unstable/reactivity`, one mental model. **Atom** describes a reactive value (a constant, a derived computation, a writable cell, or an Effect/Stream). **AtomRegistry** is the store that runs atoms, caches them, and tracks the dependency graph. **AsyncResult** is the loading/success/failure state every effectful atom produces. **AtomRef** is a lightweight standalone observable cell (no registry). **Reactivity** is the low-level key-based invalidation engine. **AtomHttpApi** and **AtomRpc** turn a typed comp-service client into ready-made query/mutation atoms. **Hydration** ships server-computed atom state to the client. Then three framework bindings wrap it for components.
+> **Note:** Eight core modules under `effect/reactivity`, one mental model. **Atom** describes a reactive value (a constant, a derived computation, a writable cell, or an Effect/Stream). **AtomRegistry** is the store that runs atoms, caches them, and tracks the dependency graph. **AsyncResult** is the loading/success/failure state every effectful atom produces. **AtomRef** is a lightweight standalone observable cell (no registry). **Reactivity** is the low-level key-based invalidation engine. **AtomHttpApi** and **AtomRpc** turn a typed comp-service client into ready-made query/mutation atoms. **Hydration** ships server-computed atom state to the client. Then three framework bindings wrap it for components.
 
 ## Atom
 
-`effect/unstable/reactivity/Atom` — unstable
+`effect/reactivity/Atom` — unstable
 
 An `Atom<A>` is not a value — it's a recipe with a `read` function the registry runs, plus metadata for caching, laziness, and refresh. `Atom.make` is overloaded: pass a plain value for a writable cell, a function of `get` for a derived/computed atom, or an `Effect`/`Stream` for an atom whose value is an `AsyncResult`.
 
@@ -14,7 +14,7 @@ Mental model: spreadsheet cells. A writable atom is a cell you type into. A deri
 
 ```ts
 import { Effect } from "effect"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 // 1. Writable state — pass a plain value. Atom.make(x) returns Writable<x>.
 // A planner-controlled proposed raise, in percent.
@@ -45,7 +45,7 @@ For event-driven work, use `Atom.fn`. It returns an `AtomResultFn<Arg, A, E>`: a
 
 ```ts
 import { Effect } from "effect"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 interface RaiseRecommendation {
   readonly employeeId: string
@@ -65,15 +65,17 @@ const submitRaise = Atom.fn(
 // registry.set(submitRaise, Atom.Interrupt) -> cancel the in-flight write
 ```
 
-> **Tip:** `Atom.map` / `Atom.mapResult` transform an atom's value (the latter maps inside the `AsyncResult` success). Every atom uses `Object.is` by default; `Atom.withEquality<A>(equals)` installs a comparator that suppresses dependent and listener updates when successive values compare equal. `Atom.keepAlive` stops an atom being disposed when it has no subscribers; `Atom.setIdleTTL(atom, "30 seconds")` disposes it after a quiet period instead. `Atom.family((employeeId) => Atom.make(...))` memoizes one atom per argument (via `WeakRef` where available). `Atom.withLabel` tags an atom for debugging. `Atom.subscriptionRef` bridges a `SubscriptionRef` into an atom, and `Atom.pull` turns a `Stream` into a paginated, writable "load more" atom.
+With `{ concurrent: true }`, two overlapping calls that both resolve synchronously each still land their own `Success`/`Failure` outcome — a synchronous result is no longer lost when another concurrent call settles around the same time.
 
-Other high-value combinators stay on the same graph: `debounce(duration)` delays noisy publications; `withRefresh(duration)` schedules a refresh; `swr({ staleTime, ... })` adds stale-while-revalidate behavior; `withFallback(fallback)` supplies an async result (marked `waiting`) while the primary is `Initial` — when the primary is writable the combined atom stays writable and **forwards every write and refresh to the primary**, never to the fallback; and `optimistic` / `optimisticFn` model provisional mutation state with refresh or rollback. `batch(fn)` coalesces synchronous writes. Persistence and URL helpers include platform-neutral `kvs` (schema-typed `KeyValueStore` persistence), browser-oriented `searchParam`, and browser-only `refreshOnWindowFocus`; on the server, `withServerValue`, `withServerValueInitial`, and `getServerValue` provide deterministic reads. The Reactivity deep dive shows these in a connected application.
+> **Tip:** `Atom.map` / `Atom.mapResult` transform an atom's value (the latter maps inside the `AsyncResult` success). Every atom uses `Object.is` by default; `Atom.withEquality<A>(equals)` installs a comparator that suppresses dependent and listener updates when successive values compare equal. `Atom.keepAlive` stops an atom being disposed when it has no subscribers; `Atom.setIdleTTL(atom, "30 seconds")` disposes it after a quiet period instead. `Atom.family((employeeId) => Atom.make(...))` memoizes one atom per argument (via `WeakRef` where available); a finalizer for an evicted entry never removes a newer atom that has since been cached under the same key. `Atom.withLabel` tags an atom for debugging. `Atom.subscriptionRef` bridges a `SubscriptionRef` into an atom, and `Atom.pull` turns a `Stream` into a paginated, writable "load more" atom.
+
+Other high-value combinators stay on the same graph: `debounce(duration)` delays noisy publications; `withRefresh(duration)` schedules a refresh; `swr({ staleTime, ... })` adds stale-while-revalidate behavior, deferring a stale refresh until after the triggering read and skipping it outright if the source has since become fresh or the atom was disposed — so a one-shot unmounted read never kicks off a refresh for a source it no longer needs; `withFallback(fallback)` supplies an async result (marked `waiting`) while the primary is `Initial` — when the primary is writable the combined atom stays writable and **forwards every write and refresh to the primary**, never to the fallback; and `optimistic` / `optimisticFn` model provisional mutation state with refresh or rollback. `batch(fn)` coalesces synchronous writes, including writes that a batch commit listener itself queues — those are processed rather than dropped. Persistence and URL helpers include platform-neutral `kvs` (schema-typed `KeyValueStore` persistence), browser-oriented `searchParam`, and browser-only `refreshOnWindowFocus`; on the server, `withServerValue`, `withServerValueInitial`, and `getServerValue` provide deterministic reads. The Reactivity deep dive shows these in a connected application.
 
 **Where services come from.** An effectful atom that needs services can't conjure a Layer out of thin air. `Atom.runtime(layer)` builds an `AtomRuntime` — itself an atom holding the built `Context` — and gives you `runtime.atom(...)`, `runtime.fn(...)`, and `runtime.pull(...)` constructors that run Effects with that layer provided. By default its `Layer.MemoMap` is registry-scoped: derived atoms share built services inside one `AtomRegistry`, while separate SSR requests and tests build isolated instances. Use `Atom.context({ memoMap })` only when you intentionally need custom or cross-registry sharing.
 
 ```ts
 import { Effect } from "effect"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 // The built Layer is shared by live/retained runtime atoms in this registry.
 // If the final consumer is disposed, a later read may acquire it again.
@@ -92,14 +94,14 @@ const roster = runtime.atom(
 
 ## AtomRegistry
 
-`effect/unstable/reactivity/AtomRegistry` — unstable
+`effect/reactivity/AtomRegistry` — unstable
 
 The store. A `Registry` evaluates atoms, caches their current values in `Node`s, tracks parent/child dependency links, applies writes and refreshes, fans out to subscribers, and disposes unused nodes. Atoms are stateless descriptions; the registry is where state lives. The same atom can hold different values in two different registries. Most apps have exactly one (a framework provider creates it); tests and SSR spin up throwaway registries freely.
 
 Mental model: the spreadsheet engine. Atoms are formulas; the registry is the running document with cached cell values and the recalculation graph. It also owns the scheduler that batches update work.
 
 ```ts
-import { Atom, AtomRegistry } from "effect/unstable/reactivity"
+import { Atom, AtomRegistry } from "effect/reactivity"
 
 const proposedRaisePct = Atom.make(4)
 const raiseMultiplier = Atom.make((get) => 1 + get(proposedRaisePct) / 100)
@@ -122,18 +124,20 @@ unmount()
 
 **As a service.** `AtomRegistry` is also a `Context.Service` with a `layer`. `AtomRegistry.getResult` waits for an `AsyncResult` atom to leave `Initial`. `AtomRegistry.toStream` / `toStreamResult` turn an atom into a `Stream` of its changes. `make` accepts `initialValues` (seed atoms before first read — basis of hydration), a custom `scheduleTask`, and a `defaultIdleTTL`.
 
+The dependency graph underneath is robust against races between reads, writes, and disposal: an update reaches every current dependent through its node (no missed updates through a stale node), a dependency is released only once it is actually safe to do so, a superseded build of an atom cannot leak past the node that replaced it, and an atom whose build failed while being observed recovers on the next read instead of staying stuck.
+
 **Reach for it when** you need to read or write atoms outside a component — in tests, in an Effect, at the SSR boundary — or to scope a self-contained bundle of reactive state to a subtree.
 
 ## AtomRef
 
-`effect/unstable/reactivity/AtomRef` — unstable
+`effect/reactivity/AtomRef` — unstable
 
 A standalone observable cell — read, set, `map`, `subscribe` — that does *not* go through a registry. `AtomRef.make(value)` gives a mutable ref; `.prop("field")` derives a child ref focused on one property of an object (or index of an array), and writing the child writes back through the parent immutably. `AtomRef.collection(items)` manages a reactive list of item refs with `push`/`insertAt`/`remove`.
 
 Mental model: a featherweight observable independent of the spreadsheet. Equality-aware — a `set` to an equal value is a no-op and notifies nobody. No dependency graph, no async story. Use for fine-grained form state where a stable handle to one nested field should re-render only its own consumers.
 
 ```ts
-import { AtomRef } from "effect/unstable/reactivity"
+import { AtomRef } from "effect/reactivity"
 
 // A single editable raise recommendation form.
 const draft = AtomRef.make({ employeeId: "emp_1042", raisePct: 4, note: "" })
@@ -153,14 +157,14 @@ cancel()
 
 ## AsyncResult
 
-`effect/unstable/reactivity/AsyncResult` — unstable
+`effect/reactivity/AsyncResult` — unstable
 
 The state of an asynchronous value. An `AsyncResult<A, E>` is one of three tags — `Initial` (no value yet), `Success` (carries `value` + `timestamp`), `Failure` (carries a `Cause<E>` on `.cause`, plus a `previousSuccess`) — and *every* state also carries a `waiting` boolean. The `waiting` flag lets you keep showing the last value while a refresh, retry, or revalidation is in flight instead of flashing back to a spinner.
 
 Mental model: `Exit` plus "I might still be loading," designed for rendering. Every effectful atom (`Atom.make(effect)`, `Atom.fn`, query atoms) produces one. You almost never construct these by hand — you *match* on them.
 
 ```ts
-import { AsyncResult } from "effect/unstable/reactivity"
+import { AsyncResult } from "effect/reactivity"
 
 declare const result: AsyncResult.AsyncResult<CompSummary, HrisUnavailable>
 
@@ -188,7 +192,7 @@ const ui = AsyncResult.matchWithWaiting(result, {
 
 ## AtomHttpApi
 
-`effect/unstable/reactivity/AtomHttpApi` — unstable
+`effect/reactivity/AtomHttpApi` — unstable
 
 The bridge from a typed `HttpApi` client to ready-made atoms. `AtomHttpApi.Service<Self>()(id, { api, httpClient })` builds a `Context.Service` that wraps the generated client and exposes two atom factories: `.query(group, endpoint, request)` returns a read atom of `AsyncResult<Success, Error>`, and `.mutation(group, endpoint)` returns an `AtomResultFn` you write to fire the call. It owns its own `Atom.runtime`, so the HTTP client layer is provided automatically.
 
@@ -196,9 +200,9 @@ Mental model: your API definition is the contract; this turns each endpoint into
 
 ```ts
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
-import { FetchHttpClient } from "effect/unstable/http"
-import { AtomHttpApi } from "effect/unstable/reactivity"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
+import { FetchHttpClient } from "effect/http"
+import { AtomHttpApi } from "effect/reactivity"
 
 const CompSummary = Schema.Struct({
   employeeId: Schema.Int,
@@ -232,7 +236,7 @@ const summary1042 = CompClient.query("comp", "getCompSummary", {
 
 Query atoms preserve endpoint and middleware errors in the typed error channel. The client catches transport and response-decoding failures of the **request itself** and converts them to defects, so render those through the `Cause`/`onDefect` path. A declared write endpoint would be exposed with `CompClient.mutation(group, endpoint)`; this read-only example deliberately does not invent one.
 
-**Result types follow the generated client (`rc.113`+).** The success type of a query or mutation atom is exactly what the generated `HttpApiClient` method returns for that endpoint and `responseMode`, including the non-JSON shapes:
+**Result types follow the generated client.** The success type of a query or mutation atom is exactly what the generated `HttpApiClient` method returns for that endpoint and `responseMode`, including the non-JSON shapes:
 
 | Endpoint / mode | Atom success value | Where failures show up |
 | --- | --- | --- |
@@ -251,7 +255,7 @@ Query atoms preserve endpoint and middleware errors in the typed error channel. 
 
 ## AtomRpc
 
-`effect/unstable/reactivity/AtomRpc` — unstable
+`effect/reactivity/AtomRpc` — unstable
 
 Same as `AtomHttpApi` but for an `RpcGroup`. `AtomRpc.Service<Self>()(id, { group, protocol })` builds a service over a flattened RPC client with the same `.query(tag, payload, options)` and `.mutation(tag)` factories. If an RPC's success is an `RpcSchema.Stream`, its query returns a *pull atom* (`Atom.PullResult`) — write to it to pull the next batch and accumulate streamed results.
 
@@ -259,8 +263,8 @@ Mental model: same query/mutation/invalidation machinery as HTTP, keyed off the 
 
 ```ts
 import { Schema } from "effect"
-import { Rpc, RpcGroup } from "effect/unstable/rpc"
-import { AtomRpc } from "effect/unstable/reactivity"
+import { Rpc, RpcGroup } from "effect/rpc"
+import { AtomRpc } from "effect/reactivity"
 
 const CompRpcs = RpcGroup.make(
   Rpc.make("getVestedEquity", {
@@ -292,8 +296,9 @@ const vested = CompRpcClient.query(
 
 **Error and retention rules.**
 
-- **The result error type is the full client-side union:** the RPC's declared error, `RpcClientError`, and — from `rc.113` — both the declared error and the client-side error of every middleware on that RPC. A streaming query's `PullResult` error also includes the stream's own error type. Matching exhaustively on `_tag` now has to account for middleware failures such as an expired-session error.
-- **RPCs whose middleware declares `requires` are queryable.** `query` used to resolve to `never` for them; it now infers the same types as `mutation`.
+- **The result error type is the full client-side union:** the RPC's declared error, `RpcClientError`, and both the declared error and the client-side error of every middleware on that RPC. A streaming query's `PullResult` error also includes the stream's own error type. Matching exhaustively on `_tag` has to account for middleware failures such as an expired-session error.
+- **RPCs whose middleware declares `requires` are queryable.** `query` infers the same types as `mutation` for them rather than resolving to `never`.
+- **Tag-selected flat clients infer correctly.** `AtomRpc.query` and `AtomRpc.mutation` built from a flat (union-of-tag) RPC client infer the selected RPC's actual payload and result types instead of `never`.
 - **`timeToLive: 0` opts out of idle retention**, exactly as in `AtomHttpApi`; omit the option to inherit the registry default.
 - **Mutations cannot target streaming RPCs** (the type is `never`); use `query` and pull.
 
@@ -301,14 +306,14 @@ const vested = CompRpcClient.query(
 
 ## Hydration
 
-`effect/unstable/reactivity/Hydration` — unstable
+`effect/reactivity/Hydration` — unstable
 
 Server-to-client state transfer for atoms. `Hydration.dehydrate(registry)` walks a registry and encodes every atom marked `Atom.serializable`; decoded-only HttpApi queries and non-stream RPC queries become serializable when given a `serializationKey`. Entries are keyed by that serialization key. With the default `encodeInitialAs: "ignore"`, or with `"value-only"`, the array is JSON-compatible; embed it only through a framework-safe escaped serialization channel, never raw string interpolation into a `<script>`. `Hydration.hydrate(registry, state)` preloads encoded values into another registry *before* atoms are first read, so the client renders without an initial refetch.
 
 Mental model: freeze-dry the relevant cells on the server, ship the value packet in your HTML, and reconstitute it into the client registry. `encodeInitialAs: "promise"` instead attaches a live `resultPromise`; it is only for a streaming transport that preserves promises and must not be JSON-stringified or embedded as ordinary data.
 
 ```ts
-import { Hydration } from "effect/unstable/reactivity"
+import { Hydration } from "effect/reactivity"
 
 // On the server, after rendering with a registry that ran your comp query atoms:
 const packet = Hydration.dehydrate(serverRegistry)
@@ -320,13 +325,13 @@ Hydration.hydrate(clientRegistry, packet)
 
 **One bad atom does not abort the packet.** If a serializable atom's current value cannot be encoded by its schema (a `SchemaError`), `dehydrate` skips that atom and encodes the rest; any other exception still propagates. The skipped atom simply refetches on the client, so treat a missing key as "not hydrated", not as an error — and log encode failures in development, because the usual cause is a schema that does not cover the atom's whole value.
 
-For custom serializable atoms, the codec covers the atom's complete value. In particular, an effectful atom needs an `AsyncResult.Schema(...)`, not just its success schema; the release-matched [comprehensive upstream Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.116/packages/effect/SCHEMA.md) covers codecs and serialization in depth.
+For custom serializable atoms, the codec covers the atom's complete value. In particular, an effectful atom needs an `AsyncResult.Schema(...)`, not just its success schema; the release-matched [comprehensive upstream Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/effect/SCHEMA.md) covers codecs and serialization in depth.
 
 **Reach for it when** you do SSR or static rendering and want fetched atom state to survive the trip to the browser instead of refetching on mount.
 
 ## Reactivity
 
-`effect/unstable/reactivity/Reactivity` — unstable
+`effect/reactivity/Reactivity` — unstable
 
 The low-level invalidation engine that reactivity keys ride on. `Reactivity` is a `Context.Service` that maps arbitrary keys to handlers: `invalidate(keys)` runs every handler registered for those keys, `mutation(keys, effect)` wraps an effect so a successful run invalidates them, and `query(keys, effect)` / `stream(keys, effect)` expose an effect as a queue/stream that *reruns* whenever its keys are invalidated. It caches nothing — it is pure pub/sub for "this data changed."
 
@@ -334,7 +339,7 @@ Mental model: the wiring under the magic. When an `AtomHttpApi` mutation lists `
 
 ```ts
 import { Effect } from "effect"
-import { Reactivity } from "effect/unstable/reactivity"
+import { Reactivity } from "effect/reactivity"
 
 const recordRaise = (rec: RaiseRecommendation) =>
   Effect.gen(function*() {
@@ -345,7 +350,7 @@ const recordRaise = (rec: RaiseRecommendation) =>
 ```
 
 - **`Reactivity.Reactivity` is both the Context key and the branded service type.** There is no `Reactivity.Service` alias; annotate a dependency as `Reactivity.Reactivity`, and build a custom instance with `Reactivity.make` (it adds the `[Reactivity.TypeId]` brand) rather than an object literal.
-- **Keys may repeat.** A `query` or `stream` whose key list names the same key twice (or a record form that expands to a key you also listed) stores its handler once per key, and its scope cleanup no longer fails on the repeat (fixed in `rc.113`).
+- **Keys may repeat.** A `query` or `stream` whose key list names the same key twice (or a record form that expands to a key you also listed) stores its handler once per key, and its scope cleanup does not fail on the repeat.
 - **Reruns are serialized and coalesced.** While one rerun is in flight, further invalidations collapse into a single pending rerun.
 
 **Reach for it when** you need key-based invalidation outside the atom layer (e.g. a SQL repo), or to understand what `reactivityKeys` are doing.
@@ -370,7 +375,7 @@ Mental model: the hooks are the only React-specific code. `useAtomValue` subscri
 
 ```tsx
 import { RegistryProvider, useAtomValue, useAtom } from "@effect/atom-react"
-import { Atom } from "effect/unstable/reactivity"
+import { Atom } from "effect/reactivity"
 
 // A writable atom for a proposed raise %, and a derived preview of the new base.
 const proposedRaisePct = Atom.make(4)
@@ -406,7 +411,7 @@ A query atom from `AtomHttpApi` (or an RPC client) produces an `AsyncResult`; th
 ```tsx
 import { Option } from "effect"
 import { useAtomValue } from "@effect/atom-react"
-import { AsyncResult } from "effect/unstable/reactivity"
+import { AsyncResult } from "effect/reactivity"
 
 // `CompClient` is the AtomHttpApi.Service from the AtomHttpApi section above.
 const summary1042 = CompClient.query("comp", "getCompSummary", {

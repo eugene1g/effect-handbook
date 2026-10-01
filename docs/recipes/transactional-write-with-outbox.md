@@ -5,7 +5,7 @@ Commit a domain change and the event that announces it in one SQL transaction, t
 ## Contract
 
 - **Classification:** Runnable example; complete `raise-outbox.ts`. It runs on an embedded PGlite database and a scripted in-memory broker, so no network, port, or Docker is required.
-- **Install:** `pnpm add effect@4.0.0-rc.116 @effect/sql-pglite@4.0.0-rc.116`
+- **Install:** `pnpm add effect@4.0.0 @effect/sql-pglite@4.0.0`
 - **Run:** Node 26+: `node raise-outbox.ts`
 - **Expected output:** six JSON lines, reproduced byte for byte under [Expected output](#expected-output).
 - **Before provision:** `program` is `Effect<Array<unknown>, EmployeeNotFound | MeritBudgetExceeded | RepositoryError, Raises | Outbox | Payroll | Publisher>`; one relay pass is `Effect<{ delivered: number; failed: number }, RepositoryError, Outbox | Publisher>`. No `SqlError`, `SchemaError`, or driver type appears in either signature.
@@ -41,8 +41,8 @@ Commit a domain change and the event that announces it in one SQL transaction, t
 ```ts
 import { PgliteClient } from "@effect/sql-pglite"
 import { Context, Data, Effect, Layer, Option, Ref, Schema } from "effect"
-import { SqlClient, SqlSchema } from "effect/unstable/sql"
-import type { SqlError } from "effect/unstable/sql"
+import { SqlClient, SqlSchema } from "effect/sql"
+import type { SqlError } from "effect/sql"
 
 // --- Domain -----------------------------------------------------------------
 
@@ -379,6 +379,8 @@ for (const line of await Effect.runPromise(runnable)) {
 
 **Two repositories, one client.** `Outbox.enqueue` is an ordinary method on another service, yet it joins the transaction because both Layers were built from the same `SqlClient` and the active connection travels in the fiber context. A separately constructed client would run outside it.
 
+**A failed `COMMIT` is a defect, not a caught `SqlError`.** `sql.withTransaction` issues `BEGIN` (or a `SAVEPOINT` when nested), runs the body, then `COMMIT` on success or `ROLLBACK` on failure. Only a failure to acquire the connection or start the transaction surfaces as the typed `SqlError` that `Effect.catchTag("SqlError", ...)` above turns into `RepositoryError`; a failed `COMMIT` or `ROLLBACK` itself is promoted to a defect, because the driver's state at that point — did it commit or not? — is not something a typed error can describe safely. Letting the fiber die is the honest outcome; catching it and reporting a normal `RepositoryError` would let a caller believe the write definitely failed when it may have gone through.
+
 **Repositories own their failures.** `owned(operation)` uses `Effect.mapError` at the two places a repository can fail — the statement (`SqlError`) and the row decode (`SchemaError`) — and produces one `RepositoryError` with a typed `cause`. Defects and interruption pass through untouched; `Effect.catchCause` would have reported a programming bug as a storage failure. Zero rows is a different outcome: `findOneOption` returns `Option.none()`, which the use case turns into `EmployeeNotFound`.
 
 **The guarantee is at-least-once, by construction.** The relay records the attempt, publishes, and acknowledges *in that order*. Every failure between "the consumer accepted" and "the row is marked delivered" — a lost acknowledgement, a crash, an interrupted relay, a failed `update` — produces a redelivery, never a loss. That is why the consumer deduplicates on the outbox id, and why the id is derived from the business fact (`raise-approved:<cycle>:<employee>`) rather than generated per attempt.
@@ -387,7 +389,7 @@ The rules behind each step are in [SQL: Transactions](../interfaces/sql#transact
 
 ## Variations
 
-- **Run the relay continuously.** `relayPass.pipe(Effect.repeat(Schedule.spaced("1 second")))` forked into the application scope turns the pass into a poller; on PostgreSQL, `listen` / `notify` can wake it early, with polling kept as the safety net. With `@effect/sql-pg` a dropped listener connection fails the notification queue with its `SqlError` (`rc.116`), so wrap the listener in `Stream.retry` and run one pass after every re-registration, because notifications sent in the gap are not replayed ([Dates, enums, and LISTEN queues](../interfaces/sql#dates-enums-and-listen-queues-on-the-native-client)).
+- **Run the relay continuously.** `relayPass.pipe(Effect.repeat(Schedule.spaced("1 second")))` forked into the application scope turns the pass into a poller; on PostgreSQL, `listen` / `notify` can wake it early, with polling kept as the safety net. With `@effect/sql-pg` a dropped listener connection fails the notification queue with its `SqlError`, so wrap the listener in `Stream.retry` and run one pass after every re-registration, because notifications sent in the gap are not replayed ([Dates, enums, and LISTEN queues](../interfaces/sql#native-client-behavior-codecs-json-and-listen)).
 - **Several relay instances.** Claim rows before sending — for example an `update … set claimed_until = … where id in (select … for update skip locked) returning …` that commits *before* the publish — so two relays do not send the same row concurrently. The claim shortens duplicates; it does not remove the need for consumer deduplication.
 - **Poison messages.** `attempts` is already durable. Stop selecting rows above a threshold, surface them on a dashboard, and redrive them deliberately instead of retrying forever.
 - **Ordering.** This relay continues past a failed row. If a topic needs per-key order, stop the pass at the first failure for that key.

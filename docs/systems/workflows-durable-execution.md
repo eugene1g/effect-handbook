@@ -6,15 +6,15 @@
 
 ## Workflow
 
-`effect/unstable/workflow` — unstable
+`effect/workflow` — unstable
 
-`Workflow.make(tag, options)` records a stable tag, a `payload` Schema, optional `success`/`error` Schemas, and an `idempotencyKey` function that turns a payload into a string. The engine hashes `tag + idempotencyKey(payload)` into a deterministic **execution id**: starting the same logical work twice yields the same run, not two.
+`Workflow.make(tag, options)` records a stable tag, a `payload` Schema, optional `success`/`error` Schemas, and an `idempotencyKey` function that turns a payload into a string. The engine derives a deterministic **execution id** from a length-prefixed encoding of the tag and the idempotency key (so a tag/key pair can't be confused with a different pair that happens to concatenate to the same string): starting the same logical work twice yields the same run, not two.
 
 `workflow.toLayer(execute)` registers the body with the engine and returns a `Layer`. The body receives the decoded payload and execution id and returns an Effect. Drive runs with `workflow.execute(payload)` (await result), `execute(payload, { discard: true })` (fire-and-forget, returns execution id), `poll(id)`, `interrupt(id)`, and `resume(id)`.
 
 ```ts
 import { Effect, Schema } from "effect"
-import { Activity, DurableClock, Workflow } from "effect/unstable/workflow"
+import { Activity, DurableClock, Workflow } from "effect/workflow"
 
 // Typed, recoverable failure — a normal Schema tagged error.
 class BudgetExceeded extends Schema.TaggedError<BudgetExceeded>()("BudgetExceeded", {
@@ -97,7 +97,7 @@ Three cleanup mechanisms exist, and they answer to different owners.
 
 ```ts
 import { Effect, Exit, Schema } from "effect"
-import { Activity, DurableDeferred, Workflow } from "effect/unstable/workflow"
+import { Activity, DurableDeferred, Workflow } from "effect/workflow"
 
 const HrbpDecision = DurableDeferred.make("HrbpDecision", {
   success: Schema.Literals(["approved", "rejected"])
@@ -145,26 +145,26 @@ declare const openAuditSocket: (
 
 - **Never release a process-local resource from `addFinalizer`.** If the owner is lost the finalizer is skipped here, and when it eventually runs it may be on another machine.
 - **Compensation is not an atomic rollback.** It is an ordinary effect that can fail, be interrupted, or run more than once; make it idempotent and record its own outcome.
-- **Registration happens on every pass through the body.** `addFinalizer`, `withCompensation`, and scope finalizers are registered by running code, and the body runs again after each suspension. A probe against `WorkflowEngine.layerMemory` on `rc.116` shows a workflow that suspended once running each of them **twice** at completion (the journaled activity itself ran once). Treat every finalizer and compensation as at-least-once.
+- **Registration happens on every pass through the body.** `addFinalizer`, `withCompensation`, and scope finalizers are registered by running code, and the body runs again after each suspension. Against `WorkflowEngine.layerMemory`, a workflow that suspends once runs each of them **twice** at completion (the journaled activity itself runs once). Treat every finalizer and compensation as at-least-once.
 - **An `Effect.onExit` in the body cannot observe a workflow interrupt.** Interruption is deposited through the engine; use `addFinalizer` when terminal-state logic must see it.
 - **Cancellation is not rollback.** Distinguish five events and decide the state and side effects of each: the *caller stops waiting* (the run continues); the run *receives an interrupt* via `workflow.interrupt(id)` (terminal, finalizers and compensation run); the run *suspends* on a clock, deferred, queue, or child (nothing is lost, no cleanup runs); the *owner is lost* and the attempt is abandoned (replay elsewhere); and *cancel races completion* (whichever is recorded first wins, so the canceller must read the final status rather than assume).
 
 ### Abandoned run attempts
 
-With `ClusterWorkflowEngine`, a run can be interrupted for a purely transient reason: its runner is shutting down, or the shard moved. From `rc.113` the engine classifies that interrupt as an **abandoned attempt**:
+With `ClusterWorkflowEngine`, a run can be interrupted for a purely transient reason: its runner is shutting down, or the shard moved. The engine classifies that interrupt as an **abandoned attempt**:
 
 - nothing about the attempt is persisted — no result, no failure, no suspension record;
 - `addFinalizer` callbacks and compensations do **not** run, and a parent workflow is **not** resumed;
 - owner-local scope finalizers still run, so process resources are released;
 - the execution is replayed from its journal by the next owner, where completed activities return their recorded results.
 
-The practical consequence is the same rule as for a crash: an activity that was in flight may execute again, so the idempotency token still matters. Interrupt finalization in the in-memory engine was aligned with the cluster engine in `rc.111` (and an interrupt now survives a replay there), so tests against `WorkflowEngine.layerMemory` exercise the same finalization rules — but the in-memory engine has no owners to lose, so it cannot produce an abandoned attempt.
+The practical consequence is the same rule as for a crash: an activity that was in flight may execute again, so the idempotency token still matters. Interrupt finalization in the in-memory engine matches the cluster engine's rules, including that an interrupt survives a replay, so tests against `WorkflowEngine.layerMemory` exercise the same finalization rules — but the in-memory engine has no owners to lose, so it cannot produce an abandoned attempt.
 
 **Reach for it when** you have a multi-step business process that must survive restarts, suppress replay after completed steps are recorded, and be resumable and idempotent by a stable key.
 
 ## Activity
 
-`effect/unstable/workflow` — unstable
+`effect/workflow` — unstable
 
 `Activity.make({ name, success, error, execute })` wraps an Effect so the engine runs it, persists its `Exit`, and — on later replay after that persistence succeeds — returns the stored result instead of re-executing. An `Activity` *is* an Effect (use `yield*`), so it composes like any other. Before the `Exit` is durably recorded, an interrupted or redelivered Activity may execute again.
 
@@ -172,7 +172,7 @@ The activity is the boundary between deterministic replayable glue and side-effe
 
 ```ts
 import { Effect, Schema } from "effect"
-import { Activity } from "effect/unstable/workflow"
+import { Activity } from "effect/workflow"
 
 class HrisUnavailable extends Schema.TaggedError<HrisUnavailable>()("HrisUnavailable", {}) {}
 
@@ -199,11 +199,13 @@ declare const callHrisApi: (idempotencyKey: string) => Effect.Effect<string, Hri
 
 The default `interruptRetryPolicy` is bounded and filters for interruption causes. If you replace it, its input is `Cause<unknown>`: retain an explicit `Cause.hasInterrupts` predicate and a finite attempt bound unless retrying typed failures and defects is intentional.
 
+Under `ClusterWorkflowEngine`, resetting an activity's underlying cluster request so a retried attempt can re-execute is itself retried (bounded, exponential backoff) if that reset fails transiently — a transient failure to apply the reset no longer stalls the workflow run.
+
 > **Tip:** `Activity.idempotencyKey(name)` derives a deterministic hash from the current execution id and the name (optionally folding in the attempt) — useful as a dedup token to pass to external systems so retried writes cannot post twice. `Activity.raceAll(name, [a, b, c])` runs several activities as a durable, success-biased race: the first success wins, or the collected failure wins only if every activity fails. The chosen result is journaled across restarts.
 
 **Scope the idempotency key to the logical operation.** `Activity.idempotencyKey(name)` hashes the execution id and the name, so every retry and every replay of that activity sends the *same* token — right when all attempts are one logical operation, such as one payroll write. Pass `{ includeAttempt: true }` only when each attempt is meant to create a distinct external resource. Never mint a fresh random key inside the activity: a replay would produce a different one and defeat the dedup.
 
-**Child workflows started from an activity.** An activity may execute child workflows, including several in parallel (`Effect.all([...], { concurrency })`). All children are dispatched before the parent suspends, the activity's resources are released while it waits durably, and the parent resumes when the children complete — including when they complete while the parent is still cleaning up. (Suspension waits for running activities to finish or suspend; from `rc.113` an activity whose start was interrupted no longer leaves that count raised, which could previously block a later suspension.)
+**Child workflows started from an activity.** An activity may execute child workflows, including several in parallel (`Effect.all([...], { concurrency })`). All children are dispatched before the parent suspends, the activity's resources are released while it waits durably, and the parent resumes when the children complete — including when they complete while the parent is still cleaning up. (Suspension waits for running activities to finish or suspend; an activity whose start was interrupted does not leave that count raised, so it cannot block a later suspension.)
 
 For SQL-backed workflow storage, an activity can opt into the engine's storage transaction with `.annotate(ClusterSchema.WithTransaction, true)` (the default is `false`). With `SqlMessageStorage`, database effects that use the supplied `SqlClient` then commit with the activity result. This is a backend-specific local transaction boundary: it does not make an external HTTP/API write atomic, so those calls still need an idempotency token or an outbox.
 
@@ -211,13 +213,13 @@ For SQL-backed workflow storage, an activity can opt into the engine's storage t
 
 ## DurableClock
 
-`effect/unstable/workflow` — unstable
+`effect/workflow` — unstable
 
 `DurableClock.sleep({ name, duration })` pauses a workflow for a duration that may be minutes, hours, or days with no fiber kept alive. A normal `Effect.sleep` holds a fiber; if the process dies, the sleep is gone. A durable sleep schedules a wake-up in the engine and *suspends* the workflow. When the timer fires (even on a different machine after a redeploy), the engine resumes the run. Internally it uses an in-memory activity for short durations (≤ 60-second threshold by default) and a scheduled `DurableDeferred` wake-up for longer ones.
 
 ```ts
 import { Effect, Schema } from "effect"
-import { Activity, DurableClock, Workflow } from "effect/unstable/workflow"
+import { Activity, DurableClock, Workflow } from "effect/workflow"
 
 export const EquityGrantApproval = Workflow.make("EquityGrantApproval", {
   payload: { employeeId: Schema.String, shares: Schema.Natural },
@@ -247,7 +249,7 @@ declare const escalateToVp: (id: string) => Effect.Effect<void>
 
 ## DurableDeferred
 
-`effect/unstable/workflow` — unstable
+`effect/workflow` — unstable
 
 `DurableDeferred.make(name, { success, error })` defines a durable, named wait-point. Inside a workflow, `DurableDeferred.await(deferred)` blocks by suspending the run until a result is recorded. Outside the workflow, complete it with a **token** via `DurableDeferred.succeed`, `fail`, or `done`.
 
@@ -255,7 +257,7 @@ The token is a branded string identifying the workflow name, execution id, and d
 
 ```ts
 import { Effect, Schema } from "effect"
-import { Activity, DurableDeferred, Workflow } from "effect/unstable/workflow"
+import { Activity, DurableDeferred, Workflow } from "effect/workflow"
 
 // A wait-point for the VP's sign-off on an equity grant.
 const VpSignOff = DurableDeferred.make("VpSignOff", {
@@ -285,13 +287,13 @@ declare const notifyVp: (
 ) => Effect.Effect<void>
 ```
 
-> **Tip:** `DurableDeferred.into(effect, deferred)` runs an effect and records its `Exit` into the deferred, resuming waiters — the plumbing behind queues and races. `DurableDeferred.raceAll({ name, success, error, effects })` is success-biased: it persists the first success, or the collected failure only after all effects fail. A completion can wake an active parked workflow immediately, and replay observes the recorded result. `rc.116` fixed three ways a completion could be lost or stall: under `ClusterWorkflowEngine` a completion that arrives before the new owner's first local run is retained for that run, and a wake-up waits for the current run's reply to be persisted before resuming; with `WorkflowEngine.layerMemory`, completing a deferred from a finalizer of the workflow that awaits it (including `into` inside `raceAll`) no longer deadlocks. Because `into` *records* an `Exit`, its requirements include the deferred's success and error schema **encoding** services as well as the decoding ones; a schema that needs a service to encode must have it provided where `into` runs.
+> **Tip:** `DurableDeferred.into(effect, deferred)` runs an effect and records its `Exit` into the deferred, resuming waiters — the plumbing behind queues and races. `DurableDeferred.raceAll({ name, success, error, effects })` is success-biased: it persists the first success, or the collected failure only after all effects fail. A completion can wake an active parked workflow immediately, and replay observes the recorded result. Under `ClusterWorkflowEngine`, a completion that arrives before the new owner's first local run has registered its wait is retained and seen by that later `await`; waking a suspended run retries its resume (through `sharding.reset`'s `expectedReplyId` check) until the run's own reply is durably persisted, rather than acknowledging the deferred completion early, and a stale concurrent resume cannot use a now-outdated expected reply id to clear a newer completed reply out from under it. With `WorkflowEngine.layerMemory`, completing a deferred from a finalizer of the workflow that awaits it (including `into` inside `raceAll`) does not deadlock. Because `into` *records* an `Exit`, its requirements include the deferred's success and error schema **encoding** services as well as the decoding ones; a schema that needs a service to encode must have it provided where `into` runs.
 
 **Reach for it when** a workflow must pause until an out-of-band signal arrives — an external approval, a third-party webhook.
 
 ## DurableQueue
 
-`effect/unstable/workflow` — unstable
+`effect/workflow` — unstable
 
 `DurableQueue.make({ name, payload, success, error, idempotencyKey })` defines a durable task queue. A workflow calls `DurableQueue.process(queue, payload)` to enqueue and suspend. A worker built with `DurableQueue.worker(queue, handler)` (a `Layer`) or `makeWorker` drains it.
 
@@ -299,7 +301,7 @@ declare const notifyVp: (
 
 ```ts
 import { Effect, Schema } from "effect"
-import { DurableQueue } from "effect/unstable/workflow"
+import { DurableQueue } from "effect/workflow"
 
 const StatementQueue = DurableQueue.make({
   name: "EquityStatements",
@@ -326,7 +328,7 @@ declare const renderEquityStatement: (grantId: string) => Effect.Effect<string>
 
 ## WorkflowEngine
 
-`effect/unstable/workflow` — unstable
+`effect/workflow` — unstable
 
 `WorkflowEngine` is the service that registers workflow handlers, runs executions, journals activity results, stores durable-deferred completions, schedules clocks, polls status, and suspends/resumes runs. `WorkflowInstance` is the per-run state threaded through a single execution.
 
@@ -334,7 +336,7 @@ Everything else is a definition; the engine executes and persists. Its methods a
 
 ```ts
 import { Effect, Exit, Layer, Option, Schema } from "effect"
-import { Workflow, WorkflowEngine } from "effect/unstable/workflow"
+import { Workflow, WorkflowEngine } from "effect/workflow"
 
 const ProrateBonus = Workflow.make("ProrateBonus", {
   payload: {
@@ -377,7 +379,7 @@ const program = Effect.gen(function*() {
 
 ## WorkflowProxy
 
-`effect/unstable/workflow` — unstable
+`effect/workflow` — unstable
 
 `WorkflowProxy.toRpcGroup(workflows)` produces an `RpcGroup`; `WorkflowProxy.toHttpApiGroup(name, workflows)` produces an `HttpApiGroup` of POST endpoints. For each workflow you get three operations: execute, discard (fire-and-forget), and resume-by-execution-id.
 
@@ -393,7 +395,7 @@ The workflow's annotations are merged onto all three generated operations, and t
 
 ```ts
 import { Schema } from "effect"
-import { Workflow, WorkflowProxy } from "effect/unstable/workflow"
+import { Workflow, WorkflowProxy } from "effect/workflow"
 
 const ApproveMeritIncrease = Workflow.make("ApproveMeritIncrease", {
   payload: { employeeId: Schema.String, cycleId: Schema.String, newBaseSalary: Schema.String },
@@ -410,7 +412,7 @@ export class CompWorkflowRpcs extends WorkflowProxy.toRpcGroup(compWorkflows) {}
 
 ## WorkflowProxyServer
 
-`effect/unstable/workflow` — unstable
+`effect/workflow` — unstable
 
 `WorkflowProxyServer.layerRpcHandlers(workflows)` implements the RPC group produced by `toRpcGroup`; `WorkflowProxyServer.layerHttpApi(api, groupName, workflows)` implements the HTTP group from `toHttpApiGroup`. Each routes execute/discard/resume requests to the matching workflow operation, keeping the engine and handlers on the server side.
 
@@ -418,8 +420,8 @@ Mount under `RpcServer.layer` (or HTTP API builder) and wire calls land on real 
 
 ```ts
 import { Layer, Schema } from "effect"
-import { RpcServer } from "effect/unstable/rpc"
-import { Workflow, WorkflowProxy, WorkflowProxyServer } from "effect/unstable/workflow"
+import { RpcServer } from "effect/rpc"
+import { Workflow, WorkflowProxy, WorkflowProxyServer } from "effect/workflow"
 
 const ApproveMeritIncrease = Workflow.make("ApproveMeritIncrease", {
   payload: { employeeId: Schema.String, cycleId: Schema.String, newBaseSalary: Schema.String },
@@ -453,6 +455,7 @@ A journal outlives the code that wrote it. Every name and schema a run has touch
 Rules that keep upgrades boring:
 
 - **Renaming an import is not a migration.** Only the string tags and names are persisted; keep them frozen and treat a new name as a new workflow.
+- **Reusing a tag across conflicting definitions is caught, not silent.** Under `ClusterWorkflowEngine`, registering two workflow definitions that share a tag but disagree (for example on payload/success/error schemas) logs a warning instead of letting the mismatch surface only as a confusing decode failure later.
 - **Add, do not mutate.** Evolve schemas so that old encoded values still decode (new optional fields, widened unions). For an incompatible change, introduce `ApproveMeritIncreaseV2` with its own tag and let the old tag drain.
 - **Inventory before rollout.** Know how many executions are running or suspended per workflow tag and how long the longest durable wait is; that is how long the old handler must stay registered.
 - **Pick one rollout strategy deliberately:** drain old runs first; route by version; dual-read; migrate stored records with a verified tool; or start a new identity. "Deploy and hope" is the only wrong one.

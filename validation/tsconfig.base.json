@@ -18,15 +18,23 @@
     "noUnusedParameters": false,
     "skipLibCheck": true,
     "noErrorTruncation": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "jsx": "react-jsx",
     "plugins": [
       {
         "name": "@effect/language-service",
-        "namespaceImportPackages": ["effect", "@effect/*"],
+        "namespaceImportPackages": [
+          "effect",
+          "@effect/*"
+        ],
         "includeSuggestionsInTsc": true,
         "ignoreEffectWarningsInTscExitCode": false,
-        "ignoreEffectErrorsInTscExitCode": false
+        "ignoreEffectErrorsInTscExitCode": false,
+        "diagnosticSeverity": {
+          "unstableApiUsage": "off"
+        }
       }
     ]
   }

@@ -1,8 +1,8 @@
 # SQL
 
-> **Note:** The query API, schema adapters, resolvers, models, and migrator live in the stable-but-`unstable/`-namespaced core at `effect/unstable/sql/*`. They are database-agnostic. A driver package like `@effect/sql-pg` contributes one thing: a `Layer` producing the `SqlClient` service wired to a real connection pool and the correct dialect compiler. Write your service against `SqlClient`; swap the driver layer to change databases.
+> **Note:** The query API, schema adapters, resolvers, models, and migrator live in the stable-but-`unstable/`-namespaced core at `effect/sql/*`. They are database-agnostic. A driver package like `@effect/sql-pg` contributes one thing: a `Layer` producing the `SqlClient` service wired to a real connection pool and the correct dialect compiler. Write your service against `SqlClient`; swap the driver layer to change databases.
 
-> **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
+> **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
 
 ## Where SQL belongs in an application
 
@@ -19,7 +19,7 @@ Generated repositories ([`SqlModel`](#sqlmodel)) remove CRUD boilerplate, but ke
 
 ## SqlClient
 
-`effect/unstable/sql/SqlClient` — unstable
+`effect/sql/SqlClient` — unstable
 
 `SqlClient` is the injected service used for every query. It is simultaneously a tagged-template query constructor (`sql` applied to a template literal), an identifier quoter (`sql("employees")`), and an object with helpers (`sql.in`, `sql.insert`, `sql.withTransaction`). `const sql = yield* SqlClient.SqlClient` gives you this callable. Each tagged-template statement is an `Effect` yielding `ReadonlyArray<Row>`.
 
@@ -29,9 +29,10 @@ Every value interpolated with `${}` becomes a bound parameter, never string-conc
 
 ```ts
 import { Effect } from "effect"
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
 const getEmployee = Effect.fn("getEmployee")(function*(id: number) {
+  // SqlClient is part of the unstable effect/sql module.
   const sql = yield* SqlClient.SqlClient
   // `id` is bound as a parameter -> compiles to: select * from employees where id = $1
   const rows = yield* sql`select * from employees where id = ${id}`
@@ -44,8 +45,9 @@ const getEmployee = Effect.fn("getEmployee")(function*(id: number) {
 **A placeholder can stand for a value, never for a table, column, sort direction, or fragment.** Map a user's choice through a closed allow-list first, and only then hand the result to the identifier helper — quoting makes an identifier syntactically safe, not authorized.
 
 ```ts
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
+// SqlClient is part of the unstable effect/sql module.
 declare const sql: SqlClient.SqlClient
 declare const requestedSort: string // untrusted: a query-string value
 
@@ -60,8 +62,9 @@ A statement is also an Effect and exposes execution views. `.values` returns row
 
 ```ts
 import { Effect } from "effect"
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
+// SqlClient is part of the unstable effect/sql module.
 const findEmployees = Effect.fn("findEmployees")(
   function*(levels: ReadonlyArray<string>, hiredBefore: Date) {
     const sql = yield* SqlClient.SqlClient
@@ -101,7 +104,7 @@ Additional helpers: `sql.insert([...])` for bulk rows, `sql.update(record, [omit
 A statement built with the `sql` tag is a *Fragment*, so it can be interpolated into another query to build queries conditionally without touching strings.
 
 ```ts
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
 declare const sql: SqlClient.SqlClient
 declare const activeOnly: boolean
@@ -116,7 +119,7 @@ const page = sql`select * from employees ${filter} order by id limit 20`
 
 ```ts
 import { Effect } from "effect"
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
 // Promote an employee and adjust their salary atomically.
 const promote = Effect.fn("promote")(
@@ -144,7 +147,7 @@ const promote = Effect.fn("promote")(
 
 ```ts
 import { Data, Effect } from "effect"
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
 class BudgetExceeded extends Data.TaggedError("BudgetExceeded")<{ readonly cycle: string }> {}
 
@@ -189,8 +192,9 @@ Transaction rules:
 - **Do not fork work that outlives the transaction.** A fiber forked inside keeps the context entry that points at the transaction's connection, even after commit has returned that connection to the pool.
 - **Concurrent branches still share the one reserved connection.** `Effect.all(..., { concurrency })` inside a transaction does not parallelize database work, and nested `withTransaction` calls made from sibling fibers are serialized.
 - **Nested calls are savepoints, not isolation.** A failure that escapes an inner `withTransaction` rolls back to its savepoint; if you recover *around the inner call*, the outer transaction continues and commits without the inner writes — the one legitimate way to make a step optional. The helper does not prevent lost updates: pick an isolation level, `select … for update`, a version column, or a single atomic `update … set remaining = remaining - ${n}` from the invariant you need.
+- **Savepoints release once a nested transaction settles.** The PostgreSQL, PGlite, MySQL, libSQL, and Node/Bun/React Native/WASM SQLite clients release a savepoint as soon as the nested `withTransaction` succeeds or successfully rolls back, freeing PostgreSQL's transaction locks before the outer transaction completes. A custom client built with `SqlClient.makeWithTransaction` opts in with its own `releaseSavepoint` option.
 - **Retry the whole transaction, never an inner statement.** After a `DeadlockError` or `SerializationError` the database has already aborted the transaction, so retry `sql.withTransaction(unit)` as a unit, with a bounded schedule, and only when `unit` is database-only.
-- **`BEGIN` and `SAVEPOINT` failures are typed; `COMMIT` and `ROLLBACK` failures are defects.** Failing to acquire the connection, to begin, or to create a savepoint fails with `SqlError` (before `rc.109` a failed `BEGIN` surfaced as a rollback defect). A failed `COMMIT` or `ROLLBACK` is converted with `Effect.orDie`: for example a `deferrable initially deferred` constraint that fires at commit arrives as a **defect** whose value is the `SqlError`. Alert on defects from `sql.transaction` spans, not only on typed failures, and inspect them with `SqlError.isSqlError`.
+- **`BEGIN` and `SAVEPOINT` failures are typed; `COMMIT` and `ROLLBACK` failures are defects.** Failing to acquire the connection, to begin, or to create a savepoint fails with `SqlError`. A failed `COMMIT` or `ROLLBACK` is converted with `Effect.orDie`: for example a `deferrable initially deferred` constraint that fires at commit arrives as a **defect** whose value is the `SqlError`. Alert on defects from `sql.transaction` spans, not only on typed failures, and inspect them with `SqlError.isSqlError`.
 
 ### External effects after commit (outbox)
 
@@ -200,7 +204,7 @@ The transactional outbox closes both gaps: write an **intent row** in the same t
 
 ```ts
 import { Effect } from "effect"
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
 declare const sql: SqlClient.SqlClient
 // Idempotent on `eventId` at the receiver.
@@ -243,7 +247,7 @@ Each statement exposes alternate execution modes (covered under Statement): `.st
 
 ## Statement
 
-`effect/unstable/sql/Statement` — unstable
+`effect/sql/Statement` — unstable
 
 A `Statement<A>` is a list of *segments* (literals, escaped identifiers, bound parameters, insert/update helpers) plus the machinery to compile them to a `[sqlText, params]` pair for the active dialect. It is both an `Effect` and a `Fragment`. The template literal is parsed once into segments; the dialect `Compiler` walks those segments to produce numbered placeholders and the params array.
 
@@ -258,7 +262,7 @@ A `Statement<A>` is a list of *segments* (literals, escaped identifiers, bound p
 | `stmt.compile()` | `[sql, params]` — inspect what will actually run. |
 
 ```ts
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
 declare const sql: SqlClient.SqlClient
 
@@ -272,19 +276,19 @@ Segment constructors (`literal`, `identifier`, `parameter`, `arrayHelper`, inser
 
 None of the execution views disables parameter binding: `.raw` and `.values` change the *projection*, `.unprepared` changes the *execution strategy*, and `${}` holes stay bound parameters in all of them.
 
-> **Note:** Every execution opens a `sql.execute` client span carrying `db.operation.name` and `db.query.text` — the compiled SQL with placeholders, never the bound parameters. Text spliced in through `sql.literal` / `sql.unsafe` *is* part of that query text, one more reason to keep values in `${}`. Driver-level spans (connection acquisition, stream pulls) are not parented under `sql.execute` by default; opt in for a region with `Effect.provideService(Statement.SpanPropagationEnabled, true)` (added in `rc.113`, default `false`, ignored while tracing is disabled). `rc.113` also fixed `.returning(...)` helpers to escape identifiers per dialect and to number placeholders correctly when a cached fragment is reused.
+> **Note:** Every execution opens a `sql.execute` client span carrying `db.operation.name` and `db.query.text` — the compiled SQL with placeholders, never the bound parameters. Text spliced in through `sql.literal` / `sql.unsafe` *is* part of that query text, one more reason to keep values in `${}`. Driver-level spans (connection acquisition, stream pulls) are not parented under `sql.execute` by default; opt in for a region with `Effect.provideService(Statement.SpanPropagationEnabled, true)` (default `false`, ignored while tracing is disabled). `.returning(...)` helpers escape identifiers per dialect and number placeholders correctly when a cached fragment is reused.
 
 **Reach for it when** you need a non-default execution mode (stream, raw, values, unprepared), want to `compile()` and assert on generated SQL, or you're authoring a custom dialect/helper.
 
 ## SqlSchema
 
-`effect/unstable/sql/SqlSchema` — unstable
+`effect/sql/SqlSchema` — unstable
 
 `SqlSchema` bridges a query and a `Schema`. It wraps execution so the request is encoded before running and every returned row is decoded through a result Schema. Each helper is a factory: provide a `Request` schema, a `Result` schema, and an `execute` callback; receive `(input) => Effect<decoded, SchemaError | ..., R>`. The difference between helpers is result cardinality.
 
 ```ts
 import { Effect, Schema } from "effect"
-import { SqlClient, SqlSchema } from "effect/unstable/sql"
+import { SqlClient, SqlSchema } from "effect/sql"
 
 const Employee = Schema.Struct({
   id: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -296,6 +300,7 @@ const Employee = Schema.Struct({
 const makeEmployeeQueries = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
 
+  // SqlSchema is part of the unstable effect/sql module.
   // findOne: decode the first row, fail with NoSuchElementError if there are none
   const getById = SqlSchema.findOne({
     Request: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -342,13 +347,13 @@ To show that row decoding really runs, have one repository test insert a row the
 
 ## SqlResolver
 
-`effect/unstable/sql/SqlResolver` — unstable
+`effect/sql/SqlResolver` — unstable
 
 `SqlResolver` builds schema-aware `RequestResolver`s on top of Effect's Request/Batching machinery: many concurrent lookups collapse into one batched SQL query, with requests deduplicated by payload and results mapped back to callers. Describe one logical lookup (its `Id`/`Request` schema, its `Result` schema, and how to map a result back to the requesting caller). When N callers fire that lookup in one batching window, the resolver encodes all inputs, runs a single `IN (...)`-style query, decodes rows, and completes each request from the shared result set.
 
 ```ts
 import { Effect, Schema } from "effect"
-import { SqlClient, SqlResolver } from "effect/unstable/sql"
+import { SqlClient, SqlResolver } from "effect/sql"
 
 const CompBand = Schema.Struct({
   level: Schema.String,
@@ -360,6 +365,7 @@ const CompBand = Schema.Struct({
 const makeCompBandLoader = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
 
+  // SqlResolver is part of the unstable effect/sql module.
   // findById: batch many levels into one query; map each row back via ResultId
   const resolver = SqlResolver.findById({
     Id: Schema.String,
@@ -395,17 +401,17 @@ const program = Effect.gen(function*() {
 
 **Reach for it when** you'd otherwise fire a query per item in a loop or per field in a GraphQL/RPC resolver.
 
-Official guide: [Batching](https://effect.website/docs/v4/batching) (it enables batching with an `Effect.forEach` `batching` option that `rc.116` does not have — here requests batch when they are issued concurrently against the same resolver). The request/resolver model itself is covered in [Caching & Batching](../operations/caching-batching#requestresolver).
+Official guide: [Batching](https://effect.website/docs/v4/batching) (that guide covers `Effect.forEach`-driven batching; `Effect.forEach` has no `batching` option here — requests batch when they are issued concurrently against the same resolver). The request/resolver model itself is covered in [Caching & Batching](../operations/caching-batching#requestresolver).
 
 ## SqlStream
 
-`effect/unstable/sql/SqlStream` — unstable
+`effect/sql/SqlStream` — unstable
 
 `SqlStream` turns a driver's push-based cursor (event emitter, server-side cursor, callback firehose) into an Effect `Stream` with backpressure. It is plumbing that drivers use to implement `statement.stream` and `connection.executeStream`. `asyncPauseResume` registers an emitter with `single`/`array`/`fail`/`end` callbacks and pause/resume hooks; when the internal bounded queue fills, it calls the driver's `onPause` so the database stops pushing rows faster than they are consumed.
 
 ```ts
 import { Effect, Stream } from "effect"
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
 // You almost always interact with it via `.stream` on a statement:
 const streamAllEmployees = Effect.gen(function*() {
@@ -420,13 +426,13 @@ const streamAllEmployees = Effect.gen(function*() {
 
 ## SqlError
 
-`effect/unstable/sql/SqlError` — unstable
+`effect/sql/SqlError` — unstable
 
 The single typed failure for the whole SQL stack. Every query, transaction, and connection acquire fails with `SqlError`. It wraps a structured `reason` — connection, auth, syntax, constraint, deadlock, serialization, timeout, unknown — each preserving the original driver cause and exposing whether a retry could help. The outer error delegates `message`, `cause`, and `isRetryable` to its reason.
 
 ```ts
 import { Effect, Schedule, Schema } from "effect"
-import { SqlClient, SqlError } from "effect/unstable/sql"
+import { SqlClient, SqlError } from "effect/sql"
 
 class GrantAlreadyExists extends Schema.TaggedError<GrantAlreadyExists>()("GrantAlreadyExists", {
   employeeId: Schema.Int
@@ -468,8 +474,8 @@ Reasons marked retryable: `ConnectionError`, `DeadlockError`, `SerializationErro
 
 ```ts
 import { Context, Data, Effect, Layer, Option, Schema } from "effect"
-import { SqlClient, SqlSchema } from "effect/unstable/sql"
-import type { SqlError } from "effect/unstable/sql"
+import { SqlClient, SqlSchema } from "effect/sql"
+import type { SqlError } from "effect/sql"
 
 class Employee extends Schema.Class<Employee>("Employee")({
   id: Schema.Int,
@@ -530,13 +536,13 @@ Anti-patterns: opening connections inside methods, returning undecoded rows, and
 
 ## SqlConnection
 
-`effect/unstable/sql/SqlConnection` — unstable
+`effect/sql/SqlConnection` — unstable
 
 The low-level, driver-facing contract under `SqlClient`. A `Connection` executes already-compiled SQL with positional params and can return transformed rows, raw results, a stream, value arrays, or unprepared results. It also defines the `Acquirer` (a scoped effect that checks a connection out of the pool) and the generic `Row` shape. `SqlClient` is the ergonomic front end; `Connection` is the raw executor a driver implements. Touch it directly only when using `sql.reserve` to pin a connection for an operation outside the statement abstraction.
 
 ```ts
 import { Effect } from "effect"
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
 const headcount = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
@@ -551,14 +557,14 @@ const headcount = Effect.gen(function*() {
 
 ## Migrator
 
-`effect/unstable/sql/Migrator` — unstable
+`effect/sql/Migrator` — unstable
 
 Versioned, transactional schema migrations. Records applied migration ids in a table (`effect_sql_migrations` by default), runs only pending ones in order inside a transaction, detects duplicate ids, and treats a concurrent run as locked rather than racing. A migration is a numbered file (`0003_create_equity_grants.ts`) whose default export is an `Effect` using `SqlClient`. A loader discovers them; the migrator diffs recorded vs. existing and applies the gap. Use the driver's `Migrator.layer({ loader })` so migrations run during layer construction, before the service starts.
 
 ```ts
 // migrations/0003_create_equity_grants.ts
 import { Effect } from "effect"
-import { SqlClient } from "effect/unstable/sql"
+import { SqlClient } from "effect/sql"
 
 export default Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
@@ -582,11 +588,12 @@ export default Effect.gen(function*() {
 import { Layer } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { PgClient, PgMigrator } from "@effect/sql-pg"
-import { Migrator } from "effect/unstable/sql"
+import { Migrator } from "effect/sql"
 
 const SqlLive = PgClient.layer({ database: "comp", username: "comp" })
 
 const MigratorLive = PgMigrator.layer({
+  // Migrator is part of the unstable effect/sql module.
   loader: Migrator.fromFileSystem("migrations"),
   schemaDirectory: "migrations" // optional: dump schema via pg_dump after success
 }).pipe(
@@ -617,17 +624,18 @@ Loaders: `fromFileSystem(dir)` imports numbered `.js`/`.ts`/`.mjs`/`.mts` files,
 
 ## SqlModel
 
-`effect/unstable/sql/SqlModel` — unstable
+`effect/sql/SqlModel` — unstable
 
-Define a table's shape once as a `Model` schema and derive a typed CRUD repository — `insert`, `update`, `findById`, `delete` — automatically. A `Model.Class` is a family of *variants* built on VariantSchema: the same definition yields a select schema, an `insert` schema (db-generated columns dropped), an `update` schema, and JSON-API variants (`json`, `jsonCreate`, `jsonUpdate`). `SqlModel.makeRepository` reads those variants to type each operation correctly. Insert/update inputs are encoded with the model's input variants, returned rows decoded with the full model, and dialect quirks (pg `RETURNING` vs. mysql `LAST_INSERT_ID`) are handled automatically.
+Define a table's shape once as a `Model` schema and derive a typed CRUD repository — `insert`, `insertVoid`, `update`, `updateVoid`, `findById`, `delete` — automatically. A `Model.Class` is a family of *variants* built on VariantSchema: the same definition yields a select schema, an `insert` schema (db-generated columns dropped), an `update` schema, and JSON-API variants (`json`, `jsonCreate`, `jsonUpdate`). `SqlModel.makeRepository` reads those variants to type each operation correctly. Insert/update inputs are encoded with the model's input variants, returned rows decoded with the full model, and dialect quirks (pg `RETURNING` vs. mysql `LAST_INSERT_ID`) are handled automatically.
 
 ```ts
 import { Effect, Schema } from "effect"
-import { Model } from "effect/unstable/schema"
-import { SqlModel } from "effect/unstable/sql"
+import { Model } from "effect/schema"
+import { SqlModel } from "effect/sql"
 
 const EmployeeId = Schema.Int.check(Schema.isGreaterThan(0)).pipe(Schema.brand("EmployeeId"))
 
+// Model and SqlModel are part of the unstable effect/schema and effect/sql modules.
 // One definition -> select / insert / update / json variants
 class Employee extends Model.Class<Employee>("Employee")({
   // A repository needs its id in select + update, but not insert.
@@ -664,7 +672,7 @@ const program = Effect.gen(function*() {
 })
 ```
 
-Pass `softDeleteColumn` and deletes flip that column to `CURRENT_TIMESTAMP` while every read filters out soft-deleted rows automatically. `SqlModel.makeResolvers` returns `RequestResolver`s (`insert`, `insertVoid`, `findById`, `delete`) so model lookups participate in request batching. It is scoped (`SqlClient | Scope`), and since `rc.113` requests made through the `insert` resolver also require the model's decoding services, because it decodes the returned row; use `insertVoid` when you do not need the row back.
+Pass `softDeleteColumn` and deletes flip that column to `CURRENT_TIMESTAMP` while every read filters out soft-deleted rows automatically. `SqlModel.makeResolvers` returns `RequestResolver`s (`insert`, `insertVoid`, `findById`, `delete`) so model lookups participate in request batching. It is scoped (`SqlClient | Scope`), and requests made through the `insert` resolver also require the model's decoding services, because it decodes the returned row; use `insertVoid` when you do not need the row back.
 
 **Reach for it when** a schema model maps cleanly to a table and you want standard CRUD without re-typing insert/update/select shapes — drop to a raw `sql` tagged template for anything bespoke.
 
@@ -696,38 +704,40 @@ Mandatory contract cases: valid and malformed rows; zero / one / many cardinalit
 
 Each driver is a thin satellite package contributing a `Layer` producing `SqlClient` wired to a real connection and the correct dialect compiler. All expose `layer(config)` and `layerConfig(Config.Wrap<...>)`, and most ship a matching `*Migrator`.
 
-- **pkg @effect/sql-pg** — PostgreSQL through Effect's **native wire-protocol client** (since `rc.113` there is no `pg`, `pg-pool`, or `pg-types` dependency). Dialect `pg` with `$1` placeholders and `RETURNING`. The native stack handles connection setup, binary codecs, named prepared statements, optional pipelining (`multiplex`), streaming, cancellation, and notifications. `PgClient.layer` / `layerConfig` are unchanged; `make(PgPoolConfig)` builds a pool and `makeClient(PgClientConfig)` a single connection — the old `fromPool`, `fromClient`, and `makeWith` constructors were removed. `PgMigrator` still shells out to `pg_dump` for schema dumps. **Upgrading is a behavior change, not just a dependency swap** — see [Upgrading `@effect/sql-pg` to the native client](#upgrading-effect-sql-pg-to-the-native-client), and for `rc.116`'s `Date` timestamps, text-decoded enums, and failing listener queues, [Dates, enums, and LISTEN queues](#dates-enums-and-listen-queues-on-the-native-client). Session defaults, TLS mode, and rotating passwords are configured per physical connection ([Session settings at connect time](#session-settings-at-connect-time)).
+- **pkg @effect/sql-pg** — PostgreSQL through Effect's **native wire-protocol client** (no `pg`, `pg-pool`, or `pg-types` dependency). Dialect `pg` with `$1` placeholders and `RETURNING`. The native stack handles connection setup, binary codecs, named prepared statements, optional pipelining (`multiplex`), streaming, cancellation, and notifications. `PgClient.layer` / `layerConfig` build a layer; `PgClient.make(PgPoolConfig)` builds a pool and `PgClient.makeClient(PgClientConfig)` a single connection. `PgMigrator` shells out to `pg_dump` for schema dumps. Result decoding, JSON parameters, statement limits, prepared statements, and `listen()` are covered in [Native client behavior: codecs, JSON, and LISTEN](#native-client-behavior-codecs-json-and-listen). Session defaults, TLS mode, and rotating passwords are configured per physical connection ([Session settings at connect time](#session-settings-at-connect-time)).
 
 - **pkg @effect/sql-mysql2** — MySQL / MariaDB via the `mysql2` driver. `?` placeholders; inserts/updates use the `LAST_INSERT_ID` + reselect path. Set `disablePreparedStatements: true` to use mysql2's text protocol globally, notably for proxies such as Cloudflare Hyperdrive that do not support `COM_STMT_PREPARE`.
 
 - **pkg @effect/sql-mssql** — Microsoft SQL Server (Azure SQL). `mssql` dialect with its own identifier quoting and migrations table DDL. Its extended `MssqlClient` adds `param(type, value, options?)` for typed Tedious parameter fragments and `call(Procedure.compile(...))` for stored procedures; `Procedure.make`, `param`, `outputParam`, and `withRows` track inputs, outputs, and row types. TLS encryption and certificate validation are enabled by default; use `encrypt: false` only for a server without TLS, or `trustServer: true` for an explicitly trusted self-signed certificate.
 
-- **pkg @effect/sql-sqlite-node** — SQLite through Node's built-in `node:sqlite` module. File-based and synchronous; ideal for tests, CLIs, and local-first apps. The extended client exposes `backup(destination)` with page-count metadata and `loadExtension(path)`; `updateValues` is unsupported. Its default five-second busy timeout and immediate transactions serialize competing writers and can block the event loop while SQLite is busy, so tune them for latency-sensitive applications.
+- **pkg @effect/sql-sqlite-node** — SQLite through Node's built-in `node:sqlite` module (requires Node 22.16+). File-based and synchronous; ideal for tests, CLIs, and local-first apps. The extended client exposes `backup(destination)` with page-count metadata and `loadExtension(path)`; streaming queries and `updateValues` are unsupported. Its default five-second busy timeout and immediate transactions serialize competing writers and can block the event loop while SQLite is busy, so tune them for latency-sensitive applications. A transaction left open by a failed `COMMIT` — a deferred foreign key violation, for example — is rolled back so the connection can be reused.
 
-- **pkg @effect/sql-sqlite-bun** — SQLite using Bun's built-in `bun:sqlite`. Same dialect, zero extra native deps on Bun.
+- **pkg @effect/sql-sqlite-bun** — SQLite using Bun's built-in `bun:sqlite`. Same dialect, zero extra native deps on Bun. `file:` SQLite URI filenames open correctly on Linux, including the `readonly` and `create` options. Streaming queries are not implemented. As with `@effect/sql-sqlite-node`, a transaction left open by a failed `COMMIT` is rolled back so the connection can be reused.
 
-- **pkg @effect/sql-sqlite-wasm** — SQLite compiled to WebAssembly — run in the browser or any WASM host.
+- **pkg @effect/sql-sqlite-wasm** — SQLite compiled to WebAssembly via `@effect/wa-sqlite`, in-memory in the current runtime or connected to an OPFS-backed worker for durable storage. Only the in-memory client can stream query rows; the worker-backed client cannot. `updateValues` is unsupported by this driver.
 
-- **pkg @effect/sql-d1** — Cloudflare D1, the edge SQLite service. Bind a D1 database and query it with the same `sql` tagged-template API from a Worker. Its `D1Client.batch(statements)` sends a fixed tuple as one atomic D1 batch and returns typed results in statement order; `updateValues` is unsupported.
+- **pkg @effect/sql-d1** — Cloudflare D1, the edge SQLite service. Bind a D1 database and query it with the same `sql` tagged-template API from a Worker. Its `D1Client.batch(statements)` sends a fixed tuple as one atomic D1 batch — executed directly on the binding, so it cannot join a `SqlClient` transaction — and returns typed results in statement order. Transactions, streaming queries, and `updateValues` are not supported by this driver.
 
-- **pkg @effect/sql-sqlite-react-native** — SQLite on React Native (op-sqlite / expo). On-device persistence with the full Effect SQL surface.
+- **pkg @effect/sql-sqlite-react-native** — SQLite on React Native via `@op-engineering/op-sqlite`. Uses the driver's synchronous query API by default; `AsyncQuery` / `withAsyncQuery` switch a scoped effect to the asynchronous API. Streaming queries and `updateValues` are not supported by this driver.
 
-- **pkg @effect/sql-sqlite-do** — SQLite backed by a Cloudflare Durable Object's storage — per-object strongly-consistent SQL at the edge. Since `rc.116`, nested `withTransaction` calls roll back independently of their parent, a failure to complete the native storage transaction surfaces as `SqlError`, and storage-backed transactions no longer yield to the scheduler automatically (a queued fiber could deadlock the Durable Object's input gate). Explicit asynchronous work inside a transaction is still unsupported.
+- **pkg @effect/sql-sqlite-do** — SQLite backed by a Cloudflare Durable Object's storage — per-object strongly-consistent SQL at the edge. Nested `withTransaction` calls roll back independently of their parent, a failure to complete the native storage transaction surfaces as `SqlError`, and storage-backed transactions do not yield to the scheduler automatically (a queued fiber could deadlock the Durable Object's input gate). Explicit asynchronous work inside a transaction is unsupported.
 
-- **pkg @effect/sql-clickhouse** — ClickHouse for analytics/OLAP. `clickhouse` dialect tuned for columnar, append-heavy workloads. Since `rc.116` its compiler reports the `clickhouse` dialect, so `sql.onDialect` / `onDialectOrElse` fragments pick the ClickHouse branch, and connection validation uses ClickHouse's `ping()` endpoint, with failed health checks as `SqlError`.
+- **pkg @effect/sql-clickhouse** — ClickHouse for analytics/OLAP. `clickhouse` dialect tuned for columnar, append-heavy workloads: its compiler reports the `clickhouse` dialect, so `sql.onDialect` / `onDialectOrElse` fragments pick the ClickHouse branch, and connection validation uses ClickHouse's `ping()` endpoint, with failed health checks as `SqlError`. `ClickhouseClient.insertQuery` accepts a `columns` option — an array (`["a", "b"]`) to insert into a subset of columns, or `{ except: ["a"] }` for all columns except the listed ones.
 
-- **pkg @effect/sql-libsql** — libSQL / Turso — SQLite-compatible with remote HTTP/edge protocol and embedded replicas.
+- **pkg @effect/sql-libsql** — libSQL / Turso — SQLite-compatible with remote HTTP/edge protocol and embedded replicas. Each client exposes its active transaction through its `transactionService` tag.
 
 - **pkg @effect/sql-pglite** — PGlite: Postgres compiled to WASM. Genuine pg dialect that runs in-process or in the browser — great for tests and local dev. Its extended client adds `notify` and a scoped `listen(channel)` — an `Effect` yielding a `Queue.Dequeue<string>` of payloads, not a `Stream` — plus `dumpDataDir(compression?)` for portable snapshots, and `refreshArrayTypes` after extensions or schema changes introduce array types.
 
 ### Session settings at connect time
 
-**Put per-session defaults in the connection config, not in a `SET` statement.** A `SET` issued through `sql` changes one pooled connection and disappears when the pool replaces it. From `rc.116`, `PgClient.layer` (and `PgConnection.make` / `PgPool.make`) send session defaults in the startup packet of **every physical connection**: the first one, each connection the pool adds, and each replacement after `idleTimeout`, `connectionTTL`, or a failure. `RESET ALL` returns a session to these defaults.
+**Put per-session defaults in the connection config, not in a `SET` statement.** A `SET` issued through `sql` changes one pooled connection and disappears when the pool replaces it. `PgClient.layer` (and `PgConnection.make` / `PgPool.make`) send session defaults in the startup packet of **every physical connection**: the first one, each connection the pool adds, and each replacement after `idleTimeout`, `connectionTTL`, or a failure. `RESET ALL` returns a session to these defaults.
+
+The pool also recovers failed connections on its own: a background acquisition that fails is retried while a caller is still waiting to borrow one, and a connection that reports a fatal session error is replaced before the next borrow rather than handed out broken. A statement interrupted mid-flight whose `CancelRequest` is never confirmed by the server retires that session instead of returning it to the pool. Named prepared statements are namespaced per connection, so two connections never collide on the same statement name. If PostgreSQL answers a `COMMIT` with `ROLLBACK` after a caught statement error, the transaction fails instead of reporting a false commit.
 
 | Field | Shape | Behavior |
 | --- | --- | --- |
 | `startupParameters` | `Record<string, string>` of PostgreSQL settings | Names are lowercased. `user`, `database`, `replication`, and `options` are reserved (use `username`, `database`, and `startupOptions`). `client_encoding` accepts only `UTF8` / `UTF-8`. PostgreSQL validates every other name and value when the connection opens. |
-| `startupOptions` | one opaque string, sent as the packet's `options` field, e.g. `"-c lock_timeout=2000"` | Overrides the URL's `?options=` query parameter (supported again in `rc.116`), even when the explicit value is empty. It is forwarded without parsing, so do not set the same setting here and in `startupParameters`. |
+| `startupOptions` | one opaque string, sent as the packet's `options` field, e.g. `"-c lock_timeout=2000"` | Overrides the URL's `?options=` query parameter, even when the explicit value is empty. It is forwarded without parsing, so do not set the same setting here and in `startupParameters`. |
 | `applicationName` | `string` | The startup `application_name` is the first of: `applicationName`, `startupParameters.application_name`, the URL's `application_name`, `"@effect/sql-pg"`. It is never read out of `startupOptions`. |
 | `password` | `Redacted` or `Effect<Redacted>` with no error and no requirements | An Effect runs for **each connection attempt** and for each `PgMigrator` schema dump, which suits short-lived cloud IAM tokens. Handle its failures inside the Effect; `Effect.orDie` turns them into defects, not retryable `SqlError`s. |
 
@@ -751,40 +761,29 @@ export const CompDatabase = PgClient.layer({
 })
 ```
 
-The driver checks the fields it owns (empty names, NUL bytes, reserved names, a non-UTF-8 `client_encoding`) before it opens a socket. The pool is lazy, though, so the layer still builds, and the first query fails with a `SqlError` whose reason is `ConnectionError` (probed on `rc.116`). That reason reports `isRetryable: true`, so a retry loop around the query spins on a configuration typo; run one query in a readiness check, and let a bounded schedule end any retry.
+The driver checks the fields it owns (empty names, NUL bytes, reserved names, a non-UTF-8 `client_encoding`) before it opens a socket. The pool is lazy, though, so the layer still builds, and the first query fails with a `SqlError` whose reason is `ConnectionError`. That reason reports `isRetryable: true`, so a retry loop around the query spins on a configuration typo; run one query in a readiness check, and let a bounded schedule end any retry.
 
-TLS follows the URL's `sslmode` unless `ssl` is set explicitly. Since `rc.116`, `sslmode=prefer` and `sslmode=allow` both try TLS first and fall back to plaintext only when the server declines the `SSLRequest`; handshake and certificate failures stay fatal. An attacker on the path can make the server appear to decline, so production connections should use `sslmode=require` or `ssl: true`.
+TLS follows the URL's `sslmode` unless `ssl` is set explicitly. `sslmode=prefer` and `sslmode=allow` both try TLS first and fall back to plaintext only when the server declines the `SSLRequest`; handshake and certificate failures stay fatal. An attacker on the path can make the server appear to decline, so production connections should use `sslmode=require` or `ssl: true`.
 
-### Upgrading @effect/sql-pg to the native client
+### Native client behavior: codecs, JSON, and LISTEN
 
-From `rc.113`, `@effect/sql-pg` speaks the PostgreSQL wire protocol itself instead of wrapping `pg`. `PgClient.layer` and the `sql` tagged template look the same, but what comes back — and what the server will accept — changed. Review each point before upgrading a production service:
+`@effect/sql-pg` speaks the PostgreSQL wire protocol itself — there is no `pg`, `pg-pool`, or `pg-types` dependency. That native stack decides what comes back from a query and what the server will accept as a parameter.
 
-| What changed | Before (`pg`) | Native client | What to do |
-| --- | --- | --- | --- |
-| Result decoding (binary codecs) | `int8` → string, `date` → `Date`, `timestamp`/`timestamptz` → `Date`, `bytea` → `Buffer` | `int8` → `bigint`, `date` → string, `timestamp`/`timestamptz` → `Date` (epoch-millisecond `number`s from `rc.113` through `rc.115`), `bytea` → `Uint8Array`, unregistered OIDs → UTF-8 text (raw `Uint8Array` before `rc.116`), `inet` → `IpInterface`, `cidr` → `IpNetwork` | Re-check every row Schema over these column types: a `Schema.Number` over an `int8` column, or a `Schema.Date` over a `date` column, no longer matches the encoded value. See [the `rc.116` changes](#dates-enums-and-listen-queues-on-the-native-client). |
-| JSON parameters | a plain object parameter was inferred as JSON | not inferred | Wrap the value: `sql.json(value)`. |
-| Statements per query string | multi-statement strings worked with simple queries | exactly **one** statement per string — the extended protocol rejects more, even through `stmt.unprepared` | Split migrations and seed scripts into separate statements. |
-| Prepared statements | unnamed | **named prepared statements on by default**, cached per connection (`preparedStatementCacheSize`, default 100) | Behind a pooler that cannot keep named statements between queries (PgBouncer in transaction mode), set `prepare: false`. `Statement.unprepared` / `valuesUnprepared` use unnamed extended queries without touching the cache. |
-| `listen(channel)` | a `Stream` of payload strings | a **scoped** `Effect` yielding `Queue.Dequeue<PgConnection.Notification, SqlError>` (`{ processId, channel, payload }`), returned only after PostgreSQL confirms `LISTEN` | Take from the queue inside a scope. Because acquisition completes after confirmation, a notification sent right after it returns cannot be missed. The listener holds a connection until the scope closes, and a lost connection fails the queue with its `SqlError`. |
-| Custom types | `pg.CustomTypesConfig` | `PgClientConfig.types: PgTypes.Registry` (from `PgTypes.makeRegistry()`), or the process-wide `PgTypes.register` | Port custom parsers to the registry. Array codecs come from `register(elementOid, codec, { arrayOid })` on a registry. |
-| Raw results | `executeRaw` → `pg.Result` | `executeRaw` → `PgConnection.Result` | Adjust any code that inspects raw result metadata. |
-| Constructors | `fromPool`, `fromClient`, `makeWith` | removed | `PgClient.make(poolConfig)` for a pool, `PgClient.makeClient(config)` for one connection. |
+**Result decoding (binary codecs).** `int8` decodes as `bigint`; `date` decodes as a string; `timestamp` and `timestamptz` decode as a `Date` at millisecond precision, with `infinity`, `-infinity`, and any value outside the JavaScript `Date` range (±8.64e15 epoch milliseconds) decoding to an **invalid** `Date` — `Schema.Date` rejects an invalid `Date`, so map those sentinels in SQL if a column can hold them. `bytea` decodes as `Uint8Array`. `oid` and `regclass` both decode as a numeric OID; cast `::text` in SQL to get a readable name. `inet` and `cidr` decode as formatted strings (through the same formatting `NetAddress`, `IpInterface`, and `IpNetwork` use), not as typed `IpInterface` / `IpNetwork` objects. An OID with no registered codec — an enum, an extension type, any other user-defined type — decodes as UTF-8 text, so a scalar enum column returns its label; enum **arrays** and binary user-defined types come back as garbled text or fail UTF-8 decoding, and a decode failure closes the connection (its pending queries fail; its transaction or `LISTEN` is lost; the pool replaces it). Register a codec for any of those (below) rather than relying on the text fallback. Decode rows with `Schema.Date`, `Schema.DateTimeUtcFromDate`, `Model.DateTimeInsertFromDate` / `DateTimeUpdateFromDate`, and `Schema.Literals([...])` for enum columns.
 
-Inferred parameters stay permissive: strings bind untyped so the server derives the type from the statement, and safe integers beyond the `int4` range bind as `int8`. New tuning knobs include `multiplex` / `multiplexConcurrency` (pipelining several statements over one connection), `maxMessageSize`, and the pool options `minConnections`, `maxConnections`, `idleTimeout`, and `connectionTTL`. Pass `Statement.SpanPropagationEnabled` (default `false`) with `Effect.provideService` to parent driver spans under `sql.execute`.
+**Parameters.** A plain object parameter is not inferred as JSON — wrap it with `sql.json(value)`. The `timestamp` and `timestamptz` encoders (`PgTypes.timestamp(value)`, `PgTypes.timestamptz(value)`) accept a `Date` or epoch milliseconds; encoding an invalid `Date` fails. A `Date` interpolated with `${}` binds as `timestamptz`, so inserting it into a `timestamp` (without time zone) column converts it through the session `TimeZone`. Either run sessions in UTC ([`TimeZone: "UTC"` at connect time](#session-settings-at-connect-time)) or bind `PgTypes.timestamp(date)`, which stores the `Date`'s UTC fields whatever the session zone is; `timestamptz` round trips preserve the instant in any zone. Otherwise inferred parameters stay permissive: strings bind untyped so the server derives the type from the statement, and safe integers beyond the `int4` range bind as `int8`.
 
-### Dates, enums, and LISTEN queues on the native client
+**One statement per query string.** The extended protocol rejects more than one statement per string, even through `stmt.unprepared` — split migrations and seed scripts into separate statements.
 
-**`rc.116` changes three shapes that application code reads, so code written against `rc.113`–`rc.115` needs review.** Probed on `rc.116` through the exported `PgTypes.encode` / `decode` functions; the connection-level behavior below is from the driver source and its integration tests.
+**Prepared statements are named and on by default**, cached per connection (`preparedStatementCacheSize`, default 100) and namespaced so two connections never collide on the same statement name. Behind a pooler that cannot keep named statements between queries (PgBouncer in transaction mode), set `prepare: false`. `Statement.unprepared` / `valuesUnprepared` use unnamed extended queries without touching the cache.
 
-| Change | `rc.113` – `rc.115` | `rc.116` | What to do |
-| --- | --- | --- | --- |
-| `timestamp` / `timestamptz` results, array elements included | epoch milliseconds (`number`); `infinity` → `Infinity` | `Date`, still millisecond precision; `infinity`, `-infinity`, and values outside the JavaScript `Date` range decode to an **invalid** `Date` | Decode rows with `Schema.Date`, `Schema.DateTimeUtcFromDate`, or `Model.DateTimeInsertFromDate` / `DateTimeUpdateFromDate` instead of `Schema.Number`, `Schema.DateTimeUtcFromMillis`, or the `*FromNumber` model fields. `Schema.Date` rejects an invalid `Date`, so a stored `infinity` now fails with `SchemaError`; map sentinels in SQL if you keep them. |
-| Unregistered OIDs: enums, extension types, other user-defined types | raw `Uint8Array` | UTF-8 text, so a scalar enum returns its label | Decode enum columns with `Schema.Literals([...])`. Enum **arrays** and binary user-defined types come back as garbled text or fail UTF-8 decoding, and a decode failure closes the connection (its pending queries fail; its transaction or `LISTEN` is lost; the pool replaces it). Register a codec for them. |
-| `listen(channel)` queue on `PgClient` and `PgConnection` | `Queue.Dequeue<Notification>`; a dropped connection interrupted consumers | `Queue.Dequeue<Notification, SqlError>`; a connection failure after `LISTEN` fails the queue with the original `SqlError`, while closing the scope still interrupts | Add `SqlError` to explicit queue and stream annotations, and wrap the listener in `Stream.retry` to register again. |
+**`listen(channel)`** is a **scoped** `Effect` yielding `Queue.Dequeue<PgConnection.Notification, SqlError>` (`{ processId, channel, payload }`), returned only after PostgreSQL confirms `LISTEN`. Take from the queue inside a scope. Because acquisition completes after confirmation, a notification sent right after it returns cannot be missed. The listener holds a connection until the scope closes; a connection failure after `LISTEN` fails the queue with the original `SqlError`, while closing the scope still interrupts.
 
-Parameters change less. The `timestamp` and `timestamptz` encoders, `PgTypes.timestamp(value)` and `PgTypes.timestamptz(value)` included, accept a `Date` or epoch milliseconds; encoding an invalid `Date` fails. A `Date` interpolated with `${}` binds as `timestamptz`, so inserting it into a `timestamp` (without time zone) column converts it through the session `TimeZone`. Either run sessions in UTC ([`TimeZone: "UTC"` at connect time](#session-settings-at-connect-time)) or bind `PgTypes.timestamp(date)`, which stores the `Date`'s UTC fields whatever the session zone is. `timestamptz` round trips preserve the instant in any zone.
+**Raw results.** `executeRaw` returns a `PgConnection.Result`, the native client's own result shape.
 
-A per-client `PgTypes.Registry` starts from the built-in codecs and overrides them without touching other clients. Use it for enum arrays, and to opt one client back into numeric timestamps while you migrate its row schemas:
+New tuning knobs beyond the ones above include `multiplex` / `multiplexConcurrency` (pipelining several statements over one connection), `maxMessageSize`, and the pool options `minConnections`, `maxConnections`, `idleTimeout`, and `connectionTTL`. Pass `Statement.SpanPropagationEnabled` (default `false`) with `Effect.provideService` to parent driver spans under `sql.execute`.
+
+A per-client `PgTypes.Registry` starts from the built-in codecs and overrides them without touching other clients. Use it for enum arrays, and for any type that needs a codec the built-ins do not provide:
 
 ```ts
 import { PgClient, PgTypes } from "@effect/sql-pg"
@@ -832,7 +831,5 @@ export const outboxWakeups = Stream.unwrap(Effect.gen(function*() {
   Stream.retry(Schedule.exponential("500 millis"))
 )
 ```
-
-> **Security note (`rc.115`):** the SQL-backed `Persistence` stores now parameterize lookup keys in `getMany`; earlier releases interpolated them into the query text. Upgrade if untrusted input can reach a persistence key.
 
 > **Note:** Typical usage: build `SqlLive = PgClient.layer({ ... })`, run `PgMigrator.layer({ loader })` on top at startup, define table models as `Model.Class`, derive repositories with `SqlModel.makeRepository`, reach for `SqlResolver` in resolvers to batch lookups, and drop to the `sql` tagged-template API plus `SqlSchema` for anything custom. One client service, swappable driver, typed all the way down.

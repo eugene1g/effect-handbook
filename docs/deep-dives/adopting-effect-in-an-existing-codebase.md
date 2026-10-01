@@ -1,12 +1,14 @@
 # Adopting Effect in an Existing TypeScript Codebase
 
-Audited against `effect@4.0.0-rc.116` and the matching Effect repository source on 2026-09-19.
+Audited against `effect@4.0.0` and the matching Effect repository source on 2026-09-19.
 
 Most teams do not get to start over. They have a Promise-based service that works, callers that depend on its exact shape, and a list of production incidents that all sound alike: a request nobody could cancel, a failure nobody could tell apart from another failure, a batch job that opened four hundred connections. This guide takes one such service from a compensation platform and moves it to Effect without a rewrite, one verifiable step at a time.
 
 [Anatomy of a Real Effect Application](anatomy-of-a-real-effect-application) describes the destination. This page is the path. For the mechanics it relies on, see [Core Runtime & Execution](../foundations/core-runtime-execution), [Recipe: ManagedRuntime at an Imperative Boundary](../recipes/managed-runtime-integration), [Recipe: Request Cancellation Through a Host](../recipes/request-cancellation-through-a-host), and [Testing an Effect Application](testing-an-effect-application).
 
-> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; in `rc.116` the type is `Fiber`), [Managing Services](https://effect.website/docs/v4/requirements-management/services), [Runtime](https://effect.website/docs/v4/runtime). These track Effect's `main` branch rather than the pinned `rc.116` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (some examples still label the `runFork` result `RuntimeFiber`; the exported type is `Fiber`), [Managing Services](https://effect.website/docs/v4/requirements-management/services), [Runtime](https://effect.website/docs/v4/runtime).
+
+> **Migrating an existing v3 codebase wholesale?** This page is about learning to write and review idiomatic v4 code by hand. If you instead want to mechanically port an existing `effect@3.x` codebase, use the official [`Effect-TS/skills`](https://github.com/Effect-TS/skills) migration skill (`npx skills add Effect-TS/skills`, skill name `effect-v3-to-v4`): it drives a migrate-and-typecheck loop over `migration/v3-to-v4.md` instead of a manual read-and-rewrite pass. Prefer the skill for bulk migration; come back to this page for the judgment calls — seam placement, cancellation, test strategy — the skill does not make for you.
 
 The route: audit what the signatures do not say, pin today's behavior, freeze the external contract, migrate leaf-first behind it, keep exactly one seam where Promise meets Effect, make adapters cancellable before adding policy, take the first testing win with `Effect.provideService`, graduate to Layers, then bound the fan-out and decide when you are done.
 
@@ -426,6 +428,10 @@ export class RaiseService {
 ```
 
 `RaiseService` kept its name, its method, and its Promise. Its constructor lost its dependency bag because the runtime now supplies them, and it gained an optional `signal` that a host forwards from the request. Creating a `ManagedRuntime` per call would rebuild `AppLive` every time; create it once per host.
+
+`shutdown()` is not a formality: `runtime.dispose()` closes the runtime's own scope, which interrupts and **waits for** every fiber the runtime started through `runFork`/`runPromise` before the returned Promise resolves. A host that calls `dispose()` and immediately exits still lets in-flight requests finish their finalizers; a host that never calls it leaks the Layer's resources on process exit. This is also why building `AppLive` only once matters for a different reason than performance: the Layer graph's `MemoMap` is shared across chained or nested `Effect.provide` calls on the same fiber lineage (see [Anatomy of a Real Effect Application](anatomy-of-a-real-effect-application#what-the-composition-root-owns)), so a stray second `provide` of the same Layer value inside the runtime's lifetime reuses the live instance rather than opening a second one — but two genuinely separate `ManagedRuntime.make(AppLive)` calls do not share anything, and are exactly as wasteful as the sentence above says.
+
+Separately, the Effect runtime now keeps the process alive on its own while a fiber is suspended on something like `Deferred.await` — a bare `Effect.runPromise(program)` no longer exits early just because the event loop looks idle. That lowers the cost of forgetting `runMain`, but it does not replace it: `NodeRuntime.runMain` (and its Bun/Deno equivalents) still install `SIGINT`/`SIGTERM` handling, map the final `Exit` to a process exit code, and report unhandled errors, none of which the keep-alive timer does by itself.
 
 ## Bound the fan-out and update the pinned tests
 

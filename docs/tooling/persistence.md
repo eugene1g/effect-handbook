@@ -2,7 +2,7 @@
 
 The stack has three levels. `KeyValueStore` supplies raw string/binary storage and swappable backends; `Persistence` stores schema-typed request `Exit` values in named stores; `PersistedCache` and `PersistedQueue` add cache and queue behavior on top. Browser, SQL, Redis, and filesystem modules provide concrete storage layers without changing the typed interface.
 
-> **Warning:** All modules in this chapter live under `effect/unstable/persistence/...`. Expect API changes between minor versions. Pin your Effect version and read the changelog before upgrading.
+> **Warning:** All modules in this chapter live under `effect/persistence/...`. Expect API changes between minor versions. Pin your Effect version and read the changelog before upgrading.
 
 ## What each primitive guarantees
 
@@ -19,7 +19,7 @@ Pick the primitive from the guarantee you need, and read the right-hand column b
 
 ## KeyValueStore
 
-`effect/unstable/persistence/KeyValueStore` — unstable
+`effect/persistence/KeyValueStore` — unstable
 
 Effectful key-value store service for string and binary (`Uint8Array`) values. The lowest layer of the persistence stack — a uniform interface that `Persistence` and `PersistedCache` sit on top of. Swap the backend by swapping the layer.
 
@@ -29,7 +29,7 @@ Effectful key-value store service for string and binary (`Uint8Array`) values. T
 
 ```ts
 import { Effect, Option, Schema } from "effect"
-import { KeyValueStore } from "effect/unstable/persistence"
+import { KeyValueStore } from "effect/persistence"
 
 // CompBand snapshot: level -> JSON band data (min/mid/max)
 class CompBand extends Schema.Class<CompBand>("CompBand")({
@@ -91,7 +91,7 @@ const TestLayer = KeyValueStore.layerMemory  // in-process, volatile
 
 ## Persistence
 
-`effect/unstable/persistence/Persistence` — unstable
+`effect/persistence/Persistence` — unstable
 
 Service that creates named stores for schema-typed `Exit` values keyed by `Persistable` requests. Where `KeyValueStore` speaks raw strings, `Persistence` speaks typed success/failure results — it serializes an `Exit<A, E>` using the request's success and error schemas, and deserializes it on the next read.
 
@@ -102,7 +102,7 @@ import { Effect, Exit, Schema } from "effect"
 import {
   Persistence,
   Persistable
-} from "effect/unstable/persistence"
+} from "effect/persistence"
 
 // A persistable request for fetching a CompBand by level
 class BandNotFound extends Schema.TaggedError<BandNotFound>()("BandNotFound", {
@@ -174,13 +174,13 @@ const layers = Persistence.layerMemory
 - **The TTL function decides whether anything is stored.** Omitting `timeToLive` keeps entries forever; returning a zero or negative duration for an `Exit` skips the write entirely, which is how you keep failures out of the store.
 - **Stored bytes are a compatibility contract.** The `storeId`, the primary key, and the success / error schemas together define what a later release must still be able to read. After an incompatible schema change, `store.get` fails with `SchemaError` for the old entry instead of reporting a miss. Version the `storeId` (or the key) when the shape changes, and never build keys by concatenating ambiguous user strings.
 
-> **Security note (`rc.116`):** the SQL-backed stores now bind `getMany` keys as query parameters; earlier releases spliced them into the statement text. Keys come from `PrimaryKey.value(request)`, so upgrade if untrusted input can reach a `Persistable` primary key (including through `PersistedCache` or `RequestResolver.persisted`).
+> **Security note:** the SQL-backed stores bind `getMany` keys as query parameters rather than splicing them into the statement text. Keys come from `PrimaryKey.value(request)`, so this holds even when untrusted input reaches a `Persistable` primary key (including through `PersistedCache` or `RequestResolver.persisted`).
 
 **Reach for it when** you want cross-restart memoization for expensive effectful computations and need the full typed `Exit` (success or failure) to survive a process restart.
 
 ## Persistable
 
-`effect/unstable/persistence/Persistable` — unstable
+`effect/persistence/Persistable` — unstable
 
 The protocol connecting a request value to its persistence schemas. A `Persistable<A, E>` is a `PrimaryKey` (provides a stable string key) that also carries a success schema `A` and an error schema `E` at the type level. `Persistence` and `PersistedCache` use those schemas to encode and decode the stored `Exit` value.
 
@@ -188,7 +188,7 @@ The protocol connecting a request value to its persistence schemas. A `Persistab
 
 ```ts
 import { PrimaryKey, Schema } from "effect"
-import { Persistable } from "effect/unstable/persistence"
+import { Persistable } from "effect/persistence"
 
 class Employee extends Schema.Class<Employee>("Employee")({
   id: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -224,13 +224,13 @@ console.log(req._tag)                                            // "GetEmployee
 
 > **Tip:** A class generated by `Persistable.Class` is simultaneously a valid `Request` (can be passed to `Effect.request`), a valid `PrimaryKey` (has a stable string key), and a `Persistable` (carries schemas). This lets `RequestResolver.persisted` transparently wrap any resolver to add cross-restart caching without changing the call site.
 
-`RequestResolver.persisted(resolver, { storeId, timeToLive?, staleWhileRevalidate? })` needs `Persistence` and a `Scope`. Stored results are loaded before the wrapped resolver runs, and only the misses are resolved and written back; an entry that `staleWhileRevalidate` marks stale is answered from the store *and* resolved again so the refreshed result replaces it. Since `rc.113` a failure of the wrapped resolver is propagated to the waiting requests, and results that were already completed are preserved. See [RequestResolver](../operations/caching-batching#requestresolver).
+`RequestResolver.persisted(resolver, { storeId, timeToLive?, staleWhileRevalidate? })` needs `Persistence` and a `Scope`. Stored results are loaded before the wrapped resolver runs, and only the misses are resolved and written back; an entry that `staleWhileRevalidate` marks stale is answered from the store *and* resolved again so the refreshed result replaces it. A failure of the wrapped resolver propagates to the waiting requests, while results that already completed are preserved. See [RequestResolver](../operations/caching-batching#requestresolver).
 
 **Reach for it when** building a `PersistedCache` or using `RequestResolver.persisted` — schemas must be declared upfront so the persistence layer can serialize results.
 
 ## PersistedCache
 
-`effect/unstable/persistence/PersistedCache` — unstable
+`effect/persistence/PersistedCache` — unstable
 
 A two-tier cache: in-process `Cache` in front of a durable `Persistence` store. On a miss, it checks the persistence store before running the lookup. A persistence-layer hit restores the result without calling the lookup effect — across process restarts.
 
@@ -242,7 +242,7 @@ import {
   Persistable,
   PersistedCache,
   Persistence
-} from "effect/unstable/persistence"
+} from "effect/persistence"
 
 // Durable cache for employee compensation lookups —
 // avoids hammering the HRIS on every org-chart render.
@@ -300,7 +300,7 @@ const program = Effect.scoped(
 const layers = Persistence.layerMemory
 ```
 
-- **Failures are cached too.** The whole `Exit` is persisted, so a failed lookup is replayed — across restarts and across processes — until its TTL expires. That includes defects, and since `rc.113` a lookup function that *throws synchronously* is captured and persisted the same way. Return `Duration.zero` from `timeToLive` for the exits you do not want stored, or give failures a short TTL as above.
+- **Failures are cached too.** The whole `Exit` is persisted, so a failed lookup is replayed — across restarts and across processes — until its TTL expires. That includes defects: a lookup function that *throws synchronously* is captured and persisted the same way. Return `Duration.zero` from `timeToLive` for the exits you do not want stored, or give failures a short TTL as above.
 - **Defaults:** `inMemoryCapacity` is `1024` and `inMemoryTTL` is 10 seconds, so without overrides most reads after the first 10 seconds go to the persistence store rather than memory.
 - **An incompatible stored entry fails the read.** After a success-schema change, `get` fails with `SchemaError` without running the lookup; `invalidate` the key or move to a new `storeId`.
 - **It is a cache, not a record.** Do not read business state back out of it, and do not rely on it to suppress duplicate work across a fleet.
@@ -309,13 +309,13 @@ const layers = Persistence.layerMemory
 
 ## PersistedQueue
 
-`effect/unstable/persistence/PersistedQueue` — unstable
+`effect/persistence/PersistedQueue` — unstable
 
 A durable work queue backed by persistent storage. Items are schema-encoded before enqueueing; workers call `queue.take(handler)` to claim and process one item at a time. If the handler succeeds the item is acknowledged as processed; if it fails the item becomes visible again after a delay chosen by the queue's retry schedule, until `maxAttempts` is exhausted and the item is **dead-lettered** (marked failed and kept). Restarts replay unacknowledged items automatically.
 
 **Mental model.** Outbox-style queue — producer writes the intent, consumer processes idempotently. Useful for any work that must not be lost if the process dies mid-flight. Delivery is at-least-once, so the handler's side effect needs its own idempotency key.
 
-The retry policy belongs to the **queue**, not to an individual `take` call (the per-`take` `{ maxAttempts }` option was removed in `rc.113`):
+The retry policy belongs to the **queue**, not to an individual `take` call:
 
 - `maxAttempts` defaults to `10`. An attempt is counted **when the item is claimed**, so `attempts` in the handler metadata is 1-based ("this is attempt 3") and a handler crash that kills the process still consumes an attempt.
 - `retrySchedule` defaults to an exponential delay starting at 1 second and capped at 5 minutes. Its input is the attempt number, and the persisted attempt count *is* the schedule state — the schedule is replayed up to the current attempt on each failure, so delays keep progressing even when consecutive retries run in different processes. Attempt-driven schedules are therefore exact; a wall-clock schedule such as `Schedule.upTo` bounds the *summed* delays, not real elapsed time.
@@ -323,7 +323,7 @@ The retry policy belongs to the **queue**, not to an individual `take` call (the
 
 ```ts
 import { Effect, Layer, Schedule, Schema } from "effect"
-import { PersistedQueue } from "effect/unstable/persistence"
+import { PersistedQueue } from "effect/persistence"
 
 // Each item in the queue is a pending raise approval request.
 const RaiseApprovalSchema = Schema.Struct({
@@ -396,8 +396,8 @@ The SQL and Redis stores claim an item with a per-worker lock that is refreshed 
 
 ```ts
 import { Effect, Schema } from "effect"
-import { PersistedQueue } from "effect/unstable/persistence"
-import { SqlClient } from "effect/unstable/sql"
+import { PersistedQueue } from "effect/persistence"
+import { SqlClient } from "effect/sql"
 
 const RaiseApproved = Schema.Struct({
   employeeId: Schema.Int,
@@ -447,7 +447,7 @@ Test recovery in three separate lanes: a deterministic state machine on `layerSt
 
 ## RateLimiter
 
-`effect/unstable/persistence/RateLimiter` — unstable
+`effect/persistence/RateLimiter` — unstable
 
 A persistent token-bucket/fixed-window rate limiter. Stores counters in a shared backing store (memory or Redis), so limits apply across fibers and—with Redis—across multiple processes or pods.
 
@@ -455,7 +455,7 @@ A persistent token-bucket/fixed-window rate limiter. Stores counters in a shared
 
 ```ts
 import { Duration, Effect, Layer } from "effect"
-import { RateLimiter } from "effect/unstable/persistence"
+import { RateLimiter } from "effect/persistence"
 
 // Cap calls to the HRIS and payroll API to respect their published quotas.
 const program = Effect.gen(function*() {
@@ -526,21 +526,21 @@ const layers = RateLimiter.layer.pipe(
 
 Adaptive limiting is a separate feedback API, not another `algorithm` string. Call `adaptiveConsume` before the request, retain its `epoch`, then report the response with `adaptiveFeedback`. The state progresses through `inactive`, `cooldown`, `learning`, and `learned`: a `429` with `Retry-After` starts or extends cooldown, later traffic measures an accepted rate, and learned state schedules future requests accordingly. The in-memory store coordinates only one process; use the Redis store when this learned state must be shared by several workers.
 
-> **Note:** Writing a custom `RateLimiterStore`? Since `rc.113`, `tokenBucket` must return `[remaining, elapsedMillis]` from **one atomic operation** — the tokens left after consuming, and the time since the current refill interval started (at least `0`, less than the refill interval). The limiter derives `delay` and `resetAfter` from both; returning `[remaining, 0]` reproduces the old timing error. The same release made token-bucket timing follow whole-token refill boundaries and made fixed-window `resetAfter` report the exact remaining window under `onExceeded: "delay"` instead of rounding up to a full window.
+> **Note:** Writing a custom `RateLimiterStore`? `tokenBucket` must return `[remaining, elapsedMillis]` from **one atomic operation** — the tokens left after consuming, and the time since the current refill interval started (at least `0`, less than the refill interval). The limiter derives `delay` and `resetAfter` from both; returning `[remaining, 0]` reproduces the old timing error. Token-bucket timing follows whole-token refill boundaries, and fixed-window `resetAfter` reports the exact remaining window under `onExceeded: "delay"` instead of rounding up to a full window.
 
 **Reach for it when** you need rate limits that work across multiple fibers or processes — protecting external APIs or enforcing per-tenant quotas in a multi-worker deployment.
 
 ## Redis
 
-`effect/unstable/persistence/Redis` — unstable
+`effect/persistence/Redis` — unstable
 
-A thin service wrapper around a Redis client used internally by the other persistence modules. Provides three primitives: `send` for raw Redis commands, `subscribe(channel)` for a scoped pub/sub subscription delivered as a `Queue.Dequeue<RedisMessage, RedisError>` (new in `rc.111`), and `eval` for executing typed Lua scripts via `EVALSHA` (with automatic script loading and SHA caching via `SCRIPT LOAD`).
+A thin service wrapper around a Redis client used internally by the other persistence modules. Provides three primitives: `send` for raw Redis commands, `subscribe(channel)` for a scoped pub/sub subscription delivered as a `Queue.Dequeue<RedisMessage, RedisError>`, and `eval` for executing typed Lua scripts via `EVALSHA` (with automatic script loading and SHA caching via `SCRIPT LOAD`).
 
-**Mental model.** The barrel exports a `Redis` module namespace; the service tag inside it is `Redis.Redis`. Prefer a ready-made platform layer: `NodeRedis.layer(options)` / `NodeRedis.layerConfig(...)` from `@effect/platform-node` (backed by `node-redis`), or the `BunRedis` / `DenoRedis` equivalents. They acquire a scoped client, close it when the layer scope ends, and also expose the raw client through a `NodeRedis` service. To bring your own client instead, wrap it with `Redis.make({ send, subscribe })` — since `rc.111` **both** operations are required. Every module in this chapter with a `layerXxxRedis` variant requires `Redis.Redis`. Scripts are described with `Redis.script(paramsToArgs, { lua, numberOfKeys })` — a two-argument form where the first argument maps typed parameters to Redis argument arrays.
+**Mental model.** The barrel exports a `Redis` module namespace; the service tag inside it is `Redis.Redis`. Prefer a ready-made platform layer: `NodeRedis.layer(options)` / `NodeRedis.layerConfig(...)` from `@effect/platform-node` (backed by `node-redis`), or the `BunRedis` / `DenoRedis` equivalents. They acquire a scoped client, close it when the layer scope ends, and also expose the raw client through a `NodeRedis` service. To bring your own client instead, wrap it with `Redis.make({ send, subscribe })` — **both** operations are required. Every module in this chapter with a `layerXxxRedis` variant requires `Redis.Redis`. Scripts are described with `Redis.script(paramsToArgs, { lua, numberOfKeys })` — a two-argument form where the first argument maps typed parameters to Redis argument arrays.
 
 ```ts
 import { Effect, Layer } from "effect"
-import { Redis } from "effect/unstable/persistence"
+import { Redis } from "effect/persistence"
 
 // Imagine `redisClient` comes from ioredis or node-redis.
 declare const redisClient: {

@@ -44,7 +44,7 @@ When sources disagree, reproduce the behavior and describe the discrepancy. Do n
 ### Surface inventory
 
 - Enumerate stable namespaces from `packages/effect/src/index.ts`.
-- Enumerate every unstable family and its namespace exports.
+- Enumerate every `effect/<area>` family front door in the package `exports` map and its namespace exports, and inventory `@stability unstable` / `@stability experimental` tags per module (stability is a per-API tag since `effect@4.0.0`, not a path segment).
 - Inspect package export maps for public paths not represented by namespace barrels.
 - Enumerate all non-private package manifests below `packages/`.
 - Walk private/internal/experimental folders and tools; record public concepts, adapters, and migration implications even when they do not receive standalone headings.

@@ -1,7 +1,7 @@
 import { Effect, Layer, Schema } from "effect"
-import { HttpClient } from "effect/unstable/http"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi"
-import { Rpc, RpcClient, RpcGroup } from "effect/unstable/rpc"
+import { HttpClient } from "effect/http"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
+import { Rpc, RpcClient, RpcGroup } from "effect/rpc"
 
 const FixtureHttpApi = HttpApi.make("fixture-http-api").add(
   HttpApiGroup.make("users")

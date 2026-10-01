@@ -6,7 +6,7 @@ import {
   AtomRegistry,
   Hydration,
   Reactivity
-} from "effect/unstable/reactivity"
+} from "effect/reactivity"
 
 const family = Atom.family((id: number) => Atom.make(id))
 assert.equal(family(1), family(1), "Atom.family must return the same live atom for an equal argument")
@@ -119,7 +119,7 @@ assert.equal(
 )
 
 console.log(JSON.stringify({
-  target: "effect@4.0.0-rc.116",
+  target: "effect@4.0.0",
   probes: 13,
   status: "pass"
 }))

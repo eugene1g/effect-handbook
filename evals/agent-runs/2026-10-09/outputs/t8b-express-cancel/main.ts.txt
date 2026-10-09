@@ -1,0 +1,236 @@
+/**
+ * Express + Effect 4 integration
+ *
+ * GET /payroll/:id
+ *   - Uses a DbPool Layer (acquired once, released on shutdown)
+ *   - Calls a downstream service via Effect.tryPromise (AbortSignal forwarded)
+ *   - Interrupts the running Effect fiber when the HTTP client disconnects
+ *   - Maps typed errors to HTTP status codes
+ *   - Graceful SIGTERM shutdown: stop intake → drain → dispose runtime
+ *
+ * Install: pnpm add effect@4.0.2 express
+ */
+
+import { Cause, Context, Data, Effect, Exit, Layer, ManagedRuntime } from "effect"
+import express from "express"
+
+// ── Domain errors ──────────────────────────────────────────────────────────────
+
+class PayrollNotFound extends Data.TaggedError("PayrollNotFound")<{
+  readonly id: string
+}> {}
+
+class DatabaseUnavailable extends Data.TaggedError("DatabaseUnavailable")<{
+  readonly cause: unknown
+}> {}
+
+class DownstreamUnavailable extends Data.TaggedError("DownstreamUnavailable")<{
+  readonly cause: unknown
+}> {}
+
+// ── Database pool service ──────────────────────────────────────────────────────
+// The pool is acquired once (when the Layer builds) and released on runtime.dispose().
+
+interface PayrollRow {
+  readonly id: string
+  readonly amount: number
+  readonly status: string
+}
+
+class DbPool extends Context.Service<DbPool, {
+  readonly queryPayroll: (id: string) => Effect.Effect<PayrollRow | null, DatabaseUnavailable>
+}>()("app/DbPool") {
+  static readonly layer = Layer.effect(
+    DbPool,
+    Effect.gen(function* () {
+      // acquireRelease: setup + teardown tied to the Layer's Scope.
+      // Layer.effect already handles the Scope requirement (Effect 4).
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          console.log("[db] pool acquired")
+        }),
+        () =>
+          Effect.sync(() => {
+            console.log("[db] pool released")
+          })
+      )
+
+      // In-memory stub — replace with a real pg/mysql pool in production.
+      const store: Record<string, PayrollRow> = {
+        "1": { id: "1", amount: 5000, status: "processed" },
+        "2": { id: "2", amount: 7200, status: "pending" },
+      }
+
+      return {
+        queryPayroll: (id: string) =>
+          Effect.tryPromise({
+            try: async (_signal) => store[id] ?? null,
+            catch: (cause) => new DatabaseUnavailable({ cause }),
+          }),
+      }
+    })
+  )
+}
+
+// ── Downstream service call ────────────────────────────────────────────────────
+// Effect hands a per-fiber AbortSignal to the `try` callback (hop two).
+// When the calling fiber is interrupted, Effect aborts that signal so the fetch
+// (or stub timer) is cancelled and the socket is freed.
+
+const fetchDownstreamDetails = (id: string) =>
+  Effect.tryPromise({
+    try: (signal): Promise<{ processor: string; timestamp: string }> =>
+      // Stub: simulate network latency with a clearable timer.
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => resolve({ processor: "payroll-svc-v2", timestamp: new Date().toISOString() }),
+          50
+        )
+        signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer)
+            reject(new Error("aborted"))
+          },
+          { once: true }
+        )
+      }),
+    catch: (cause) => new DownstreamUnavailable({ cause }),
+  })
+
+// ── Route effect ───────────────────────────────────────────────────────────────
+
+const handlePayroll = (id: string) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const db = yield* DbPool
+      const row = yield* db.queryPayroll(id)
+      if (row === null) {
+        return yield* Effect.fail(new PayrollNotFound({ id }))
+      }
+      const details = yield* fetchDownstreamDetails(id)
+      return { ...row, ...details }
+    })
+  )
+
+// ── Application layer ──────────────────────────────────────────────────────────
+
+const AppLayer = DbPool.layer
+
+// ── ManagedRuntime — one per application lifetime ──────────────────────────────
+// Builds the Layer graph once and provides the same context to every request.
+// Keeps typed failure, defect, and interruption separate via runPromiseExit.
+
+const runtime = ManagedRuntime.make(AppLayer)
+
+// ── Express app ────────────────────────────────────────────────────────────────
+
+const app = express()
+let accepting = true
+const inFlight = new Set<Promise<unknown>>()
+
+app.get("/payroll/:id", (req, res) => {
+  // Admit gate: refuse during shutdown before any work starts.
+  if (!accepting) {
+    res.status(503).json({ error: "service shutting down" })
+    return
+  }
+
+  // Hop one — host → fiber:
+  // Express/Node exposes a "close" event, not an AbortSignal.  Wrap it.
+  const controller = new AbortController()
+  res.on("close", () => {
+    if (!res.writableEnded) {
+      controller.abort()
+    }
+  })
+
+  const { id } = req.params
+
+  const promise = runtime
+    .runPromiseExit(handlePayroll(id), { signal: controller.signal })
+    .then((exit) => {
+      if (res.headersSent) return
+
+      if (Exit.isSuccess(exit)) {
+        res.status(200).json(exit.value)
+        return
+      }
+
+      // Fiber interrupted (client disconnected or shutdown in progress).
+      if (Cause.hasInterruptsOnly(exit.cause)) {
+        if (!res.writableEnded) {
+          res.status(499).end() // nginx-style "client closed request"
+        }
+        return
+      }
+
+      // Typed failure — map each error tag to an HTTP status code.
+      const found = Cause.findErrorOption(exit.cause)
+      if (found._tag === "Some") {
+        const err = found.value as PayrollNotFound | DatabaseUnavailable | DownstreamUnavailable
+        if (err._tag === "PayrollNotFound") {
+          res.status(404).json({ error: `Payroll record ${err.id} not found` })
+          return
+        }
+        if (err._tag === "DatabaseUnavailable" || err._tag === "DownstreamUnavailable") {
+          res.status(503).json({ error: "upstream service unavailable" })
+          return
+        }
+      }
+
+      // Defect (unexpected bug) — 500.
+      res.status(500).json({ error: "internal server error" })
+    })
+
+  // Track in-flight promises so shutdown can drain them.
+  inFlight.add(promise)
+  void promise.finally(() => inFlight.delete(promise))
+})
+
+// ── Server startup ─────────────────────────────────────────────────────────────
+
+const server = app.listen(3000, () => {
+  console.log("[app] listening on :3000")
+  // Warm the runtime at boot so a broken Layer build fails the start-up probe,
+  // not the first real request.
+  void runtime.runPromise(Effect.void).then(() => {
+    console.log("[app] runtime warmed — accepting requests")
+  })
+})
+
+// ── Graceful shutdown ──────────────────────────────────────────────────────────
+
+/**
+ * Settles `work` or resolves after `millis`, whichever comes first.
+ * Gives in-flight requests a bounded window to finish before we interrupt them.
+ */
+const settleWithin = (work: Promise<unknown>, millis: number): Promise<void> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(resolve, millis)
+    void work.finally(() => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
+
+// Memoised so SIGTERM and any other shutdown trigger all get the same Promise.
+let stopping: Promise<void> | undefined
+
+const shutdown = (): Promise<void> =>
+  (stopping ??= (async () => {
+    console.log("[shutdown] stopping intake")
+    accepting = false // 1. stop admitting new requests, synchronously
+    server.close()   // 2. stop accepting new TCP connections
+
+    // 3. drain in-flight requests (10 s grace period)
+    await settleWithin(Promise.allSettled(inFlight), 10_000)
+
+    // 4. interrupt any survivors, run their finalizers, release the Layer
+    await runtime.dispose()
+    console.log("[shutdown] complete")
+  })())
+
+process.on("SIGTERM", () => {
+  void shutdown()
+})

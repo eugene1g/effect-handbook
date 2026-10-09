@@ -16,6 +16,8 @@ Generated code most often breaks on a name carried over from Effect 3. Each of t
 | `Effect.zipLeft` / `Effect.zipRight` | `Effect.tap` / `Effect.andThen` |
 | `Context.Tag`, `Effect.Service` | `Context.Service` — see [Services, Context & Layers](../foundations/services-context-layers) |
 | `Layer.scoped` | `Layer.effect` (it already handles a `Scope` requirement) |
+| `Schema.decodeUnknown` / `Schema.encodeUnknown` | `Schema.decodeUnknownEffect` / `Schema.encodeUnknownEffect` (or the `Sync`, `Result`, `Exit`, `Option`, and `Promise` variants) — see [Schema](../data/schema#1-decoding-and-encoding-pick-your-result-style) |
+| `Schema.decode(schema)` as a decoder | `Schema.decodeEffect(schema)`; in Effect 4 `Schema.decode` builds a transformation from getters |
 | `@effect/platform`, `@effect/rpc`, `@effect/sql`, `@effect/cli` | modules inside `effect`: `FileSystem` and `Path` from `"effect"`, HTTP from `"effect/http"`, and so on; host Layers from `@effect/platform-node` — see [Getting Started](../foundations/getting-started#install-effect-4) |
 | `NodeRuntime` from `"effect"` | `NodeRuntime` from `@effect/platform-node` |
 

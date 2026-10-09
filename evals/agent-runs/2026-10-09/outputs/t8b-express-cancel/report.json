@@ -1,0 +1,12 @@
+{
+  "edition": "4.0 (effect@4.0.2, audited 2026-10-09)",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/recipes/request-cancellation-through-a-host.md#contract",
+    "https://eugene1g.github.io/effect-handbook/recipes/request-cancellation-through-a-host.md#complete-file",
+    "https://eugene1g.github.io/effect-handbook/recipes/request-cancellation-through-a-host.md#variations",
+    "https://eugene1g.github.io/effect-handbook/recipes/managed-runtime-integration.md#a-production-shaped-bridge",
+    "https://eugene1g.github.io/effect-handbook/recipes/managed-runtime-integration.md#contract"
+  ],
+  "assumptions": "Express `res.on('close')` is used to detect client disconnect (the recipe confirms Node's http.ServerResponse emits 'close' instead of exposing an AbortSignal, and suggests an AbortController bridge). Downstream service is stubbed with a cancellable timer since no real URL exists. The DbPool Layer uses an in-memory record as the fake database. Cause.findErrorOption is cast to the union of typed errors; in a real app a Schema or exhaustive match would be cleaner. SIGTERM is the only signal handled; SIGINT could be added identically.",
+  "confidence": 5
+}

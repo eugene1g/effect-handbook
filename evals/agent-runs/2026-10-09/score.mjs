@@ -38,8 +38,10 @@ function run(command, args, options = {}) {
   return { code: result.status, signal: result.signal, output: `${result.stdout ?? ""}${result.stderr ?? ""}` }
 }
 
+for (const [rerun, original] of [["t7b-ndjson-stream", "t7-ndjson-stream"], ["t8b-express-cancel", "t8-express-cancel"], ["t9b-otlp", "t9-otlp"]]) expected[rerun] = expected[original]
+const only = process.argv.slice(2)
 const rows = []
-for (const task of Object.keys(expected)) {
+for (const task of Object.keys(expected).filter((task) => only.length === 0 || only.includes(task))) {
   const dir = path.join(evalRoot, task)
   const row = { task }
   const fetches = existsSync(path.join(dir, "fetches.tsv"))
@@ -99,7 +101,7 @@ for (const task of Object.keys(expected)) {
   }
   rows.push(row)
 }
-writeFileSync(path.join(evalRoot, "scores.json"), JSON.stringify(rows, null, 2))
+writeFileSync(path.join(evalRoot, only.length ? "scores-rerun.json" : "scores.json"), JSON.stringify(rows, null, 2))
 for (const row of rows) {
   console.log(`${row.task.padEnd(20)} fetches=${row.fetches} words=${row.words} essentials=${row.usedEssentials} firstHit=${row.firstContentHit} anyHit=${row.anyHit} ts=${row.typescript} effect=${row.effectDiagnostics ?? "-"} run=${row.run ?? "-"} tests=${row.tests ?? "-"}`)
 }

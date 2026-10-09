@@ -1,0 +1,203 @@
+/**
+ * comp-service: production telemetry with Effect 4
+ *
+ * Signals:
+ *  - Spans   — one per business operation; low-cardinality names, employee ids as attributes
+ *  - Metric  — counter for approved raises (no employee-id label; bounded vocabulary only)
+ *  - Logs    — structured, annotated with cycleId/employeeId; correlated with traces via
+ *               tracerLogger (kept by Otlp.layerJson's loggerMergeWithExisting: true default)
+ *
+ * Export: Otlp.layerJson → OTLP/HTTP → http://localhost:4318
+ * Shutdown: Layer.launch scope closes → each exporter flushes (bounded by shutdownTimeout)
+ */
+
+import { NodeRuntime } from "@effect/platform-node"
+import { Effect, Layer, Metric } from "effect"
+import { FetchHttpClient } from "effect/http"
+import { Otlp } from "effect/observability"
+
+// ---------------------------------------------------------------------------
+// Metric — defined at module scope so all updates share one registry entry
+// ---------------------------------------------------------------------------
+
+/** Incremental counter: each call to Metric.update(approvedRaises, 1) adds one. */
+const approvedRaises = Metric.counter("comp_raise_approvals_total", {
+  description: "Number of compensation raises approved in a merit cycle",
+  incremental: true
+  // No employee-id label: every distinct label combination is a separate time series.
+  // Per-employee detail belongs in span attributes and log annotations.
+})
+
+// ---------------------------------------------------------------------------
+// Domain types (stubs — no real HRIS needed to run this file)
+// ---------------------------------------------------------------------------
+
+interface CompBand {
+  readonly min: number
+  readonly max: number
+}
+
+interface RaiseDecision {
+  readonly employeeId: string
+  readonly currentSalary: number
+  readonly proposedSalary: number
+  readonly approved: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Business operations
+// Each uses a low-cardinality span name (operation type, never an instance id).
+// Employee ids ride along as span attributes and log annotations.
+// ---------------------------------------------------------------------------
+
+/** Stub HRIS lookup — returns a compensation band for the employee. */
+const fetchCompBand = (employeeId: string): Effect.Effect<CompBand> =>
+  Effect.gen(function* () {
+    yield* Effect.logInfo("fetching compensation band")
+    // Stub: in production this would call the HRIS API
+    return { min: 80_000, max: 120_000 }
+  }).pipe(
+    Effect.withSpan("hris.fetchCompBand", {
+      attributes: { "employee.id": employeeId }
+    }),
+    Effect.annotateLogs({ employeeId })
+  )
+
+/** Compute a proposed raise and check it against the band ceiling. */
+const calculateRaise = (
+  employeeId: string,
+  currentSalary: number,
+  band: CompBand
+): Effect.Effect<RaiseDecision> =>
+  Effect.gen(function* () {
+    const proposedSalary = Math.round(currentSalary * 1.05)
+    const approved = proposedSalary <= band.max
+
+    yield* Effect.logInfo("raise calculated", { proposedSalary, approved })
+
+    if (!approved) {
+      yield* Effect.logInfo("raise exceeds band ceiling — denying", {
+        bandMax: band.max,
+        overage: proposedSalary - band.max
+      })
+    }
+
+    return { employeeId, currentSalary, proposedSalary, approved }
+  }).pipe(
+    Effect.withSpan("comp.calculateRaise", {
+      attributes: { "employee.id": employeeId }
+    }),
+    Effect.annotateLogs({ employeeId })
+  )
+
+/**
+ * Top-level business operation: approve or deny a raise for one employee.
+ * Span name is "comp.approveRaise" — stable across all employees.
+ * employeeId and cycleId are span *attributes*, not part of the span name.
+ */
+const approveRaise = (
+  employeeId: string,
+  cycleId: string
+): Effect.Effect<RaiseDecision> =>
+  Effect.gen(function* () {
+    const currentSalary = 95_000 // stub — would be loaded from DB in production
+
+    const band = yield* fetchCompBand(employeeId)
+    const decision = yield* calculateRaise(employeeId, currentSalary, band)
+
+    if (decision.approved) {
+      // Increment the counter — no employee-id label (unbounded cardinality)
+      yield* Metric.update(approvedRaises, 1)
+      yield* Effect.logInfo("raise approved", { newSalary: decision.proposedSalary })
+    } else {
+      yield* Effect.logInfo("raise denied")
+    }
+
+    return decision
+  }).pipe(
+    // Low-cardinality span name; per-instance identifiers go in attributes
+    Effect.withSpan("comp.approveRaise", {
+      attributes: { "employee.id": employeeId, "cycle.id": cycleId }
+    }),
+    // All log calls inside this effect inherit these annotations automatically
+    Effect.annotateLogs({ employeeId, cycleId })
+  )
+
+/**
+ * Run the full merit cycle for a list of employees.
+ */
+const runMeritCycle = (cycleId: string, employeeIds: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    yield* Effect.logInfo("merit cycle started", { employeeCount: employeeIds.length })
+
+    const decisions: Array<RaiseDecision> = []
+    for (const employeeId of employeeIds) {
+      const decision = yield* approveRaise(employeeId, cycleId)
+      decisions.push(decision)
+    }
+
+    const approvedCount = decisions.filter((d) => d.approved).length
+    yield* Effect.logInfo("merit cycle complete", {
+      processed: decisions.length,
+      approved: approvedCount,
+      denied: decisions.length - approvedCount
+    })
+
+    return decisions
+  }).pipe(
+    Effect.withSpan("comp.runMeritCycle", {
+      attributes: { "cycle.id": cycleId }
+    }),
+    Effect.annotateLogs({ cycleId })
+  )
+
+// ---------------------------------------------------------------------------
+// Telemetry Layer
+//
+// Otlp.layerJson is chosen over @effect/opentelemetry NodeSdk because:
+//  - This is a new Node service with no existing OpenTelemetry SDK setup.
+//  - Otlp.layerJson covers all three signals (traces, metrics, logs) in one
+//    Layer with zero extra peer dependencies.
+//  - loggerMergeWithExisting: true (the default) keeps tracerLogger in place,
+//    so every log call is also recorded as a span event — providing
+//    trace-correlated structured logs without any extra wiring.
+//  - The scope-close flush (bounded by shutdownTimeout) is built in.
+//  - NodeSdk would be the right choice only if a platform team already manages
+//    an OTel SDK setup, SDK-native auto-instrumentation is needed (HTTP, gRPC,
+//    DB drivers), or we need to integrate with vendor SDK exporters.
+// ---------------------------------------------------------------------------
+
+export const ObservabilityLayer = Otlp.layerJson({
+  baseUrl: "http://localhost:4318",
+  resource: {
+    serviceName: "comp-service",
+    serviceVersion: "1.0.0",
+    attributes: { "deployment.environment": "production" }
+  },
+  // Export intervals — defaults are 1 s logs, 5 s traces, 10 s metrics
+  loggerExportInterval: "1 second",
+  tracerExportInterval: "5 seconds",
+  metricsExportInterval: "10 seconds",
+  // Each exporter waits up to 3 seconds to flush its buffer on shutdown.
+  // With a dead collector the process still exits ~3 seconds after work finishes.
+  shutdownTimeout: "3 seconds"
+  // loggerMergeWithExisting: true (default) — keeps tracerLogger so log events
+  // appear inside spans; the default text logger is also preserved.
+}).pipe(Layer.provide(FetchHttpClient.layer))
+
+// ---------------------------------------------------------------------------
+// Main program
+// ---------------------------------------------------------------------------
+
+const program = runMeritCycle("2026-merit", ["E-1001", "E-1002", "E-1003"])
+
+// Layer.launch builds ObservabilityLayer first and releases it last.
+// This guarantees:
+//  1. Telemetry exporters are running before the program starts.
+//  2. Fibers forked during the program log through the installed tracer and logger.
+//  3. On shutdown, the program's finalizers run while exporters still accept data,
+//     then the exporters flush, then the HTTP client is released.
+// NodeRuntime.runMain registers SIGTERM/SIGINT handlers and awaits a clean exit.
+Layer.launch(
+  Layer.effectDiscard(program).pipe(Layer.provide(ObservabilityLayer))
+).pipe(NodeRuntime.runMain)

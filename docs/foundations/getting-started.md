@@ -126,7 +126,7 @@ Four reading rules carry into every other page:
 | Caller that keeps and owns the fiber | `Effect.runFork` | returns a `Fiber`; someone must join, observe, or interrupt it |
 | A host that calls in repeatedly (web framework, UI) | one `ManagedRuntime` | per runner, as above; dispose it on shutdown |
 
-Details: [Effect](core-runtime-execution#effect), [Runtime](core-runtime-execution#runtime), and [ManagedRuntime](core-runtime-execution#managedruntime). `BrowserRuntime.runMain` is the browser equivalent; see [Platform & Runtime Hosts](../interfaces/platform-runtime-hosts).
+Details: [Effect](core-runtime-execution#effect), [Runtime](fibers-scopes-runtimes#runtime), and [ManagedRuntime](fibers-scopes-runtimes#managedruntime). `BrowserRuntime.runMain` is the browser equivalent; see [Platform & Runtime Hosts](../interfaces/platform-runtime-hosts).
 
 ## Import forms
 

@@ -4,7 +4,7 @@ Effect's coordination primitives let fibers share permits, queues, broadcasts, p
 
 > **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
-Fork variants and fiber ownership live in [Core Runtime & Execution](../foundations/core-runtime-execution#fiber); stream-level buffering and backpressure live in [Streaming & Channels](./streaming-channels#stream). This page owns what happens *between* fibers: who waits, who is told "no", and what is lost.
+Fork variants and fiber ownership live in [Core Runtime & Execution](../foundations/fibers-scopes-runtimes#fiber); stream-level buffering and backpressure live in [Streaming & Channels](./streaming-channels#stream). This page owns what happens *between* fibers: who waits, who is told "no", and what is lost.
 
 ## Semaphore
 

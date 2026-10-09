@@ -121,7 +121,7 @@ For a push source the real choices are a stated loss policy (`"dropping"` or `"s
 
 **`unfold` vs `paginate`.** The `unfold` step is always effectful and returns `[element, nextState]`, or `undefined` to stop — exactly one element per step. `paginate` returns a whole page plus `Option<nextState>` and still emits the last page when the next state is `None`, which is why it fits page-shaped APIs. There is no `unfoldEffect` or `paginateEffect`.
 
-**Ending a repeated effect.** `Stream.fromEffectRepeat(effect)` re-runs an effect forever, one element per run. Fail it with `Cause.done()` to end the stream *normally* — the way to drain an imperative iterator or cursor without carrying `unfold` state (see [Pull](../foundations/core-runtime-execution#pull) for the `Done` signal).
+**Ending a repeated effect.** `Stream.fromEffectRepeat(effect)` re-runs an effect forever, one element per run. Fail it with `Cause.done()` to end the stream *normally* — the way to drain an imperative iterator or cursor without carrying `unfold` state (see [Pull](../foundations/fibers-scopes-runtimes#pull) for the `Done` signal).
 
 ```ts
 import { Cause, Effect, Stream } from "effect"

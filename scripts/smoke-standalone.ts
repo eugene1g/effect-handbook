@@ -58,9 +58,9 @@ try {
   await cdp.call("Log.enable")
 
   await setViewport(cdp, 1440, 1000, false)
-  await navigate(cdp, `${handbookUrl}#data-schema--schemaissue`)
+  await navigate(cdp, `${handbookUrl}#data-schema-tooling--schemaissue`)
   await waitForExpression(cdp, `(() => {
-    const target = document.getElementById("data-schema--schemaissue")
+    const target = document.getElementById("data-schema-tooling--schemaissue")
     return document.readyState === "complete" &&
       target?.closest(".handbook-page")?.classList.contains("active") &&
       target.getBoundingClientRect().top >= 0 &&
@@ -69,7 +69,7 @@ try {
 
   const desktop = await evaluate(cdp, `(() => {
     const pages = [...document.querySelectorAll("section.handbook-page[data-page-source]")]
-    const target = document.getElementById("data-schema--schemaissue")
+    const target = document.getElementById("data-schema-tooling--schemaissue")
     const sidebar = document.getElementById("sidebar")
     const mobileBar = document.querySelector(".mobile-bar")
     const dependencyElements = [...document.querySelectorAll(
@@ -98,10 +98,10 @@ try {
     inventoryDifference(desktop.sources, expectedSources)
   )
   assert(
-    JSON.stringify(desktop.activeSources) === JSON.stringify(["data/schema.md"]),
+    JSON.stringify(desktop.activeSources) === JSON.stringify(["data/schema-tooling.md"]),
     `Desktop active pages were ${desktop.activeSources.join(", ") || "none"}`
   )
-  assert(desktop.hash === "#data-schema--schemaissue", `Desktop hash is ${desktop.hash}`)
+  assert(desktop.hash === "#data-schema-tooling--schemaissue", `Desktop hash is ${desktop.hash}`)
   assert(
     desktop.targetTop >= 0 && desktop.targetTop <= 140,
     `Desktop deep-link target is at ${desktop.targetTop}px`

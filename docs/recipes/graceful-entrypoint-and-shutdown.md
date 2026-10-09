@@ -60,7 +60,7 @@ The core runtime keeps the process alive on its own now — a reference-counted 
 | Error reporting | A failure that is not interruption-only is logged once with `Effect.logError` | `disableErrorReporting: true`, or set `[Runtime.errorReported] = false` on an error class that was already reported |
 | Exit code | `Runtime.defaultTeardown`: `0` / `130` / `[Runtime.errorExitCode]` or `1` | `teardown: (exit, onExit) => …` |
 
-Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime). The tagged source additionally uses `130` for an interruption-only exit and listens for SIGTERM as well as SIGINT; this page follows the source. The runner itself is described in [Core Runtime & Execution](../foundations/core-runtime-execution#runtime).
+Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime). The tagged source additionally uses `130` for an interruption-only exit and listens for SIGTERM as well as SIGINT; this page follows the source. The runner itself is described in [Core Runtime & Execution](../foundations/fibers-scopes-runtimes#runtime).
 
 ## Adding readiness and a bounded drain
 

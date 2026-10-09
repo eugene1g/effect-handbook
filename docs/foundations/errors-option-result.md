@@ -280,7 +280,7 @@ const bandMidpoint = Effect.firstSuccessOf([fromHris, fromReplica, fromSnapshot]
 
 ### Recovery replaces the whole Cause
 
-A [`Cause`](core-runtime-execution#cause) is a flat list of reasons and may hold a typed failure *and* a defect or interruption at once: a failing operation whose finalizer dies, a concurrent sibling whose cleanup dies while being interrupted, or a `race` in which every contender fails.
+A [`Cause`](fibers-scopes-runtimes#cause) is a flat list of reasons and may hold a typed failure *and* a defect or interruption at once: a failing operation whose finalizer dies, a concurrent sibling whose cleanup dies while being interrupted, or a `race` in which every contender fails.
 
 **Every typed-channel operator looks for the first `Fail` reason; when it finds one, the handler's result becomes the entire outcome and the other reasons are dropped.** That covers `catch`, `catchTag(s)`, `catchIf`, `catchFilter`, `catchReason(s)`, `mapError`, `orDie`, `orElseSucceed`, `firstSuccessOf`, `match`, `matchEffect`, `result`, `option`, `ignore`, and `retry`. With no `Fail` reason, or when the selector does not match, the original `Cause` passes through untouched. `tapError` and `tapCause` re-raise the original `Cause`, so they lose nothing.
 

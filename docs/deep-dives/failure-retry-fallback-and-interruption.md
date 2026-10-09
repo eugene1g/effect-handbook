@@ -502,7 +502,7 @@ Practical rules:
 - **`Effect.sandbox` has no `unsandbox` counterpart** (a stale doc comment still names one); restore the ordinary error model with `Effect.catch((cause) => Effect.failCause(cause))`.
 - **Multiple domain errors are better modeled as data** — `Effect.validate` or `Effect.partition` — than as several `Fail` reasons, because typed handlers see only the first.
 
-[Core Runtime & Execution](../foundations/core-runtime-execution#cause) documents the `Cause` API itself.
+[Core Runtime & Execution](../foundations/fibers-scopes-runtimes#cause) documents the `Cause` API itself.
 
 Official guides: [Parallel and Sequential Errors](https://effect.website/docs/v4/error-management/parallel-and-sequential-errors), [Cause](https://effect.website/docs/v4/data-types/cause), [Sandboxing](https://effect.website/docs/v4/error-management/sandboxing).
 

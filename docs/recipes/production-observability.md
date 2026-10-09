@@ -104,11 +104,11 @@ Three details in the file are deliberate:
 
 - Every metric attribute has a bounded vocabulary and a series ceiling; ids, raw paths, and error text live on spans and logs only.
 - Every logged or exported field is on an allow-list; secrets travel as `Redacted` and are never unwrapped into telemetry (see [Privacy](../operations/observability#privacy-allow-list-fields-before-they-are-buffered)).
-- Each signal has exactly one export path — no SDK bridge and direct OTLP for the same signal (see [One export path per signal](../operations/observability#one-export-path-per-signal)).
-- The observability Layer is *provided to* the application Layer, not merged beside it, so eager fibers and finalizers log through it (see [Layer order and shutdown](../operations/observability#layer-order-and-shutdown)).
+- Each signal has exactly one export path — no SDK bridge and direct OTLP for the same signal (see [One export path per signal](../operations/telemetry-export#one-export-path-per-signal)).
+- The observability Layer is *provided to* the application Layer, not merged beside it, so eager fibers and finalizers log through it (see [Layer order and shutdown](../operations/telemetry-export#layer-order-and-shutdown)).
 - Sampling has a named owner, and SLIs come from metrics rather than sampled spans.
 - The collector is not part of any readiness check, and the process exits within its termination grace period with the collector down.
-- A test asserts on recorded log fields, span structure, and `Metric.value` — see [Verifying telemetry](../operations/observability#verifying-telemetry).
+- A test asserts on recorded log fields, span structure, and `Metric.value` — see [Verifying telemetry](../operations/telemetry-export#verifying-telemetry).
 
 ## Common wrong alternative
 

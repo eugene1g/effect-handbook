@@ -90,9 +90,9 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | Wrap a Promise or callback API so that a timeout really cancels it | [Cancellable adapters](../foundations/core-runtime-execution#8-cancellable-adapters-for-promises-and-callbacks): forward the `signal` |
 | Branch or loop (there is no `Effect.if`, `unless`, or `loop`) | [plain `if` / `for` in `Effect.gen`, `Effect.when`](../foundations/core-runtime-execution#9-branching-and-looping) |
 | Run an effect from a host, keeping cancellation distinct | [`runPromiseExit` with `{ signal }`](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge) |
-| Call Effect from Express, Hono, a UI, or a plugin API | [`ManagedRuntime`](../foundations/core-runtime-execution#managedruntime), the [ManagedRuntime recipe](../recipes/managed-runtime-integration), and its [production-shaped bridge](../recipes/managed-runtime-integration#a-production-shaped-bridge) |
+| Call Effect from Express, Hono, a UI, or a plugin API | [`ManagedRuntime`](../foundations/fibers-scopes-runtimes#managedruntime), the [ManagedRuntime recipe](../recipes/managed-runtime-integration), and its [production-shaped bridge](../recipes/managed-runtime-integration#a-production-shaped-bridge) |
 | Carry a host request's abort through to the SDK call | [Recipe: Request Cancellation Through a Host](../recipes/request-cancellation-through-a-host) |
-| Start a process and shut it down gracefully | [platform `runMain`](../foundations/core-runtime-execution#runtime), the [graceful entrypoint recipe](../recipes/graceful-entrypoint-and-shutdown), and [readiness plus a bounded drain](../recipes/graceful-entrypoint-and-shutdown#adding-readiness-and-a-bounded-drain) |
+| Start a process and shut it down gracefully | [platform `runMain`](../foundations/fibers-scopes-runtimes#runtime), the [graceful entrypoint recipe](../recipes/graceful-entrypoint-and-shutdown), and [readiness plus a bounded drain](../recipes/graceful-entrypoint-and-shutdown#adding-readiness-and-a-bounded-drain) |
 | Choose the host: process, Web handler, framework callback, browser, worker, test | [Choosing a host](../interfaces/platform-runtime-hosts#choosing-a-host) |
 | Fall back across providers or models | [`ExecutionPlan`](../foundations/core-runtime-execution#executionplan) |
 
@@ -106,7 +106,7 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | Turn every outcome into one response | [`Effect.match` / `matchEffect`](../foundations/errors-option-result#folding-both-channels-at-a-boundary) |
 | Collect every validation problem | [`Effect.validate`, `Effect.partition`, `mode: "result"`](../foundations/errors-option-result#accumulating-errors-instead-of-failing-fast) |
 | Map an error union to statuses or policies exhaustively | [`Match.exhaustive` / `tagsExhaustive`](../foundations/errors-option-result#classifying-an-error-union) |
-| Keep a defect that sits beside a typed failure | [a guarded `catchCause`](../foundations/core-runtime-execution#recovering-from-a-mixed-cause) |
+| Keep a defect that sits beside a typed failure | [a guarded `catchCause`](../foundations/fibers-scopes-runtimes#recovering-from-a-mixed-cause) |
 | Move between `Option`, `Result`, and `Effect` (they are not yieldable) | [`Effect.fromOption`, `Effect.fromResult`](../foundations/errors-option-result#moving-between-option-result-and-effect) |
 | Decide what a failed cleanup means | [When cleanup can fail](../foundations/core-runtime-execution#10-when-cleanup-can-fail) |
 | Undo partial in-process work | [exit-aware finalizers](../deep-dives/failure-retry-fallback-and-interruption#roll-back-partial-work-with-exit-aware-finalizers) |
@@ -136,9 +136,9 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 
 | You want to… | Reach for |
 | --- | --- |
-| Fork work with the right owner | [Choosing a fork by its owner](../foundations/core-runtime-execution#choosing-a-fork-by-its-owner) |
-| Make sure a forked listener is registered before you publish | [`{ startImmediately: true }`](../foundations/core-runtime-execution#when-a-forked-fiber-starts) |
-| Coordinate fibers | [`Deferred`, `Latch`, `Fiber`, `FiberHandle`/`Map`/`Set`](../foundations/core-runtime-execution#fiber) |
+| Fork work with the right owner | [Choosing a fork by its owner](../foundations/fibers-scopes-runtimes#choosing-a-fork-by-its-owner) |
+| Make sure a forked listener is registered before you publish | [`{ startImmediately: true }`](../foundations/fibers-scopes-runtimes#when-a-forked-fiber-starts) |
+| Coordinate fibers | [`Deferred`, `Latch`, `Fiber`, `FiberHandle`/`Map`/`Set`](../foundations/fibers-scopes-runtimes#fiber) |
 | List every long-lived thing with its owner, bound, and release | [the ownership ledger](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#write-the-ownership-ledger-first) |
 | Start up all-or-nothing; separate liveness, readiness, and draining | [Owning Lifetimes — Startup, Readiness, and Shutdown](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown) |
 | Run a heartbeat only while the main task runs | [`Effect.raceFirst`](../concurrency/scheduling-time#running-a-side-task-for-as-long-as-the-main-task-runs) |
@@ -182,13 +182,13 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | --- | --- |
 | Validate / parse / encode data | [`Schema` + `JsonSchema`](../data/schema) and the [Schema deep dive](../deep-dives/schema-from-external-input-to-domain-and-back) |
 | Pick the decode runner | [by who consumes the failure](../data/schema#1-decoding-and-encoding-pick-your-result-style) |
-| Reject or strip unknown keys, collect all issues | [Parse options are boundary policy](../data/schema#14-parse-options-are-boundary-policy) |
-| Model an optional, nullable, or `Option` field | [Optional fields, null, and Option](../data/schema#15-optional-fields-null-and-option) |
-| Put `Option`, `Result`, `Exit`, `Duration`, maps, sets, or `Redacted` on the wire | [Effect data types at the boundary](../data/schema#16-effect-data-types-at-the-boundary) |
-| Write human-readable validation messages | [Custom error messages](../data/schema#17-custom-error-messages) |
-| Validate against a service (uniqueness, lookup) | [Effectful schemas and services](../data/schema#18-effectful-schemas-and-services) |
-| Hand a schema to a form library or router | [`Schema.toStandardSchemaV1`](../data/schema#standardschema) |
-| Generate JSON Schema (open objects by default) | [`JsonSchema`](../data/schema#jsonschema) |
+| Reject or strip unknown keys, collect all issues | [Parse options are boundary policy](../data/schema-in-depth#5-parse-options-are-boundary-policy) |
+| Model an optional, nullable, or `Option` field | [Optional fields, null, and Option](../data/schema-in-depth#6-optional-fields-null-and-option) |
+| Put `Option`, `Result`, `Exit`, `Duration`, maps, sets, or `Redacted` on the wire | [Effect data types at the boundary](../data/schema-in-depth#7-effect-data-types-at-the-boundary) |
+| Write human-readable validation messages | [Custom error messages](../data/schema-in-depth#8-custom-error-messages) |
+| Validate against a service (uniqueness, lookup) | [Effectful schemas and services](../data/schema-in-depth#9-effectful-schemas-and-services) |
+| Hand a schema to a form library or router | [`Schema.toStandardSchemaV1`](../data/schema-tooling#standardschema) |
+| Generate JSON Schema (open objects by default) | [`JsonSchema`](../data/schema-tooling#jsonschema) |
 | Pattern-match exhaustively | [`Match`](../data/functional-toolkit#match) and [how to close a matcher](../data/functional-toolkit#closing-a-matcher) |
 | Compare or hash values structurally | [`Equal`](../data/functional-toolkit#equal) and its [pitfalls](../data/functional-toolkit#equality-pitfalls-and-opt-outs) |
 | Deeply update immutable data | [`Optic`](../data/functional-toolkit#optic) |
@@ -226,7 +226,7 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | Swap the log format without losing log-to-span correlation | [Installing and swapping loggers](../operations/observability#installing-and-swapping-loggers) |
 | Set the minimum log level from config, or for one operation | [Scoping and configuring the minimum level](../operations/observability#scoping-and-configuring-the-minimum-level) |
 | Count, time, and gauge an effect without touching its body | [`Effect.track*`](../operations/observability#tracking-effects-with-metrics), [lifetime gauges](../operations/observability#gauges-that-follow-a-lifetime) |
-| Choose OTLP, the OpenTelemetry SDK, or Prometheus | [Choosing and owning an export path](../operations/observability#choosing-and-owning-an-export-path) |
+| Choose OTLP, the OpenTelemetry SDK, or Prometheus | [Choosing and owning an export path](../operations/telemetry-export#choosing-and-owning-an-export-path) |
 | Memoize one expensive effect | [`Effect.cached` / `cachedWithTTL`](../operations/caching-batching#caching-a-single-effect) |
 | Memoize expensive lookups by key | [`Cache` / `ScopedCache`](../operations/caching-batching), with a [failure TTL](../operations/caching-batching#failure-and-freshness-policy) |
 | Kill N+1 queries (batch) | [`Request` + `RequestResolver`](../operations/caching-batching#request) (or [`SqlResolver`](../interfaces/sql#sqlresolver)), honoring the [resolver obligations](../operations/caching-batching#resolver-obligations) |
@@ -244,7 +244,7 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | Reactive UI state | [`Atom` + framework bindings](../systems/reactivity-atom), or the [deep dive](../deep-dives/reactivity-from-atoms-to-mastery) |
 | Call an LLM (provider-agnostic) | [`LanguageModel` + an `@effect/ai-*` provider](../systems/ai-language-models), under the [production rules](../systems/ai-language-models#production-rules-for-model-calls) |
 | Gate tool calls behind approval, or bound their concurrency | [Tool-call resolution](../systems/ai-language-models#tool-call-resolution-concurrency-and-manual-dispatch) |
-| Expose tools over MCP | [`McpServer`](../systems/ai-language-models#mcpserver) |
+| Expose tools over MCP | [`McpServer`](../systems/mcp#mcpserver) |
 | Ship an AI feature with budgets, gates, and tests | [Building a Production AI Capability](../deep-dives/building-a-production-ai-capability) |
 
 ### Test and tool
@@ -276,6 +276,6 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | A test strategy for a whole service | — | [Testing an Effect Application](../deep-dives/testing-an-effect-application) |
 | Reactive UI state | — | [Reactivity — From Atoms to Mastery](../deep-dives/reactivity-from-atoms-to-mastery) |
 | An LLM feature with tools and budgets | — | [Building a Production AI Capability](../deep-dives/building-a-production-ai-capability) |
-| An MCP server other agents can call, with auth and approvals | [`McpServer`](../systems/ai-language-models#mcpserver) | [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp) |
+| An MCP server other agents can call, with auth and approvals | [`McpServer`](../systems/mcp#mcpserver) | [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp) |
 
 > **Tip:** Most of what you import from `"effect"` is `@stability stable` and covered by semver. The exceptions carry an explicit `@stability unstable` tag and an unstable badge here: root-barrel modules such as `Arbitrary`, `FileSystem`, `Path`, `ExecutionPlan`, `LayerMap`, `Graph`, and `ByteSize` (the full list is in [Stability and support](../#stability-and-support)), plus a set of advanced `Schema` APIs. The big subsystems — `http`, `http-api`, `rpc`, `sql`, `cluster`, `workflow`, `eventlog`, `ai`, `cli`, `reactivity`, `persistence`, `observability`, `devtools`, `socket`, `workers`, `process`, `net`, `schema/Model` — live under `"effect/<area>"`, carry `@stability unstable`, and may shift in minor releases. They're built to be used; just pin your version, read the changelog, and keep each unstable import [behind one app-owned capability](../interfaces/platform-runtime-hosts#keep-platform-and-unstable-imports-behind-a-capability).

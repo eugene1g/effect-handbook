@@ -13,7 +13,7 @@ The items describe Effect `4.0.2`. They are deliberately short; the owning pages
 - Is the diff free of runners (`runPromise`, `runSync`, `runFork`, a second `ManagedRuntime`) inside services, handlers, and domain functions? [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge)
 - Where a host can represent cancellation, does the edge use `runPromiseExit` (or `runFork`) with `{ signal }` rather than collapsing every outcome into a rejection? [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge)
 - Is every Effect that is constructed also returned, yielded, or composed — none built inside a callback and dropped, none nested by `Effect.map`? [“My Effect never ran”](../troubleshooting/troubleshooting-and-anti-patterns#my-effect-never-ran)
-- Are callbacks written as lambdas rather than functions passed by name to `Effect.forEach`, `Effect.map`, and similar operators? [Generated-code anti-pattern index](../troubleshooting/troubleshooting-and-anti-patterns#generated-code-anti-pattern-index)
+- Are callbacks written as lambdas rather than functions passed by name to `Effect.forEach`, `Effect.map`, and similar operators? [Generated-code anti-pattern index](../troubleshooting/anti-patterns)
 - Does branching and looping use ordinary `if` / `for` inside `Effect.gen` (and `Effect.when` with an `Effect<boolean>`), with none of the removed `Effect.if` / `unless` / `loop` / `zipRight` family? [Branching and looping](../foundations/core-runtime-execution#9-branching-and-looping)
 - Do effect-returning functions use `Effect.fn("name")`, so they carry a span and a readable stack? [Sequencing with gen & fn](../foundations/core-runtime-execution#2-sequencing-with-gen-fn)
 - Is pure, synchronous, dependency-free logic left as plain functions instead of being wrapped in Effect? [Decide what to leave out](../deep-dives/adopting-effect-in-an-existing-codebase#decide-what-to-leave-out)
@@ -27,7 +27,7 @@ The items describe Effect `4.0.2`. They are deliberately short; the owning pages
 - Is every handler clearly one of recover, translate, compensate, or observe — with no catch that exists only to empty `E`? [Recover at the narrowest owner](../deep-dives/failure-retry-fallback-and-interruption#recover-at-the-narrowest-owner)
 - Does folding (`Effect.match`, `matchEffect`) happen only at the terminal boundary that owns the response? [Folding both channels at a boundary](../foundations/errors-option-result#folding-both-channels-at-a-boundary)
 - Is every whole-union classification closed with `Match.exhaustive` or `Match.tagsExhaustive`, with no `default` branch or unexplained `Match.orElse`? [Classifying an error union](../foundations/errors-option-result#classifying-an-error-union)
-- Where a finalizer or sibling can add a defect next to a typed failure, does recovery go through a guarded `Effect.catchCause` so the other reasons survive? [Recovering from a mixed Cause](../foundations/core-runtime-execution#recovering-from-a-mixed-cause)
+- Where a finalizer or sibling can add a defect next to a typed failure, does recovery go through a guarded `Effect.catchCause` so the other reasons survive? [Recovering from a mixed Cause](../foundations/fibers-scopes-runtimes#recovering-from-a-mixed-cause)
 - Is the diff free of `Effect.orDie`, `Effect.ignoreCause`, and `catchCause(() => Effect.void)` used only to tidy types? [Fallback values and ignoring failures](../foundations/errors-option-result#fallback-values-and-ignoring-failures)
 - Is every retry classified, bounded in attempts and elapsed time, paced with backoff, and wrapped around the smallest idempotent operation? [Retry policy checklist](../concurrency/scheduling-time#retry-policy-checklist)
 - Is it clear whether each timeout bounds one attempt or the whole retried operation? [Where the timeout sits relative to retry](../deep-dives/failure-retry-fallback-and-interruption#where-the-timeout-sits-relative-to-retry)
@@ -71,11 +71,11 @@ The items describe Effect `4.0.2`. They are deliberately short; the owning pages
 - Do scoped values stay inside their scope — nothing returned from `Effect.scoped` that is still borrowed? [Scope closed or resource leaked](../troubleshooting/troubleshooting-and-anti-patterns#scope-closed-or-resource-leaked)
 - Is all cleanup attached structurally (`ensuring`, `onExit`, `acquireRelease`), so it also runs on failure and interruption? [Success-only cleanup](../troubleshooting/troubleshooting-and-anti-patterns#success-only-cleanup)
 - Does every finalizer have a time bound and a stated policy for its own failure? [When cleanup can fail](../foundations/core-runtime-execution#10-when-cleanup-can-fail)
-- Is each fork chosen by its owner — `forkChild`, `forkScoped`, `forkIn`, or a `FiberSet` / `FiberMap` — and does every `forkDetach` name who stops it? [Choosing a fork by its owner](../foundations/core-runtime-execution#choosing-a-fork-by-its-owner)
+- Is each fork chosen by its owner — `forkChild`, `forkScoped`, `forkIn`, or a `FiberSet` / `FiberMap` — and does every `forkDetach` name who stops it? [Choosing a fork by its owner](../foundations/fibers-scopes-runtimes#choosing-a-fork-by-its-owner)
 - Is work that must outlive its request handed to a Layer-owned, bounded supervisor rather than detached? [Bridge into a host that is not Effect](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#bridge-into-a-host-that-is-not-effect)
-- Where a forked fiber must be listening before the parent continues, is that guaranteed by `startImmediately` or a handshake rather than by `yieldNow`? [When a forked fiber starts](../foundations/core-runtime-execution#when-a-forked-fiber-starts)
-- Does every `Deferred` and `Latch` have a completion path on success, failure, and interruption, and a fresh instance per lifecycle generation? [Deferred](../foundations/core-runtime-execution#deferred)
-- Does a public cancel operation say whether it requests cancellation or awaits cleanup? [Requesting cancellation versus awaiting cleanup](../foundations/core-runtime-execution#requesting-cancellation-versus-awaiting-cleanup)
+- Where a forked fiber must be listening before the parent continues, is that guaranteed by `startImmediately` or a handshake rather than by `yieldNow`? [When a forked fiber starts](../foundations/fibers-scopes-runtimes#when-a-forked-fiber-starts)
+- Does every `Deferred` and `Latch` have a completion path on success, failure, and interruption, and a fresh instance per lifecycle generation? [Deferred](../foundations/fibers-scopes-runtimes#deferred)
+- Does a public cancel operation say whether it requests cancellation or awaits cleanup? [Requesting cancellation versus awaiting cleanup](../foundations/fibers-scopes-runtimes#requesting-cancellation-versus-awaiting-cleanup)
 
 ## Concurrency, queues, and streams
 
@@ -97,14 +97,14 @@ The items describe Effect `4.0.2`. They are deliberately short; the owning pages
 
 - Is untrusted input decoded exactly once, at ingress, with no casts (`as Model`, `as EmployeeId`) standing in for a decode? [The boundary pipeline](../deep-dives/schema-from-external-input-to-domain-and-back#the-boundary-pipeline)
 - Were the boundary questions answered before the schema was written: who produces the input, what absence means, which keys are allowed, who reads the errors? [Answer eight questions before writing the schema](../deep-dives/schema-from-external-input-to-domain-and-back#answer-eight-questions-before-writing-the-schema)
-- Is the excess-property policy chosen per boundary and covered by a test? [Parse options are boundary policy](../data/schema#14-parse-options-are-boundary-policy)
+- Is the excess-property policy chosen per boundary and covered by a test? [Parse options are boundary policy](../data/schema-in-depth#5-parse-options-are-boundary-policy)
 - Is the decode runner chosen by who consumes the failure, with `decodeUnknownEffect` inside Effect code and no synchronous decoder inside `Effect.sync`? [Decoding and encoding — pick your result style](../data/schema#1-decoding-and-encoding-pick-your-result-style)
-- Does every optional field state what absent, `undefined`, and `null` mean, using the matching helper? [Optional fields, null, and Option](../data/schema#15-optional-fields-null-and-option)
+- Does every optional field state what absent, `undefined`, and `null` mean, using the matching helper? [Optional fields, null, and Option](../data/schema-in-depth#6-optional-fields-null-and-option)
 - Are decoding defaults (`withDecodingDefault*`) and constructor defaults (`withConstructorDefault`) used for the side they actually affect? [Default values](../data/schema#8-default-values)
 - Do external numbers use `Schema.Finite`, `Schema.Int`, or explicit checks rather than bare `Schema.Number`? [Refinements](../data/schema#5-refinements-check-and-refine)
 - Are transport, domain, and stored-row shapes separate schemas, with transformations that are reversible where data is written back? [Treat stored rows as another encoded form](../deep-dives/schema-from-external-input-to-domain-and-back#treat-stored-rows-as-another-encoded-form)
 - Are "malformed" and "does not match" kept as different outcomes, and are issue details kept out of user-facing text? [Keep "malformed" and "does not match" as different outcomes](../deep-dives/schema-from-external-input-to-domain-and-back#keep-malformed-and-does-not-match-as-different-outcomes)
-- When JSON Schema or OpenAPI is published, does its excess-property setting match the runtime parser's? [JsonSchema](../data/schema#jsonschema)
+- When JSON Schema or OpenAPI is published, does its excess-property setting match the runtime parser's? [JsonSchema](../data/schema-tooling#jsonschema)
 - Does a change to a persisted or wire schema keep old encoded values decodable, or introduce a new versioned identity? [Evolve persisted and wire schemas safely](../deep-dives/schema-from-external-input-to-domain-and-back#evolve-persisted-and-wire-schemas-safely)
 - Do codec tests use named malformed fixtures as well as generated valid values, and assert the round-trip law that actually holds? [Assert the law that actually holds](../deep-dives/schema-from-external-input-to-domain-and-back#assert-the-law-that-actually-holds)
 
@@ -162,10 +162,10 @@ The items describe Effect `4.0.2`. They are deliberately short; the owning pages
 - Does a custom `Logger.layer([...])` keep `Logger.tracerLogger` (or use `mergeWithExisting`) when logs should still appear on spans? [Installing and swapping loggers](../operations/observability#installing-and-swapping-loggers)
 - Is trace context carried explicitly across queues, workers, and message buses, and is malformed inbound context dropped rather than rejected? [Span and correlation rules](../operations/observability#span-and-correlation-rules)
 - Are in-flight gauges decremented in a finalizer? [Gauges that follow a lifetime](../operations/observability#gauges-that-follow-a-lifetime)
-- Is each signal exported through exactly one path, installed once at the root and provided *beneath* the application Layers? [One export path per signal](../operations/observability#one-export-path-per-signal)
-- Does every flush have a deadline, and is the collector kept out of readiness checks? [Layer order and shutdown](../operations/observability#layer-order-and-shutdown)
-- Is the sampling owner written down, and are SLIs computed from unsampled metrics? [Sampling has one owner per path](../operations/observability#sampling-has-one-owner-per-path)
-- Is telemetry verified with recording Layers and privacy or cardinality tests, not only by eyeballing a dashboard? [Verifying telemetry](../operations/observability#verifying-telemetry)
+- Is each signal exported through exactly one path, installed once at the root and provided *beneath* the application Layers? [One export path per signal](../operations/telemetry-export#one-export-path-per-signal)
+- Does every flush have a deadline, and is the collector kept out of readiness checks? [Layer order and shutdown](../operations/telemetry-export#layer-order-and-shutdown)
+- Is the sampling owner written down, and are SLIs computed from unsampled metrics? [Sampling has one owner per path](../operations/telemetry-export#sampling-has-one-owner-per-path)
+- Is telemetry verified with recording Layers and privacy or cardinality tests, not only by eyeballing a dashboard? [Verifying telemetry](../operations/telemetry-export#verifying-telemetry)
 
 ## Tests
 
@@ -198,11 +198,11 @@ The items describe Effect `4.0.2`. They are deliberately short; the owning pages
 
 ## MCP servers
 
-- Does every server layer list the protocol revisions it accepts, with at most one stateless revision, and is the Streamable HTTP endpoint deployed with its `allowedOrigins`, content-type, and accept checks intact? [McpServer](../systems/ai-language-models#mcpserver)
+- Does every server layer list the protocol revisions it accepts, with at most one stateless revision, and is the Streamable HTTP endpoint deployed with its `allowedOrigins`, content-type, and accept checks intact? [McpServer](../systems/mcp#mcpserver)
 - Is the MCP endpoint an OAuth resource server — bearer token verified in router middleware, tenant and scopes taken from token claims only, per-tool scope checks in handlers, and no client token forwarded downstream? [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp)
-- Does each tool declare its failure schema, carry honest `Readonly` / `Destructive` / `Idempotent` annotations, use `Tool.Strict` where unexpected arguments must be rejected, and stay hidden from clients that cannot use it via `McpSchema.EnabledWhen`? [McpServer](../systems/ai-language-models#mcpserver)
+- Does each tool declare its failure schema, carry honest `Readonly` / `Destructive` / `Idempotent` annotations, use `Tool.Strict` where unexpected arguments must be rejected, and stay hidden from clients that cannot use it via `McpSchema.EnabledWhen`? [McpServer](../systems/mcp#mcpserver)
 - Does every consequential tool confirm with the user — `McpServer.elicit` on session protocols, an `InputRequired` round trip on the stateless protocol — and is any `requestState` sealed with an HMAC, bound to the caller, and given a TTL before it is trusted on the way back? [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp)
-- Can a retried `tools/call` (a broken stream, a resumed round trip) run twice without a second side effect, and is an `ErrorReporter` wired so undeclared tool failures page someone? [McpServer](../systems/ai-language-models#mcpserver)
+- Can a retried `tools/call` (a broken stream, a resumed round trip) run twice without a second side effect, and is an `ErrorReporter` wired so undeclared tool failures page someone? [McpServer](../systems/mcp#mcpserver)
 
 ## Upgrading Effect versions
 
@@ -213,7 +213,7 @@ The items describe Effect `4.0.2`. They are deliberately short; the owning pages
 - Were `Config`, `Flag`, and `Prompt` constructors renamed to PascalCase, and `Config.mapOrFail` to `Config.mapEffect`? [Built-in constructors](../foundations/configuration-secrets#built-in-constructors)
 - Were property tests moved to `Arbitrary.schema` and `{ arbitrary: { runs } }`, opaque filters replaced with constructive checks, and saved failures re-recorded? [Arbitrary](../tooling/testing-dev-tooling#arbitrary)
 - Were PostgreSQL row Schemas re-checked against the native client's result types, JSON parameters wrapped in `sql.json`, and multi-statement strings split? [Upgrading @effect/sql-pg to the native client](../interfaces/sql#native-client-behavior-codecs-json-and-listen)
-- Were JSON Schema consumers and snapshots checked against open-by-default output? [JsonSchema](../data/schema#jsonschema)
+- Were JSON Schema consumers and snapshots checked against open-by-default output? [JsonSchema](../data/schema-tooling#jsonschema)
 - Is the code free of `yield*` on `Option`, `Result`, fibers, refs, and deferreds? [Moving between Option, Result, and Effect](../foundations/errors-option-result#moving-between-option-result-and-effect)
 - Were `PersistedQueue` retry options moved to `make`, and are dead-lettered items monitored? [PersistedQueue](../tooling/persistence#persistedqueue)
 - Do Effect diagnostics run in CI so removed APIs and floating Effects fail the build? [Effect diagnostics in the editor and in CI](../foundations/getting-started#effect-diagnostics-in-the-editor-and-in-ci)
@@ -232,7 +232,7 @@ These sections go further than a review question can. Use them when a section ab
 | Schema boundaries | [Schema — Operational checklist](../deep-dives/schema-from-external-input-to-domain-and-back#operational-checklist), [Proving the boundary](../recipes/schema-httpapi-sql-boundary#proving-the-boundary) |
 | HTTP edge limits | [Edge policy checklist](../interfaces/http-server#edge-policy-checklist), [What each test ring proves](../interfaces/http-api#what-each-test-ring-proves) |
 | Durability, queues, workflows, cluster | [Durability Ladder — Operational checklist](../deep-dives/durability-and-distribution-ladder#operational-checklist), [Recovery testing and operations](../systems/workflows-durable-execution#recovery-testing-and-operations) |
-| Observability before production | [Before production](../recipes/production-observability#before-production), [Verifying telemetry](../operations/observability#verifying-telemetry) |
+| Observability before production | [Before production](../recipes/production-observability#before-production), [Verifying telemetry](../operations/telemetry-export#verifying-telemetry) |
 | Tests | [Testing — Operational checklist](../deep-dives/testing-an-effect-application#operational-checklist), [When green means nothing](../deep-dives/testing-an-effect-application#when-green-means-nothing) |
 | Host bridges | [How to test this seam](../recipes/managed-runtime-integration#how-to-test-this-seam) |
 | AI capabilities | [Production rules for model calls](../systems/ai-language-models#production-rules-for-model-calls), [AI — Operational checklist](../deep-dives/building-a-production-ai-capability#operational-checklist) |

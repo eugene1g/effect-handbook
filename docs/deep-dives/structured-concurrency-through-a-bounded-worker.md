@@ -58,7 +58,7 @@ Do not build a queue when `Effect.forEach` already owns the finite list. A queue
 
 `Effect.forkChild(effect)` creates a supervised child fiber. If its parent ends, the child is interrupted; keep and join the `Fiber` when its result matters. `forkScoped` ties a fiber to an explicit surrounding Scope. `forkDetach` moves a fiber to the global scope and is therefore an exceptional choice for work that intentionally outlives its requester.
 
-**Name the owner before you pick the fork.** Work that must not outlive the current fiber uses `forkChild`. Work owned by the surrounding `Scope` — a Layer, a request, a test — uses `forkScoped`. Work owned by a `Scope` you were handed uses `Effect.forkIn(effect, scope)`. Work owned by the process uses `forkDetach`, and only with a documented stop path: if nobody can say who interrupts a detached fiber, it is a leak. A long-lived loop in library code should be *returned as an Effect* and forked by the caller that owns its lifetime, not started on a root fiber behind the caller's back. The full table is under [Fiber](../foundations/core-runtime-execution#fiber).
+**Name the owner before you pick the fork.** Work that must not outlive the current fiber uses `forkChild`. Work owned by the surrounding `Scope` — a Layer, a request, a test — uses `forkScoped`. Work owned by a `Scope` you were handed uses `Effect.forkIn(effect, scope)`. Work owned by the process uses `forkDetach`, and only with a documented stop path: if nobody can say who interrupts a detached fiber, it is a leak. A long-lived loop in library code should be *returned as an Effect* and forked by the caller that owns its lifetime, not started on a root fiber behind the caller's back. The full table is under [Fiber](../foundations/fibers-scopes-runtimes#fiber).
 
 A fork returns a handle, not a result. `Fiber.join` re-enters the child's success or failure into the joiner, `Fiber.await` yields its `Exit` for supervision and tests, and `Fiber.interrupt` waits until the child's finalizers have run.
 
@@ -408,7 +408,7 @@ const notificationRuntime = Effect.scoped(
 
 Prefer a Queue when tasks need admission capacity or ordering. A FiberSet supervises work already admitted; it is not itself a backpressure mechanism.
 
-When dynamic tasks are keyed — at most one recalculation per employee — use `FiberMap`. By default `FiberMap.run(map, key, effect)` interrupts the fiber already registered under that key and replaces it ("latest request wins"). Pass `{ onlyIfMissing: true }` to keep the running fiber and ignore the new request instead ("first request wins"). See [FiberMap](../foundations/core-runtime-execution#fibermap).
+When dynamic tasks are keyed — at most one recalculation per employee — use `FiberMap`. By default `FiberMap.run(map, key, effect)` interrupts the fiber already registered under that key and replaces it ("latest request wins"). Pass `{ onlyIfMissing: true }` to keep the running fiber and ignore the new request instead ("first request wins"). See [FiberMap](../foundations/fibers-scopes-runtimes#fibermap).
 
 ## Runnable capstone: bounded admission and bounded execution
 
@@ -530,7 +530,7 @@ Also test fail-fast versus collect-outcomes policy, the exact maximum concurrent
 Three techniques make these tests deterministic rather than lucky:
 
 - **`startImmediately` instead of a `yieldNow` guess.** `Effect.forkChild(effect, { startImmediately: true })` runs the child synchronously up to its first suspension before the fork returns, so "is the producer already blocked on `offer`?" has a definite answer. With the default options the child has not run at all when `forkChild` returns.
-- **A rendezvous for racy interleavings.** To prove a lost-update bug (or its fix), make every fiber announce its arrival, open a `Deferred` when the last one arrives, and have all of them wait on a gate the test opens. The contested step then happens on every run, not one run in a thousand. [Deferred](../foundations/core-runtime-execution#deferred) and [Latch](../foundations/core-runtime-execution#latch) are the building blocks.
+- **A rendezvous for racy interleavings.** To prove a lost-update bug (or its fix), make every fiber announce its arrival, open a `Deferred` when the last one arrives, and have all of them wait on a gate the test opens. The contested step then happens on every run, not one run in a thousand. [Deferred](../foundations/fibers-scopes-runtimes#deferred) and [Latch](../foundations/fibers-scopes-runtimes#latch) are the building blocks.
 - **Capacity `1` on purpose.** Large buffers hide deadlocks and ordering assumptions; a one-slot queue exposes them on the first run.
 
 > **Example status — Runnable in Vitest:** interrupting a blocked consumer must not leave a stale waiter that swallows the next job.

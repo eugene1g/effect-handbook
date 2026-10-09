@@ -12,7 +12,7 @@ One shape recurs in every table below: **keep a fact explicit inside the program
 | --- | --- | --- |
 | Absence (`Option`) | a display or protocol edge that owns the fallback | [Fallbacks and boundary exits](../foundations/errors-option-result#fallbacks-and-boundary-exits) |
 | Expected failure (`E`) | the terminal boundary that owns the response, with one fold | [Folding both channels at a boundary](../foundations/errors-option-result#folding-both-channels-at-a-boundary) |
-| Untrusted representation (`unknown`) | ingress: decode once, with that boundary's parse options | [Parse options are boundary policy](../data/schema#14-parse-options-are-boundary-policy) |
+| Untrusted representation (`unknown`) | ingress: decode once, with that boundary's parse options | [Parse options are boundary policy](../data/schema-in-depth#5-parse-options-are-boundary-policy) |
 | Requirements (`R`) | the application, module, or test edge that provides them | [Providing one value or building a graph](../foundations/services-context-layers#providing-one-value-or-building-a-graph) |
 | Execution (laziness) | a runner at an edge that owns the fiber | [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge) |
 | Lifetime (`Scope` in `R`) | the narrowest owner that is still valid | [Write the ownership ledger first](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#write-the-ownership-ledger-first) |
@@ -52,7 +52,7 @@ Choose the runner by the outcome contract the host needs. Reusable code — serv
 | Platform `runMain` | `void` | a logged error and a process exit code | the process entry point, once | inside application code |
 | `ManagedRuntime` | the same family as methods | as above | a non-Effect host calls in repeatedly against one Layer graph | one runtime per request, or disposing without draining first |
 
-Every runner except `runSync` / `runSyncExit` accepts `{ signal }`, which turns a host abort into interruption. Details: [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge), [ManagedRuntime](../foundations/core-runtime-execution#managedruntime), [Bridge into a host that is not Effect](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#bridge-into-a-host-that-is-not-effect).
+Every runner except `runSync` / `runSyncExit` accepts `{ signal }`, which turns a host abort into interruption. Details: [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge), [ManagedRuntime](../foundations/fibers-scopes-runtimes#managedruntime), [Bridge into a host that is not Effect](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#bridge-into-a-host-that-is-not-effect).
 
 ## Option vs Result vs Effect
 
@@ -65,7 +65,7 @@ Every runner except `runSync` / `runSyncExit` accepts `{ signal }`, which turns 
 
 Do not turn every `None` into a defect, or every pure `Result` into a running Effect. Convert at the boundary where semantics change: `Option` to a typed failure when absence becomes exceptional, and `Result` to `Effect` when the outcome joins effectful control flow. `Effect.result` and `Effect.option` capture typed failures only; `Effect.exit` captures the whole `Cause`.
 
-Before choosing a channel at all, decide whether the outcome is a *result* or a *failure*: a correct negative answer that every caller treats as ordinary output belongs in `A`, not in `E`. Details: [Designing the error model](../foundations/errors-option-result#designing-the-error-model), [Moving between Option, Result, and Effect](../foundations/errors-option-result#moving-between-option-result-and-effect), [Exit](../foundations/core-runtime-execution#exit).
+Before choosing a channel at all, decide whether the outcome is a *result* or a *failure*: a correct negative answer that every caller treats as ordinary output belongs in `A`, not in `E`. Details: [Designing the error model](../foundations/errors-option-result#designing-the-error-model), [Moving between Option, Result, and Effect](../foundations/errors-option-result#moving-between-option-result-and-effect), [Exit](../foundations/fibers-scopes-runtimes#exit).
 
 Official guides: [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors), [Exit](https://effect.website/docs/v4/data-types/exit).
 
@@ -99,7 +99,7 @@ Typed recovery operators look at the **first `Fail` reason** and replace the who
 | One outcome per member, in the input's shape | `Effect.all(effects, { mode: "result" })` | a `Result` per member | a flat list of failures is enough |
 | Every Schema issue of one decode | the parse option `errors: "all"` | one `SchemaError` holding every reachable issue | you would read "no issue reported" as "every rule ran" |
 
-A defect in any element still fails the whole call. Accumulate as data rather than as several `Fail` reasons in one `Cause`, because typed handlers inspect only the first one. Details: [Accumulating errors instead of failing fast](../foundations/errors-option-result#accumulating-errors-instead-of-failing-fast), [Parse options are boundary policy](../data/schema#14-parse-options-are-boundary-policy).
+A defect in any element still fails the whole call. Accumulate as data rather than as several `Fail` reasons in one `Cause`, because typed handlers inspect only the first one. Details: [Accumulating errors instead of failing fast](../foundations/errors-option-result#accumulating-errors-instead-of-failing-fast), [Parse options are boundary policy](../data/schema-in-depth#5-parse-options-are-boundary-policy).
 
 ## Providing dependencies by seam
 
@@ -129,7 +129,7 @@ Name the owner first; the fork function follows.
 | `FiberSet` / `FiberMap` / `FiberHandle` | a scoped supervisor | the supervisor's scope closes; `FiberMap` and `FiberHandle` also replace by key or slot | a dynamic population of fibers, keyed jobs, or "at most one running" | the population is static; `Effect.forEach` with `concurrency` is smaller |
 | No fork: `Effect.all` / `forEach` / `race` | the combinator | the combinator ends | a finite batch or a race | — |
 
-All four fork functions accept `{ startImmediately, uninterruptible }`; a forked fiber is otherwise only *scheduled* until the parent yields, so a listener forked just before a publish can miss it. Details: [Choosing a fork by its owner](../foundations/core-runtime-execution#choosing-a-fork-by-its-owner), [When a forked fiber starts](../foundations/core-runtime-execution#when-a-forked-fiber-starts), [Structured concurrency is ownership](../deep-dives/structured-concurrency-through-a-bounded-worker#structured-concurrency-is-ownership).
+All four fork functions accept `{ startImmediately, uninterruptible }`; a forked fiber is otherwise only *scheduled* until the parent yields, so a listener forked just before a publish can miss it. Details: [Choosing a fork by its owner](../foundations/fibers-scopes-runtimes#choosing-a-fork-by-its-owner), [When a forked fiber starts](../foundations/fibers-scopes-runtimes#when-a-forked-fiber-starts), [Structured concurrency is ownership](../deep-dives/structured-concurrency-through-a-bounded-worker#structured-concurrency-is-ownership).
 
 ## Resource lifetime and bracket
 
@@ -176,7 +176,7 @@ Classify the communication before naming a primitive. Each of the four classic c
 | `Queue<A, E>` | Consumers can fail with queue error `E`; `Queue.end` uses the done cause. No service requirements. | Point-to-point: one offered element is taken by one consumer. Bounded queues suspend producers; dropping and sliding queues shed data explicitly. | In-process only. | Producer/consumer handoff, bounded mailboxes, worker pipelines, and local backpressure. | Every subscriber must see every event, or messages must survive process loss. |
 | `PubSub<A>` | Publish is infallible at the typed level; subscriber dequeue lifetime is scoped. | One-to-many fan-out. Bounded mode can suspend publishers on slow subscribers; dropping/sliding modes shed data. Late subscribers miss history unless `replay` is configured. | In-process only. | Independent live consumers must each receive published events. | Work should be distributed among workers rather than copied, or delivery/replay must be durable. |
 
-Details: [Delivery semantics: Queue or PubSub](../concurrency/concurrency-coordination#delivery-semantics-queue-or-pubsub), [Queue lifecycle: who ends it, and what a failure does](../concurrency/concurrency-coordination#queue-lifecycle-who-ends-it-and-what-a-failure-does), [Deferred](../foundations/core-runtime-execution#deferred), [Latch](../foundations/core-runtime-execution#latch).
+Details: [Delivery semantics: Queue or PubSub](../concurrency/concurrency-coordination#delivery-semantics-queue-or-pubsub), [Queue lifecycle: who ends it, and what a failure does](../concurrency/concurrency-coordination#queue-lifecycle-who-ends-it-and-what-a-failure-does), [Deferred](../foundations/fibers-scopes-runtimes#deferred), [Latch](../foundations/fibers-scopes-runtimes#latch).
 
 Official guide: [Latch](https://effect.website/docs/v4/concurrency/latch).
 
@@ -270,7 +270,7 @@ Pull-based back-pressure bounds a pipeline only if every stage is bounded. Detai
 | `SchemaBinary` with `{ fingerprint: true }` | positional layout plus a layout hash | `Schema.SchemaError`; a mismatched layout is rejected | none: both peers must deploy the same schema together | smallest frames under lock-step deployment | peers are upgraded independently |
 | `Sse` — unstable | server-sent events text | a `Retry` failure carries the `retry:` directive | as JSON for the `data` payload | one-way server-to-browser push | bidirectional or binary traffic |
 
-`SchemaBinary` is the default binary format for cluster runner transports and EventLog journals and remote messages, so switching a link or a journal to or from it changes bytes on the wire and on disk. `maxFrameSize` is unset by default on the raw codec; set it for untrusted peers. Details: [SchemaBinary](../concurrency/streaming-channels#schemabinary), [Ndjson](../concurrency/streaming-channels#ndjson), [RpcSerialization](../interfaces/rpc#rpcserialization), [Serialization codecs](../data/schema#11-serialization-codecs).
+`SchemaBinary` is the default binary format for cluster runner transports and EventLog journals and remote messages, so switching a link or a journal to or from it changes bytes on the wire and on disk. `maxFrameSize` is unset by default on the raw codec; set it for untrusted peers. Details: [SchemaBinary](../concurrency/streaming-channels#schemabinary), [Ndjson](../concurrency/streaming-channels#ndjson), [RpcSerialization](../interfaces/rpc#rpcserialization), [Serialization codecs](../data/schema-in-depth#2-serialization-codecs).
 
 ## HttpClient vs HttpRouter vs HttpApi vs RPC
 
@@ -349,11 +349,11 @@ Business code is identical in every row; only the outermost line and the platfor
 | Decision | Owning section |
 | --- | --- |
 | Which Schema decode runner, by who consumes the failure | [Decoding and encoding — pick your result style](../data/schema#1-decoding-and-encoding-pick-your-result-style) |
-| Optional key, `undefined`, `null`, or `Option` on the wire | [Optional fields, null, and Option](../data/schema#15-optional-fields-null-and-option) |
+| Optional key, `undefined`, `null`, or `Option` on the wire | [Optional fields, null, and Option](../data/schema-in-depth#6-optional-fields-null-and-option) |
 | A setting is required, optional, or defaulted | [Deciding required, optional, and defaulted](../foundations/configuration-secrets#deciding-required-optional-and-defaulted) |
 | `Config.withDefault` vs `ConfigProvider.orElse` vs `Config.orElse` | [Absence is not malformed input](../foundations/configuration-secrets#absence-is-not-malformed-input) |
 | Log, span, or metric | [Which signal answers which question](../operations/observability#which-signal-answers-which-question) |
-| Direct OTLP, the OpenTelemetry SDK bridge, or Prometheus | [One export path per signal](../operations/observability#one-export-path-per-signal) |
+| Direct OTLP, the OpenTelemetry SDK bridge, or Prometheus | [One export path per signal](../operations/telemetry-export#one-export-path-per-signal) |
 | RPC transport: HTTP, WebSocket or socket, worker, stdio | [RpcServer](../interfaces/rpc#rpcserver) |
 | Cluster runner transport and serialization | [Transport options](../systems/cluster-sharding#transport-options) |
 | Combining or splitting streams: `merge`, `zip`, `partition`, `broadcast` | [Combining and splitting streams](../concurrency/streaming-channels#4-combining-and-splitting-streams) |

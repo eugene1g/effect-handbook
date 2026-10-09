@@ -487,21 +487,21 @@
     },
     {
       "id": "observability.otlp-layer",
-      "source": "docs/operations/observability.md",
+      "source": "docs/operations/telemetry-export.md",
       "sha256": "22c3f504422d429d47d3cf0d3ac75b28a26547b6227ac274f14e3625dbf720b3",
       "disposition": "contextual",
       "fixture": "base"
     },
     {
       "id": "observability.devtools-layer",
-      "source": "docs/operations/observability.md",
+      "source": "docs/operations/telemetry-export.md",
       "sha256": "3c9d60c1854ffead1cb77364ab092069a6b73cb00e28d10e4e17a81259f4cc12",
       "disposition": "contextual",
       "fixture": "base"
     },
     {
       "id": "observability.otel-node-sdk",
-      "source": "docs/operations/observability.md",
+      "source": "docs/operations/telemetry-export.md",
       "sha256": "5c1fc810dd3dd5e8f7db6d037b21f7b6a8889752a68887bdf4e5e099f08f75f4",
       "disposition": "contextual",
       "fixture": "base"

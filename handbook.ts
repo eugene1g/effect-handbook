@@ -1,7 +1,8 @@
 const pageDescriptions = {
   "index.md": "How to use the Effect 4 Handbook, its version contract, conventions, and official companion resources.",
   "foundations/getting-started.md": "Installing the Effect 4 release line, TypeScript and ESM settings, a first program, import forms, and editor tooling.",
-  "foundations/core-runtime-execution.md": "Effect creation, composition, execution, fibers, scopes, runtime behavior, and execution planning.",
+  "foundations/core-runtime-execution.md": "Building and combining Effects: creation, gen and fn, error handling, concurrency, racing, interruption, adapters, and execution planning.",
+  "foundations/fibers-scopes-runtimes.md": "How Effects run: Exit and Cause, fibers and fiber handles, Scope, scheduler and clock, Deferred, Latch, Runtime, and ManagedRuntime.",
   "foundations/services-context-layers.md": "Typed services, Context, References, Layer construction, memoization, and resource lifecycles.",
   "foundations/configuration-secrets.md": "Configuration providers, validation, secrets, redaction, and application configuration patterns.",
   "foundations/errors-option-result.md": "Typed errors, defects, Cause, Exit, Option, Result, recovery, retry, and failure modeling.",
@@ -12,8 +13,11 @@ const pageDescriptions = {
   "concurrency/scheduling-time.md": "Schedules, retries, repetition, Duration, DateTime, Clock, Cron, and time-zone-aware execution.",
   "data/data-structures.md": "Effect's immutable collections, equality, hashing, ordering, numeric types, and data-oriented utilities.",
   "data/functional-toolkit.md": "Functional composition with Function, Match, Predicate, Equivalence, Order, Optic, Brand, and utilities.",
-  "data/schema.md": "Schema modeling, validation, transformation, errors, representations, arbitrary generation, and persistence.",
-  "operations/observability.md": "Logging, metrics, tracing, OpenTelemetry and OTLP export, inspection, and diagnostics.",
+  "data/schema.md": "Schema essentials: decoding and encoding, Type versus Encoded, structs, unions, refinements, transformations, brands, defaults, and classes.",
+  "data/schema-in-depth.md": "Schema at real boundaries: annotations, serialization codecs, recursive schemas, construction fallbacks, parse options, optional fields, error messages, and effectful schemas.",
+  "data/schema-tooling.md": "Schema internals and tooling: SchemaAST, parsers and compilers, getters, transformations, issues, SchemaError, JSON Schema, Standard Schema, JSON Patch, models, and TestSchema.",
+  "operations/observability.md": "Instrumentation: designing signals, structured logging, log levels, formatting, spans and tracing, and metrics.",
+  "operations/telemetry-export.md": "Exporting telemetry: choosing an export path, OTLP exporters, Prometheus, Effect DevTools, and the OpenTelemetry Node and Web SDK bridge.",
   "operations/caching-batching.md": "Caching, request batching, resolvers, resource-aware memoization, and deduplicated data loading.",
   "interfaces/http-client.md": "Typed HTTP clients, requests, responses, middleware, retries, cookies, tracing, and platform layers.",
   "interfaces/http-server.md": "HTTP servers, routers, incoming messages, multipart handling, static files, and host integrations.",
@@ -22,7 +26,8 @@ const pageDescriptions = {
   "interfaces/sql.md": "SQL clients, schemas, resolvers, models, migrations, transactions, streams, and provider adapters.",
   "interfaces/platform-runtime-hosts.md": "Node, Bun, Deno, browser, Cloudflare, filesystem, path, terminal, worker, and runtime services.",
   "systems/reactivity-atom.md": "Effect's reactive Atom graph, registries, hydration, typed clients, and framework bindings.",
-  "systems/ai-language-models.md": "Language models, tools, agents, chat, MCP, prompt handling, and provider integrations.",
+  "systems/ai-language-models.md": "Language models, tools, toolkits, chat, prompts, embeddings, decisions, telemetry, errors, and provider integrations.",
+  "systems/mcp.md": "Model Context Protocol: MCP wire schemas, protocol adapters, and McpServer over stdio and streamable HTTP.",
   "systems/workflows-durable-execution.md": "Durable workflows, activities, retries, interruption, persistence, and operational recovery.",
   "systems/cluster-sharding.md": "Cluster membership, sharding, entities, runners, proxies, messaging, and distributed coordination.",
   "systems/event-log-event-sourcing.md": "Event logs, event sourcing, projections, encryption, identity, and session authorization.",
@@ -33,7 +38,8 @@ const pageDescriptions = {
   "reference/release-history.md": "What changed between audited Effect releases: behavior, stability, renamed options and telemetry names, new modules, and handbook corrections, one entry per release.",
   "reference/agent-guide.md": "How a coding agent should read this handbook: which Markdown artifact to fetch for which task, the .md URL rule, catalog and example-inventory fields, citing sections, and a drop-in instructions block.",
   "reference/choosing-effect-primitives.md": "Contrastive decision tables for selecting Effect primitives by errors, services, lifetime, backpressure, durability, and distribution.",
-  "troubleshooting/troubleshooting-and-anti-patterns.md": "Searchable symptoms, causes, fixes, and common Effect code-generation anti-patterns.",
+  "troubleshooting/troubleshooting-and-anti-patterns.md": "Searchable symptoms, causes, and fixes for Effect programs, with focused diagnoses for the most common failures.",
+  "troubleshooting/anti-patterns.md": "Code shapes to search generated or pasted Effect code for, why each is wrong, and the preferred replacement.",
   "reference/review-checklists.md": "Design-review and code-review checklists for Effect services, errors, lifetimes, concurrency, boundaries, persistence, observability, and tests.",
   "recipes/service-and-layers.md": "A runnable service with live and test Layers, explicit requirements, and lifecycle boundaries.",
   "recipes/schema-httpapi-sql-boundary.md": "A complete typed boundary from Schema through HttpApi to SQL persistence.",
@@ -60,7 +66,7 @@ const pageDescriptions = {
 }
 
 const pageRelated = Object.freeze({
-  "deep-dives/exposing-an-effect-application-over-mcp.md": ["systems/ai-language-models.md", "interfaces/http-server.md", "interfaces/rpc.md", "deep-dives/building-a-production-ai-capability.md"],
+  "deep-dives/exposing-an-effect-application-over-mcp.md": ["systems/mcp.md", "systems/ai-language-models.md", "interfaces/http-server.md", "interfaces/rpc.md", "deep-dives/building-a-production-ai-capability.md"],
   "deep-dives/index.md": ["reference/choosing-effect-primitives.md", "reference/cheat-sheet-index.md"],
   "deep-dives/reactivity-from-atoms-to-mastery.md": ["systems/reactivity-atom.md", "data/schema.md", "interfaces/http-api.md", "tooling/testing-dev-tooling.md"],
   "deep-dives/anatomy-of-a-real-effect-application.md": ["foundations/core-runtime-execution.md", "foundations/services-context-layers.md", "foundations/configuration-secrets.md", "operations/observability.md"],
@@ -77,6 +83,12 @@ const pageRelated = Object.freeze({
   "reference/review-checklists.md": ["reference/choosing-effect-primitives.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
   "reference/agent-guide.md": ["index.md", "reference/cheat-sheet-index.md", "reference/choosing-effect-primitives.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
   "reference/cheat-sheet-index.md": ["reference/agent-guide.md", "reference/choosing-effect-primitives.md"],
+  "foundations/fibers-scopes-runtimes.md": ["foundations/core-runtime-execution.md", "foundations/errors-option-result.md", "concurrency/concurrency-coordination.md", "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md"],
+  "data/schema-in-depth.md": ["data/schema.md", "data/schema-tooling.md", "deep-dives/schema-from-external-input-to-domain-and-back.md"],
+  "data/schema-tooling.md": ["data/schema.md", "data/schema-in-depth.md", "tooling/testing-dev-tooling.md"],
+  "operations/telemetry-export.md": ["operations/observability.md", "recipes/production-observability.md", "interfaces/platform-runtime-hosts.md"],
+  "systems/mcp.md": ["systems/ai-language-models.md", "deep-dives/exposing-an-effect-application-over-mcp.md", "interfaces/rpc.md"],
+  "troubleshooting/anti-patterns.md": ["troubleshooting/troubleshooting-and-anti-patterns.md", "reference/review-checklists.md", "reference/choosing-effect-primitives.md"],
   "reference/release-history.md": ["index.md", "foundations/getting-started.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
   "recipes/request-cancellation-through-a-host.md": ["recipes/managed-runtime-integration.md", "foundations/core-runtime-execution.md", "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md"],
   "recipes/transactional-write-with-outbox.md": ["interfaces/sql.md", "recipes/schema-httpapi-sql-boundary.md", "deep-dives/durability-and-distribution-ladder.md"]
@@ -128,6 +140,7 @@ export const handbookGroups = [
     text: "Runtime Fundamentals",
     items: [
       page("Core Runtime & Execution", "foundations/core-runtime-execution.md"),
+      page("Fibers, Scopes & Runtimes", "foundations/fibers-scopes-runtimes.md"),
       page("Services, Context & Layers", "foundations/services-context-layers.md"),
       page("Configuration & Secrets", "foundations/configuration-secrets.md"),
       page("Errors, Option & Result", "foundations/errors-option-result.md")
@@ -148,13 +161,16 @@ export const handbookGroups = [
     items: [
       page("Data Structures", "data/data-structures.md"),
       page("The Functional Toolkit", "data/functional-toolkit.md"),
-      page("Schema", "data/schema.md")
+      page("Schema", "data/schema.md"),
+      page("Schema in Depth", "data/schema-in-depth.md"),
+      page("Schema Tooling & Internals", "data/schema-tooling.md")
     ]
   },
   {
     text: "Runtime Services",
     items: [
       page("Observability", "operations/observability.md"),
+      page("Telemetry Export", "operations/telemetry-export.md"),
       page("Caching & Batching", "operations/caching-batching.md")
     ]
   },
@@ -174,6 +190,7 @@ export const handbookGroups = [
     items: [
       page("Reactivity & Atom", "systems/reactivity-atom.md"),
       page("AI & Language Models", "systems/ai-language-models.md"),
+      page("MCP Servers", "systems/mcp.md"),
       page("Workflows & Durable Execution", "systems/workflows-durable-execution.md"),
       page("Cluster & Sharding", "systems/cluster-sharding.md"),
       page("EventLog & Event Sourcing", "systems/event-log-event-sourcing.md")
@@ -184,7 +201,8 @@ export const handbookGroups = [
     items: [
       page("Choosing Effect Primitives", "reference/choosing-effect-primitives.md"),
       page("Review Checklists", "reference/review-checklists.md"),
-      page("Troubleshooting & Anti-Patterns", "troubleshooting/troubleshooting-and-anti-patterns.md"),
+      page("Troubleshooting", "troubleshooting/troubleshooting-and-anti-patterns.md"),
+      page("Generated-Code Anti-Patterns", "troubleshooting/anti-patterns.md"),
       page("Recipe: A Service with Live and Test Layers", "recipes/service-and-layers.md"),
       page("Recipe: Schema to HttpApi to SQL", "recipes/schema-httpapi-sql-boundary.md"),
       page("Recipe: A Resource-Safe Bounded Worker", "recipes/resource-safe-bounded-worker.md"),
@@ -256,16 +274,19 @@ export const agentBundles = [
     "index.md",
     "foundations/getting-started.md",
     "foundations/core-runtime-execution.md",
+    "foundations/fibers-scopes-runtimes.md",
     "foundations/services-context-layers.md",
     "foundations/configuration-secrets.md",
     "foundations/errors-option-result.md",
     "data/data-structures.md",
     "data/functional-toolkit.md",
     "data/schema.md",
+    "data/schema-in-depth.md",
     "operations/caching-batching.md",
     "reference/choosing-effect-primitives.md",
     "reference/review-checklists.md",
     "troubleshooting/troubleshooting-and-anti-patterns.md",
+    "troubleshooting/anti-patterns.md",
     "recipes/service-and-layers.md",
     "recipes/retry-with-test-clock.md",
     "recipes/graceful-entrypoint-and-shutdown.md",
@@ -278,6 +299,8 @@ export const agentBundles = [
   ]),
   bundle("web", "Effect 4 Web & Service Boundaries", "effect-4-web.md", [
     "data/schema.md",
+    "data/schema-in-depth.md",
+    "data/schema-tooling.md",
     "interfaces/http-client.md",
     "interfaces/http-server.md",
     "interfaces/http-api.md",
@@ -289,6 +312,7 @@ export const agentBundles = [
   ]),
   bundle("concurrency", "Effect 4 Concurrency & Streaming", "effect-4-concurrency.md", [
     "foundations/core-runtime-execution.md",
+    "foundations/fibers-scopes-runtimes.md",
     "concurrency/concurrency-coordination.md",
     "concurrency/software-transactional-memory.md",
     "concurrency/state-mutable-references.md",
@@ -310,7 +334,9 @@ export const agentBundles = [
     "foundations/services-context-layers.md",
     "data/schema.md",
     "operations/observability.md",
+    "operations/telemetry-export.md",
     "systems/ai-language-models.md",
+    "systems/mcp.md",
     "recipes/production-observability.md"
   ])
 ]

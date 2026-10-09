@@ -4,7 +4,7 @@ Written against `effect@4.0.2`. `McpServer`, `McpProtocol`, `McpSchema`, `Tool`,
 
 The Model Context Protocol (MCP) lets an agent host discover what your application can do and call it: tools to act, resources to read, prompts to start a task. `effect/ai/McpServer` turns a `Toolkit` and a few Layers into a server. It handles JSON-RPC framing, protocol negotiation, JSON Schema generation, argument decoding, and result encoding. Everything that makes the server safe to expose is still yours: who the caller is, which tenant they act for, what they are allowed to change, and what happens when a call arrives twice.
 
-This guide builds that server for a compensation platform. It assumes you already know Effect services and Layers, `HttpRouter`, and `Tool`/`Toolkit`. For API inventories it links to the concise [AI & Language Models](../systems/ai-language-models#mcpserver) reference instead of repeating them.
+This guide builds that server for a compensation platform. It assumes you already know Effect services and Layers, `HttpRouter`, and `Tool`/`Toolkit`. For API inventories it links to the concise [AI & Language Models](../systems/mcp#mcpserver) reference instead of repeating them.
 
 **What you will build.** An `acme-comp` MCP server that:
 
@@ -282,7 +282,7 @@ export const CompToolkitHandlers = CompToolkit.toLayer(Effect.gen(function*() {
 export const CompTools = McpServer.toolkit(CompToolkit).pipe(Layer.provide(CompToolkitHandlers))
 ```
 
-What a client receives for each handler outcome — success, invalid arguments, declared failure, internal fault — differs by protocol era and is listed in the [tool outcome table](../systems/ai-language-models#mcpserver). The short version: declared failures are part of the contract and reach the client as written; everything else becomes a fixed internal-error message.
+What a client receives for each handler outcome — success, invalid arguments, declared failure, internal fault — differs by protocol era and is listed in the [tool outcome table](../systems/mcp#mcpserver). The short version: declared failures are part of the contract and reach the client as written; everything else becomes a fixed internal-error message.
 
 ### Hide tools per client with EnabledWhen
 
@@ -294,7 +294,7 @@ Use it to keep the catalog honest per client: hide write tools from clients that
 
 A resource template turns typed URI parameters into a read; completions help the host fill them in. A prompt is a parameterized message the user picks from a menu. Both run with the same per-request context as tools, so they read the principal the same way.
 
-**Contextual.** The store functions are declared; the API reference for `resource` and `prompt` options is in the [McpServer section](../systems/ai-language-models#mcpserver).
+**Contextual.** The store functions are declared; the API reference for `resource` and `prompt` options is in the [McpServer section](../systems/mcp#mcpserver).
 
 ```ts
 import { Effect, Layer, Schema } from "effect"
@@ -819,7 +819,7 @@ Read the gate as four guarantees. The user confirms the exact proposal ids and t
 
 ## Failures, retries, idempotency
 
-**Outcomes.** The [tool outcome table](../systems/ai-language-models#mcpserver) lists what a client receives for each toolkit handler outcome on each protocol era. Design to its two categories:
+**Outcomes.** The [tool outcome table](../systems/mcp#mcpserver) lists what a client receives for each toolkit handler outcome on each protocol era. Design to its two categories:
 
 - **Declared failures** (`failure` on `Tool.make`) are part of the contract. The client receives them as an `isError: true` result — the error's `message` under `failureMode: "error"` when it is an `Error` with a message, otherwise the schema-encoded payload — and the server neither logs nor reports them. Use them for outcomes the model can act on: band not found, insufficient scope, a conflicting request id. They are visible to the client, so keep internal detail out.
 - **Everything else** — undeclared failures, defects, results that fail their own `success` schema — reaches the client only as a fixed internal-error message, and is logged at error level and handed to every configured `ErrorReporter`. Turn infrastructure failures into defects with `Effect.orDie` rather than widening the tool's contract with them.

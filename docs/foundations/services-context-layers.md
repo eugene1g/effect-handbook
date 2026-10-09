@@ -381,7 +381,7 @@ const nested = siblings.pipe(Effect.provide(PayrollPoolLive))
 const isolated = Effect.provide(poolId, PayrollPoolLive, { local: true })
 ```
 
-- **Provide the application graph once, at the edge** (or build one [`ManagedRuntime`](core-runtime-execution#managedruntime)). "Build once, share, release at shutdown" comes from a single enclosing build, not from repeating `Effect.provide(sameLayer)` next to each use. A per-request or per-handler `Effect.provide(DbLive)` opens a pool per request.
+- **Provide the application graph once, at the edge** (or build one [`ManagedRuntime`](fibers-scopes-runtimes#managedruntime)). "Build once, share, release at shutdown" comes from a single enclosing build, not from repeating `Effect.provide(sameLayer)` next to each use. A per-request or per-handler `Effect.provide(DbLive)` opens a pool per request.
 - **Sharing is the resource-safety default.** Without it every dependent service would open its own client and register its own finalizer: a connection storm under load and more to unwind on failure.
 - **A build that is interrupted still completes its memo-map entry.** Every requester already waiting on that layer value — including the one that triggered the build — receives the same interrupted `Exit` instead of hanging, and the shared entry is released once the owning scope closes.
 - **`{ local: true }` and `Layer.fresh` are for required isolation** — per-tenant, per-test, or per-transaction resources. Never reach for them to silence a type error; they duplicate pools, caches, and subscriptions.
@@ -573,7 +573,7 @@ Five everyday capabilities are `Context.Reference`s with live defaults. That is 
 
 | Reference key | Default | Replace it with | More |
 | --- | --- | --- | --- |
-| `Clock.Clock` | System clock | `TestClock.layer()` from `effect/testing` | [Clock](core-runtime-execution#clock), [TestClock](../tooling/testing-dev-tooling#testclock) |
+| `Clock.Clock` | System clock | `TestClock.layer()` from `effect/testing` | [Clock](fibers-scopes-runtimes#clock), [TestClock](../tooling/testing-dev-tooling#testclock) |
 | `ConfigProvider.ConfigProvider` | `ConfigProvider.fromEnv()` | `ConfigProvider.layer(ConfigProvider.fromUnknown({...}))` | [ConfigProvider](configuration-secrets#configprovider) |
 | `Console.Console` | The global `console` | `TestConsole.layer` from `effect/testing` | [Console](../operations/observability#console), [TestConsole](../tooling/testing-dev-tooling#testconsole) |
 | `Random.Random` | `Math.random` | `Random.withSeed(seed)` for a reproducible sequence | [Random](../concurrency/scheduling-time#random) |

@@ -61,7 +61,11 @@ try {
     deviceScaleFactor: 1,
     mobile: false
   })
-  await navigate(cdp, `${origin}${base}data/schema#schemaissue`)
+  // SchemaIssue moved from the Schema page to Schema Tooling; the old deep link
+  // must land on its new home (see docs-moves.json and theme/anchor-moves.ts).
+  await cdp.call("Page.navigate", { url: `${origin}${base}data/schema#schemaissue` })
+  await waitThroughNavigation(cdp, `document.readyState === "complete" && location.pathname.replace(/\\.html$/, "").endsWith("data/schema-tooling") && location.hash === "#schemaissue" && !!document.getElementById("schemaissue")`, "moved SchemaIssue deep link")
+  await delay(250)
   const desktop = await evaluate(cdp, `(() => {
     const target = document.getElementById("schemaissue")
     const agentLink = [...document.querySelectorAll("a")]
@@ -80,7 +84,7 @@ try {
   assert(desktop.targetTop >= 55 && desktop.targetTop <= 140, `SchemaIssue deep-link target is at ${desktop.targetTop}px`)
   assert(desktop.sidebar !== "none", "Desktop sidebar is hidden")
   assert(desktop.agentHref === `${base}effect-4-handbook.md`, `Agent download points to ${desktop.agentHref}`)
-  assert(desktop.rawHref === `${base}data/schema.md`, `Schema raw link points to ${desktop.rawHref}`)
+  assert(desktop.rawHref === `${base}data/schema-tooling.md`, `Schema Tooling raw link points to ${desktop.rawHref}`)
   assert(desktop.copyText === "Copy Markdown", `Schema copy button says ${desktop.copyText}`)
 
   const bundleStart = await evaluate(cdp, `fetch(${JSON.stringify(`${base}effect-4-handbook.md`)})
@@ -88,9 +92,9 @@ try {
     .then((text) => text.slice(0, 80))`)
   assert(bundleStart.startsWith("<!-- Generated"), "Agent Markdown download did not return the generated bundle")
 
-  const schemaPage = sitePages.find((page) => page.source === "data/schema.md")
-  const expectedSchema = renderMarkdownTwin(schemaPage, await readFile(path.join(root, "docs/data/schema.md"), "utf8"), { base, siteUrl: process.env.HANDBOOK_SITE_URL })
-  const rawSchema = await evaluate(cdp, `fetch(${JSON.stringify(`${base}data/schema.md`)}).then((response) => response.text())`)
+  const schemaPage = sitePages.find((page) => page.source === "data/schema-tooling.md")
+  const expectedSchema = renderMarkdownTwin(schemaPage, await readFile(path.join(root, "docs/data/schema-tooling.md"), "utf8"), { base, siteUrl: process.env.HANDBOOK_SITE_URL })
+  const rawSchema = await evaluate(cdp, `fetch(${JSON.stringify(`${base}data/schema-tooling.md`)}).then((response) => response.text())`)
   assert(rawSchema === expectedSchema, "Published Schema Markdown differs from its generated twin")
   assert(rawSchema.startsWith("<!-- Markdown twin of "), "Published Schema Markdown lacks the twin header")
   const llmsIndex = await evaluate(cdp, `fetch(${JSON.stringify(`${base}llms.txt`)}).then((response) => response.text())`)
@@ -190,6 +194,18 @@ try {
   await stop(browser)
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+}
+
+// Polls an expression across a client-side redirect, where an evaluation can
+// be cut off by the navigation it is waiting for.
+async function waitThroughNavigation(cdp, expression, label) {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    try {
+      if (await evaluate(cdp, expression)) return
+    } catch {}
+    await delay(50)
+  }
+  throw new Error(`Timed out waiting for ${label}`)
 }
 
 async function navigate(cdp, url) {

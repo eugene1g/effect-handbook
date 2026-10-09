@@ -26,7 +26,7 @@ A boundary schema is a small contract. Write the answers down (a comment above t
 4. **Decode behavior** — normalization, defaults, and any service the decoder needs.
 5. **Encode behavior** — what is written back, and what is lost if decoding normalized.
 6. **Failure detail** — first error or all errors, and whether rejected input may be reported.
-7. **Excess-key policy** — strip or reject ([parse options](../data/schema#14-parse-options-are-boundary-policy)).
+7. **Excess-key policy** — strip or reject ([parse options](../data/schema-in-depth#5-parse-options-are-boundary-policy)).
 8. **Equivalence** — the relation under which a round trip is expected to hold.
 
 Separate schemas for one concept are legitimate when representation or disclosure differs (a public DTO and a persisted row). Join them with a named, tested mapping or a shared field set — never with `as`, an object spread that happens to type-check, or a duplicated field list.
@@ -210,7 +210,7 @@ const findGrants = Effect.fn("GrantRepository.findGrants")(
 )
 ```
 
-[SqlSchema](../interfaces/sql#sqlschema) wires this decoding into query helpers, and [Model](../data/schema#model) derives the select, insert, update, and JSON variants from one definition when the shapes differ only per operation.
+[SqlSchema](../interfaces/sql#sqlschema) wires this decoding into query helpers, and [Model](../data/schema-tooling#model) derives the select, insert, update, and JSON variants from one definition when the shapes differ only per operation.
 
 ## Encode outbound values deliberately
 
@@ -308,7 +308,7 @@ console.log(dollars, cents) // 123.45 12345
 
 The sample round-trips, but `Schema.Int` alone does not make division and multiplication by 100 exact: `9_007_199_254_740_990` cents decodes to `90071992547409.9` and encodes back to `9_007_199_254_740_991`. In the other direction, `Schema.Finite` accepts fractional-cent values such as `1.234`, which encode to `123` cents and decode to `1.23`. Retain integer minor units throughout, or use `BigDecimal` with an appropriate string codec for exact decimal money. If using `number`, constrain and test both domains against the precision you promise; do not infer reversibility from the presence of both functions.
 
-The same ownership question applies to every carrier narrower than its `Type`: `Schema.DurationFromMillis` cannot round-trip a nanosecond-precision duration, while `DurationFromNanos` and `DurationFromString` can. Pick the codec by the precision you promise ([Effect data types at the boundary](../data/schema#16-effect-data-types-at-the-boundary)).
+The same ownership question applies to every carrier narrower than its `Type`: `Schema.DurationFromMillis` cannot round-trip a nanosecond-precision duration, while `DurationFromNanos` and `DurationFromString` can. Pick the codec by the precision you promise ([Effect data types at the boundary](../data/schema-in-depth#7-effect-data-types-at-the-boundary)).
 
 Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it may still spell `transformEffect` as `transformOrFail`). The official guides track Effect's `main` branch rather than a specific tagged release, so where they differ, this page and the tagged `effect@4.0.2` source win.
 
@@ -343,7 +343,7 @@ Use first-error mode for fast machine-to-machine rejection when extra detail has
 
 Do not catch a decoding failure and replace it with an arbitrary default unless compatibility policy explicitly permits that. `Schema.catchDecoding` is powerful precisely because it weakens the boundary.
 
-Wording is a separate decision from structure. Put text that belongs to the contract on the schema (`message`, `expected`, `identifier`, `messageMissingKey`, `messageUnexpectedKey` — see [Custom error messages](../data/schema#17-custom-error-messages)); put text that belongs to one UI, or translation keys, in the formatter's `leafHook` / `checkHook` ([SchemaIssue](../data/schema#schemaissue)).
+Wording is a separate decision from structure. Put text that belongs to the contract on the schema (`message`, `expected`, `identifier`, `messageMissingKey`, `messageUnexpectedKey` — see [Custom error messages](../data/schema-in-depth#8-custom-error-messages)); put text that belongs to one UI, or translation keys, in the formatter's `leafHook` / `checkHook` ([SchemaIssue](../data/schema-tooling#schemaissue)).
 
 ### Keep "malformed" and "does not match" as different outcomes
 
@@ -406,7 +406,7 @@ The same Schema can produce more than a decoder:
 
 Annotations such as title, description, examples, and constraints should live on the definition that owns them. Derived artifacts then change together instead of drifting as parallel documents.
 
-**Derive each artifact from the model that owns its facts.** A value schema knows a shape; it does not know methods, paths, parameter locations, status codes, per-endpoint errors, security, or media types. Those live on the assembled `HttpApi`, so the OpenAPI document is projected from it with [`OpenApi.fromApi`](../interfaces/http-api#openapi), which reuses your schemas for the payload parts. JSON Schema describes the `Encoded` side, is open to extra properties by default, and names `$defs` after `identifier` annotations — see [JsonSchema](../data/schema#jsonschema).
+**Derive each artifact from the model that owns its facts.** A value schema knows a shape; it does not know methods, paths, parameter locations, status codes, per-endpoint errors, security, or media types. Those live on the assembled `HttpApi`, so the OpenAPI document is projected from it with [`OpenApi.fromApi`](../interfaces/http-api#openapi), which reuses your schemas for the payload parts. JSON Schema describes the `Encoded` side, is open to extra properties by default, and names `$defs` after `identifier` annotations — see [JsonSchema](../data/schema-tooling#jsonschema).
 
 > **Example status — Contextual:** it uses `CreateGrantRequest` from the first example. Generation uses Effect's native `Arbitrary` module; there is no `fast-check` bridge.
 
@@ -467,7 +467,7 @@ console.log(Schema.encodeUnknownSync(SalaryRow)(legacy))  // { employeeId: "e-1"
 console.log(Schema.encodeUnknownSync(SalaryRow)(current)) // { employeeId: "e-1", baseSalary: "185000.5" }
 ```
 
-For a renamed key, keep the wire name stable with [`Schema.encodeKeys`](../data/schema#3-structs-the-workhorse) while the domain name changes, or accept both shapes with the same union technique during a migration window. Use `withDecodingDefaultKey` for a genuine backward-compatible default, not to hide corrupt input. For long-lived persisted schema descriptions, use [SchemaRepresentation](../data/schema#schemarepresentation) with stable identities and the required revivers. For SQL table evolution, pair schema changes with [Migrator](../interfaces/sql#migrator) rather than hoping runtime decoding performs a database migration.
+For a renamed key, keep the wire name stable with [`Schema.encodeKeys`](../data/schema#3-structs-the-workhorse) while the domain name changes, or accept both shapes with the same union technique during a migration window. Use `withDecodingDefaultKey` for a genuine backward-compatible default, not to hide corrupt input. For long-lived persisted schema descriptions, use [SchemaRepresentation](../data/schema-tooling#schemarepresentation) with stable identities and the required revivers. For SQL table evolution, pair schema changes with [Migrator](../interfaces/sql#migrator) rather than hoping runtime decoding performs a database migration.
 
 ## Runnable capstone: request to domain to JSON and back
 
@@ -606,7 +606,7 @@ const stableAfterFirstPass = Arbitrary.checkEffect(
 )
 ```
 
-A schema-derived generator has two blind spots, and both need hand-written fixtures. It produces valid decoded values, so it can never exercise **key omitted → default**, an explicit falsy value that must survive, or malformed wire input; keep a handful of *named encoded* fixtures for those (a bad brand pattern, a malformed URL, an impossible timestamp, an invalid explicit default, one representative row per legacy form). And it knows only the schema: a cross-field business rule must be a schema `check`, or a residual `Arbitrary.filter`, which spends the discard budget. Record the seed and the shrunk counterexample when a property fails, and keep a regression example per representation bug. The per-requirement proof table and the four-case minimum are in [Testing schemas with TestSchema](../data/schema#testing-schemas-with-testschema).
+A schema-derived generator has two blind spots, and both need hand-written fixtures. It produces valid decoded values, so it can never exercise **key omitted → default**, an explicit falsy value that must survive, or malformed wire input; keep a handful of *named encoded* fixtures for those (a bad brand pattern, a malformed URL, an impossible timestamp, an invalid explicit default, one representative row per legacy form). And it knows only the schema: a cross-field business rule must be a schema `check`, or a residual `Arbitrary.filter`, which spends the discard budget. Record the seed and the shrunk counterexample when a property fails, and keep a regression example per representation bug. The per-requirement proof table and the four-case minimum are in [Testing schemas with TestSchema](../data/schema-tooling#testing-schemas-with-testschema).
 
 ## Operational checklist
 

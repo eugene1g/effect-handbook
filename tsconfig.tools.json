@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "erasableSyntaxOnly": true,
     "lib": ["ESNext", "DOM"],
     "module": "NodeNext",

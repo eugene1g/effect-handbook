@@ -45,7 +45,7 @@ pnpm docs:examples    # extract and validate every TypeScript/TSX fence
 pnpm docs:test        # build and verify everything
 ```
 
-After `pnpm docs:build`, open [`dist/effect-4-handbook.html`](dist/effect-4-handbook.html) directly in a browser. The file currently contains all 58 pages (45 concise pages and 13 deep-dive pages including the landing page) and offers **Copy page Markdown**, **Copy all Markdown**, and **Download .md** without fetching another asset.
+After `pnpm docs:build`, open [`dist/effect-4-handbook.html`](dist/effect-4-handbook.html) directly in a browser. The file currently contains all 64 pages (51 concise pages and 13 deep-dive pages including the landing page) and offers **Copy page Markdown**, **Copy all Markdown**, and **Download .md** without fetching another asset.
 
 The deterministic retrieval suite is stored in [`evals/retrieval-cases.json`](evals/retrieval-cases.json). It gates Recall@1/Recall@3 and doubles as the rubric for periodic model runs using only `llms.txt`; generated code from those runs must still pass the tracked TypeScript/Effect example validator and focused runtime assertions.
 

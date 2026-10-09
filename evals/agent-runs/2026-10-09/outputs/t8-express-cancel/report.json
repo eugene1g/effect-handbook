@@ -1,0 +1,12 @@
+{
+  "edition": "4.0 (effect@4.0.2, audited 2026-10-09)",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/recipes/request-cancellation-through-a-host.md#contract",
+    "https://eugene1g.github.io/effect-handbook/recipes/request-cancellation-through-a-host.md#complete-file",
+    "https://eugene1g.github.io/effect-handbook/recipes/request-cancellation-through-a-host.md#variations",
+    "https://eugene1g.github.io/effect-handbook/recipes/managed-runtime-integration.md#a-production-shaped-bridge",
+    "https://eugene1g.github.io/effect-handbook/recipes/managed-runtime-integration.md#complete-file"
+  ],
+  "assumptions": "Express does not expose an AbortSignal on IncomingMessage; the handbook's 'Variations' section explicitly documents this and prescribes creating one AbortController per request and aborting it from res.on('close', ...). The Option returned by Cause.findErrorOption uses ._tag / Option.isSome pattern consistent with Effect 4. Layer.provide(serviceLayer, depLayer) correctly wires dependencies; pipe style (serviceLayer.pipe(Layer.provide(depLayer))) is used as shown in the handbook. process.exit(0) is called after dispose() so Node does not linger.",
+  "confidence": 5
+}

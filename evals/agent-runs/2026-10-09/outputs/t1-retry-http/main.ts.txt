@@ -1,0 +1,143 @@
+/**
+ * t1-retry-http — Effect 4 HTTP client with typed retry and EmployeeNotFound.
+ *
+ * Strategy:
+ *  • Acquire the base HttpClient from context (no filterStatusOk so we see all statuses).
+ *  • Per-attempt: GET the URL → matchStatus branches on 200/404/503/else → Effect.timeout("2 seconds").
+ *  • Retry with exponential backoff from 200 ms, at most 3 retries, only when the
+ *    error tag is "ServiceUnavailable" (503) or "TimeoutException" (2-s budget hit).
+ *  • All other failures (transport errors, schema errors, 4xx that aren't 404) are
+ *    typed and bubble out without retry.
+ *  • Fake layer: swaps fetch via FetchHttpClient.Fetch; returns 503 twice then a valid body.
+ */
+
+import { Cause, Effect, Layer, Schedule, Schema } from "effect"
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientResponse
+} from "effect/http"
+
+// ============================================================================
+// Schema — { id: string, name: string, level: string }
+// ============================================================================
+
+const EmployeeSchema = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  level: Schema.String,
+})
+
+type Employee = Schema.Schema.Type<typeof EmployeeSchema>
+
+// ============================================================================
+// Domain errors
+// ============================================================================
+
+/** Returned on HTTP 404. Not retried. */
+class EmployeeNotFound extends Schema.TaggedError<EmployeeNotFound>()(
+  "EmployeeNotFound",
+  { id: Schema.String }
+) {}
+
+/** Returned on HTTP 503. Triggers the retry policy. */
+class ServiceUnavailable extends Schema.TaggedError<ServiceUnavailable>()(
+  "ServiceUnavailable",
+  {}
+) {}
+
+/** Returned on any other unexpected status code. Not retried. */
+class UnexpectedStatus extends Schema.TaggedError<UnexpectedStatus>()(
+  "UnexpectedStatus",
+  { status: Schema.Number }
+) {}
+
+// ============================================================================
+// Core function
+// ============================================================================
+
+/**
+ * Fetch an employee by id from https://hris.example/employees/:id.
+ *
+ * Error channel:
+ *   EmployeeNotFound     — 404 (permanent, no retry)
+ *   ServiceUnavailable   — 503 (retried up to 3 times)
+ *   Cause.TimeoutException — 2-s per-attempt budget exceeded (retried up to 3 times)
+ *   UnexpectedStatus     — any other non-200 status (not retried)
+ *   HttpClientError      — transport/DNS failures (not retried)
+ *   SchemaError          — body parses as JSON but fails schema validation (not retried)
+ */
+const getEmployee = (id: string) =>
+  Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient
+
+    // One attempt: GET → branch on status → 2-second timeout.
+    const singleAttempt = client.get(`https://hris.example/employees/${id}`).pipe(
+      Effect.flatMap((response) =>
+        HttpClientResponse.matchStatus(response, {
+          200: HttpClientResponse.schemaBodyJson(EmployeeSchema),
+          404: () => Effect.fail(new EmployeeNotFound({ id })),
+          503: () => Effect.fail(new ServiceUnavailable()),
+          orElse: (r) => Effect.fail(new UnexpectedStatus({ status: r.status }))
+        })
+      ),
+      Effect.timeout("2 seconds") // TimeoutException on the E channel if this fires
+    )
+
+    // Retry only ServiceUnavailable (503) or TimeoutException.
+    // Exponential backoff: 200 ms, 400 ms, 800 ms … for at most 3 retries (4 total attempts).
+    const retryPolicy = Schedule.exponential("200 millis").pipe(
+      Schedule.while(({ input }) => {
+        const tag = (input as { readonly _tag?: string })._tag
+        return tag === "ServiceUnavailable" || tag === "TimeoutException"
+      }),
+      Schedule.upTo({ times: 3 })
+    )
+
+    return yield* singleAttempt.pipe(Effect.retry(retryPolicy))
+  })
+
+// ============================================================================
+// Fake HttpClient Layer — 503 × 2, then a valid 200 body
+// ============================================================================
+
+const makeFakeHttpLayer = (): Layer.Layer<HttpClient.HttpClient> => {
+  let callCount = 0
+
+  const fakeFetch: typeof fetch = async (_input, _init) => {
+    callCount++
+    console.log(`[fake-fetch] attempt #${callCount}`)
+    if (callCount <= 2) {
+      return new Response("Service Unavailable", { status: 503 })
+    }
+    return new Response(
+      JSON.stringify({ id: "42", name: "Alice", level: "L5" }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }
+    )
+  }
+
+  // FetchHttpClient.layer normally uses the global fetch.
+  // Provide FetchHttpClient.Fetch to swap in our controlled fake.
+  return FetchHttpClient.layer.pipe(
+    Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fakeFetch))
+  )
+}
+
+// ============================================================================
+// Main — run the program, log the result
+// ============================================================================
+
+const program = getEmployee("42").pipe(
+  Effect.tap((emp: Employee) => Effect.log(`Result: ${JSON.stringify(emp)}`))
+)
+
+Effect.runPromise(
+  program.pipe(Effect.provide(makeFakeHttpLayer()))
+).then((result) => {
+  console.log("Success:", result)
+}).catch((err: unknown) => {
+  console.error("Failure:", err)
+})

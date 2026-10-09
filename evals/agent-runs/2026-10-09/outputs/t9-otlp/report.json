@@ -1,0 +1,18 @@
+{
+  "edition": "4.0 — effect@4.0.2",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/operations/telemetry-export.md#choosing-and-owning-an-export-path",
+    "https://eugene1g.github.io/effect-handbook/operations/telemetry-export.md#otlp",
+    "https://eugene1g.github.io/effect-handbook/operations/telemetry-export.md#otlpexporter",
+    "https://eugene1g.github.io/effect-handbook/operations/telemetry-export.md#otelnodesdk",
+    "https://eugene1g.github.io/effect-handbook/operations/observability.md#tracer",
+    "https://eugene1g.github.io/effect-handbook/operations/observability.md#metric",
+    "https://eugene1g.github.io/effect-handbook/operations/observability.md#logger",
+    "https://eugene1g.github.io/effect-handbook/operations/observability.md#cardinality-names-and-attribute-sets-are-bounded",
+    "https://eugene1g.github.io/effect-handbook/operations/observability.md#designing-signals",
+    "https://eugene1g.github.io/effect-handbook/recipes/production-observability.md#complete-file",
+    "https://eugene1g.github.io/effect-handbook/recipes/production-observability.md#why-these-primitives"
+  ],
+  "assumptions": "Chose Effect's native OTLP exporters (Otlp.layerJson from effect/observability) over the @effect/opentelemetry NodeSdk bridge because: (1) the service is greenfield with no pre-existing OTel SDK setup, auto-instrumentation, or vendor span processors to integrate; (2) Otlp.layerJson covers all three signals with zero extra peer dependencies; (3) the handbook explicitly recommends 'new projects use effect/observability's Otlp' and 'Reach for @effect/opentelemetry only when an existing OpenTelemetry setup is already in place'; (4) graceful flush on shutdown is built into the scoped exporters with a configurable shutdownTimeout, so no manual teardown code is needed. The NodeSdk bridge would be the correct choice only if a platform team already managed OTel SDK configuration, vendor exporters, or HTTP/database auto-instrumentation. Employee ids appear as span attributes ('employee.id') and log annotations, never in span names or metric label sets, to keep names low-cardinality and metric series counts bounded. The approved-raises counter (comp_approved_raises_total) carries no per-employee label for the same reason. Logs are correlated with traces via Logger.tracerLogger, which Otlp.layerJson keeps in the logger set by default (loggerMergeWithExisting: true); each exported OTLP log record carries the active traceId and spanId. Telemetry is flushed on shutdown via the Layer scope finalizers; each exporter flush is bounded by shutdownTimeout (3 seconds) so the process exits within ~9 seconds even with an unreachable collector. The import path 'effect/observability' for Otlp and 'effect/http' for FetchHttpClient match the Effect 4.0.2 module layout shown in the handbook examples.",
+  "confidence": 5
+}

@@ -1,0 +1,148 @@
+/**
+ * t6-cache: Cached lookupCompBand with Effect's Cache primitive.
+ *
+ * Requirements met:
+ *   - 10-minute TTL for successes
+ *   - Concurrent requests for the same level share one in-flight lookup
+ *   - Cache holds at most 500 levels (LRU eviction)
+ *   - Failed lookups are NOT cached: TTL=0 means the failure is never retained;
+ *     the next caller starts a fresh lookup (Cache.makeWith + Exit branch)
+ */
+
+import { Cache, Effect, Exit, Ref } from "effect"
+
+// ---------------------------------------------------------------------------
+// Domain
+// ---------------------------------------------------------------------------
+
+interface CompBand {
+  readonly level: string
+  readonly minSalary: number
+  readonly maxSalary: number
+}
+
+// ---------------------------------------------------------------------------
+// Flaky lookup simulation
+//
+// lookupCompBand is "expensive" (simulated with Effect.sleep).
+// For level "L1" the first two calls fail; the third succeeds.
+// All other levels succeed immediately.
+// ---------------------------------------------------------------------------
+
+const makeProgram = Effect.gen(function* () {
+  // Counts every time the underlying lookup function body actually runs.
+  const totalLookups = yield* Ref.make(0)
+  // Counts how many times L1 specifically has been looked up (for flakiness).
+  const l1Lookups = yield* Ref.make(0)
+
+  const lookupCompBand = (level: string): Effect.Effect<CompBand, string> =>
+    Effect.gen(function* () {
+      const n = yield* Ref.updateAndGet(totalLookups, (c) => c + 1)
+      console.log(`  [lookup #${n}] underlying call for level=${level}`)
+
+      // Simulate an expensive I/O call.
+      yield* Effect.sleep("30 millis")
+
+      if (level === "L1") {
+        const attempts = yield* Ref.updateAndGet(l1Lookups, (c) => c + 1)
+        if (attempts <= 2) {
+          // Fail the first two L1 lookups to demonstrate "don't cache failures".
+          return yield* Effect.fail(`HRIS timeout for ${level} (L1 attempt ${attempts})`)
+        }
+      }
+
+      const num = parseInt(level.slice(1), 10)
+      return {
+        level,
+        minSalary: num * 20_000 + 60_000,
+        maxSalary: num * 20_000 + 110_000,
+      }
+    })
+
+  // ---------------------------------------------------------------------------
+  // Build the cache
+  //   capacity   – hold at most 500 levels (LRU eviction after that)
+  //   timeToLive – success: 10 minutes; failure: 0 ms (= never retained)
+  //                A zero TTL means "concurrent callers share the one in-flight
+  //                lookup, but once it completes with a failure the result is
+  //                discarded; the very next get() starts a fresh lookup."
+  // ---------------------------------------------------------------------------
+  const cache = yield* Cache.makeWith(lookupCompBand, {
+    capacity: 500,
+    timeToLive: (exit) =>
+      Exit.isSuccess(exit) ? "10 minutes" : "0 millis",
+  })
+
+  // ── 1. Five concurrent requests for the same level ────────────────────────
+  // Only one underlying lookup should run; all five callers receive the result.
+  console.log("=== 1. Concurrent requests for L4 (5 fibers) ===")
+  const concurrentResults = yield* Effect.all(
+    Array.from({ length: 5 }, () => Cache.get(cache, "L4")),
+    { concurrency: "unbounded" }
+  )
+  console.log("Results:", concurrentResults)
+  const after1 = yield* Ref.get(totalLookups)
+  console.log(`Underlying lookups so far: ${after1}  (expected: 1)\n`)
+
+  // ── 2. Sequential cache hits ──────────────────────────────────────────────
+  // L4 is already cached; no new lookups should run.
+  console.log("=== 2. Sequential cache hits for L4 ===")
+  const hit1 = yield* Cache.get(cache, "L4")
+  const hit2 = yield* Cache.get(cache, "L4")
+  console.log("Hit 1:", hit1)
+  console.log("Hit 2:", hit2)
+  const after2 = yield* Ref.get(totalLookups)
+  console.log(`Underlying lookups so far: ${after2}  (expected: still 1)\n`)
+
+  // ── 3. Flaky level: failures must NOT be cached ───────────────────────────
+  // Each failure causes the cache to discard the result (TTL=0) so the next
+  // caller triggers a fresh lookup rather than replaying the cached error.
+  console.log("=== 3. Flaky lookup for L1 ===")
+
+  const r1 = yield* Effect.exit(Cache.get(cache, "L1"))
+  console.log(
+    `L1 attempt 1: ${Exit.isSuccess(r1) ? "SUCCESS" : `FAILURE (not cached) – ${(r1 as Extract<typeof r1, { _tag: "Failure" }>).cause}`}`
+  )
+
+  // Failure was not cached → fresh lookup starts here.
+  const r2 = yield* Effect.exit(Cache.get(cache, "L1"))
+  console.log(
+    `L1 attempt 2: ${Exit.isSuccess(r2) ? "SUCCESS" : `FAILURE (not cached) – ${(r2 as Extract<typeof r2, { _tag: "Failure" }>).cause}`}`
+  )
+
+  // L1 has now been looked up twice (both failed); the third lookup succeeds.
+  const r3 = yield* Cache.get(cache, "L1")
+  console.log(`L1 attempt 3: SUCCESS – ${JSON.stringify(r3)}`)
+
+  const after3 = yield* Ref.get(totalLookups)
+  console.log(`Underlying lookups so far: ${after3}  (expected: 1 + 3 = 4)\n`)
+
+  // ── 4. After success, L1 is cached – no more underlying calls ────────────
+  console.log("=== 4. L1 is now cached – two sequential reads ===")
+  yield* Cache.get(cache, "L1")
+  yield* Cache.get(cache, "L1")
+  const after4 = yield* Ref.get(totalLookups)
+  console.log(`Underlying lookups so far: ${after4}  (expected: still 4)\n`)
+
+  // ── 5. Different levels concurrently ─────────────────────────────────────
+  console.log("=== 5. Concurrent requests for three new levels ===")
+  const multiLevel = yield* Effect.all(
+    ["L2", "L3", "L5"].map((l) => Cache.get(cache, l)),
+    { concurrency: "unbounded" }
+  )
+  console.log("Results:", multiLevel)
+  const after5 = yield* Ref.get(totalLookups)
+  console.log(`Underlying lookups so far: ${after5}  (expected: 4 + 3 = 7)\n`)
+
+  // ── Summary ───────────────────────────────────────────────────────────────
+  const cacheSize = yield* Cache.size(cache)
+  const finalCount = yield* Ref.get(totalLookups)
+  console.log("=== Summary ===")
+  console.log(`Cache size: ${cacheSize} levels (max 500)`)
+  console.log(
+    `Total underlying lookups: ${finalCount}` +
+      " (L4×1 concurrent dedup, L1×3 flaky-then-success, L2+L3+L5×3 = 7 total)"
+  )
+})
+
+Effect.runPromise(makeProgram).catch(console.error)

@@ -1,0 +1,13 @@
+{
+  "edition": "4.0 (effect@4.0.2, audited 2026-10-09)",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/interfaces/http-client.md#httpclient",
+    "https://eugene1g.github.io/effect-handbook/interfaces/http-client.md#fetchhttpclient",
+    "https://eugene1g.github.io/effect-handbook/interfaces/http-client.md#httpclientresponse",
+    "https://eugene1g.github.io/effect-handbook/interfaces/http-client.md#httpclienterror",
+    "https://eugene1g.github.io/effect-handbook/concurrency/scheduling-time.md#schedule",
+    "https://eugene1g.github.io/effect-handbook/recipes/retry-with-test-clock.md"
+  ],
+  "assumptions": "1. Effect.timeout(\"2 seconds\") puts a TimeoutException (with _tag: \"TimeoutException\") on the E channel, making it visible to Schedule.while. 2. FetchHttpClient.Fetch is a Context.Tag for the underlying fetch function, swappable via Layer.succeed as shown for FetchHttpClient.RequestInit. 3. HttpClientResponse.matchStatus receives all status codes without needing filterStatusOk applied first—the base client returns any-status responses. 4. Schedule.while receives { input: E } where E is the error type, as shown in the retry-with-test-clock recipe. 5. Schedule.upTo({ times: 3 }) gives at most 3 schedule recurrences (= 3 retries after the initial attempt, 4 total). 6. HttpClientError from transport failures has _tag: \"HttpClientError\" and does not match the retry predicate, so it propagates unretried.",
+  "confidence": 4
+}

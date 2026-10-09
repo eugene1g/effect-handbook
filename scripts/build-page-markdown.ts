@@ -17,7 +17,7 @@ import {
   slugifyHeading
 } from "../handbook.ts"
 import { mapOutsideFences, resolveMarkdownTarget } from "./build-agent-handbook.ts"
-import { buildEssentials, essentialsFilename, essentialsWordBudget, essentialsWordCount } from "./build-essentials.ts"
+import { buildEssentials, effect3NamesAnchor, essentialsFilename, essentialsWordBudget, essentialsWordCount, renderEffect3Names } from "./build-essentials.ts"
 import { renderPublishedVersions, resolveEditionContext, versionsFilename } from "./versions.ts"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
@@ -380,6 +380,7 @@ export function buildLlmsIndex({
     "",
     "Use the intent map or capability catalog first, then fetch only the linked Markdown page or domain bundle. For a broad overview read the Essentials digest; use the complete concise aggregate only for an exhaustive cross-cutting review, not as the default retrieval unit. Every HTML page has a Markdown twin at the same path with `.md` appended (`/` is `/index.md`); fetch the twin, never the HTML. Sizes are given in words; budget roughly 1.3 tokens per word, more for code-heavy pages.",
     "",
+    ...renderEffect3Names(`${url("troubleshooting/anti-patterns.md")}#${effect3NamesAnchor.split("#")[1]}`),
     `- [Using this handbook from an agent](${url(agentGuideSource)}): The reading protocol — which artifact to fetch for which task, the Markdown URL rule, how to read the catalog, how to cite, and a drop-in instructions block (${formatWords(pageWords.get(agentGuideSource) ?? 0)}).`,
     `- [Essentials](${url(essentialsFilename)}): **Start here for a broad read.** Every concise page and section in reading order — its purpose, stability, and when to reach for it — each linking to the full section (${formatWords(sources ? essentialsWordCount(buildEssentials(sources)) : 0)}).`,
     `- [Module index](${url(moduleIndexFilename)}): Every module section by name — import path, stability badge, and the Markdown twin anchor (${moduleCount} modules; JSON at [${moduleIndexJsonFilename}](${url(moduleIndexJsonFilename)})).`,

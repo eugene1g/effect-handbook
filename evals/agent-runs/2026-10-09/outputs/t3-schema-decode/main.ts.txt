@@ -1,0 +1,110 @@
+import { Result, Schema } from "effect"
+
+// ---------------------------------------------------------------------------
+// 1. Branded employee ID: a string that must match /^E-\d{4}$/
+// ---------------------------------------------------------------------------
+const EmployeeId = Schema.String
+  .check(Schema.isPattern(/^E-\d{4}$/))
+  .pipe(Schema.brand("EmployeeId"))
+type EmployeeId = typeof EmployeeId.Type
+
+// ---------------------------------------------------------------------------
+// 2. Amount: arrives as a numeric string, decoded to a positive finite number
+// ---------------------------------------------------------------------------
+const PositiveFiniteFromString = Schema.FiniteFromString
+  .check(Schema.isGreaterThan(0))
+
+// ---------------------------------------------------------------------------
+// 3. Raise request schema
+//    Encoded (wire) shape ← the raw JSON object
+//    Type  (domain) shape ← after decoding
+//
+//    employeeId   : branded string  (wire: string)
+//    amount       : positive number (wire: numeric string)
+//    effectiveDate: Date            (wire: ISO 8601 string)
+//    note         : optionalKey     (absent ≠ present-but-undefined)
+// ---------------------------------------------------------------------------
+const RaiseRequest = Schema.Struct({
+  employeeId: EmployeeId,
+  amount: PositiveFiniteFromString,
+  effectiveDate: Schema.DateFromString,
+  note: Schema.optionalKey(Schema.String),
+})
+
+type RaiseRequest     = typeof RaiseRequest.Type
+type RaiseRequestWire = typeof RaiseRequest.Encoded
+
+// ---------------------------------------------------------------------------
+// 4. Typed error for decode failures
+// ---------------------------------------------------------------------------
+class InvalidRaiseRequest extends Error {
+  readonly _tag = "InvalidRaiseRequest" as const
+  constructor(message: string) {
+    super(message)
+    this.name = "InvalidRaiseRequest"
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Decode: unknown → Result<RaiseRequest, InvalidRaiseRequest>
+//    SchemaError.message already contains the human-readable default formatting.
+// ---------------------------------------------------------------------------
+function decodeRaiseRequest(
+  input: unknown,
+): Result.Result<RaiseRequest, InvalidRaiseRequest> {
+  return Result.mapError(
+    Schema.decodeUnknownResult(RaiseRequest)(input),
+    (schemaError) => new InvalidRaiseRequest(schemaError.message),
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 6. Encode: RaiseRequest (domain) → RaiseRequestWire (JSON shape)
+// ---------------------------------------------------------------------------
+function encodeRaiseRequest(value: RaiseRequest): RaiseRequestWire {
+  return Schema.encodeSync(RaiseRequest)(value)
+}
+
+// ---------------------------------------------------------------------------
+// 7. main — decode one valid and one invalid input, log both outcomes
+// ---------------------------------------------------------------------------
+
+// Valid: all fields correct; note is intentionally absent
+const validInput: unknown = {
+  employeeId: "E-1042",
+  amount: "3500.00",
+  effectiveDate: "2026-01-01T00:00:00.000Z",
+  // note is absent — tests the optionalKey behaviour
+}
+
+// Invalid: wrong pattern on employeeId, negative amount, non-date string
+const invalidInput: unknown = {
+  employeeId: "X-999",          // fails the /^E-\d{4}$/ pattern check
+  amount: "-200",               // fails isGreaterThan(0)
+  effectiveDate: "not-a-date",  // fails DateFromString
+}
+
+const validResult   = decodeRaiseRequest(validInput)
+const invalidResult = decodeRaiseRequest(invalidInput)
+
+// --- valid outcome ---
+if (Result.isSuccess(validResult)) {
+  console.log("=== Valid decode ===")
+  console.log("Decoded value:", validResult.success)
+  console.log("note absent?", !("note" in validResult.success))
+  const wire = encodeRaiseRequest(validResult.success)
+  console.log("Re-encoded (wire):", wire)
+} else {
+  // Should not happen with the valid input above
+  console.error("Unexpected decode failure:", validResult.failure.message)
+}
+
+// --- invalid outcome ---
+if (Result.isFailure(invalidResult)) {
+  console.log("\n=== Invalid decode ===")
+  console.log("Error tag:", invalidResult.failure._tag)
+  console.log("Error message:", invalidResult.failure.message)
+} else {
+  // Should not happen with the invalid input above
+  console.error("Unexpected decode success:", invalidResult.success)
+}

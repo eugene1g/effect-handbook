@@ -1,0 +1,9 @@
+{
+  "edition": "effect@4.0.2 (audited 2026-10-09)",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/operations/caching-batching.md#cache",
+    "https://eugene1g.github.io/effect-handbook/operations/caching-batching.md#failure-and-freshness-policy"
+  ],
+  "assumptions": "Cache.makeWith with a zero TTL for failures ('0 millis') means the failure Exit is never retained: concurrent in-flight callers still share one lookup (the deferred is shared until it resolves), but once the failure result lands it is immediately discarded so the very next Cache.get starts a fresh lookup. This matches the handbook table row 'Zero: Concurrent callers share the in-flight lookup; the next caller starts a new one'. Effect.sleep is used to simulate I/O latency so concurrent fibers actually overlap on the in-flight deferred rather than racing past each other before the first resolves.",
+  "confidence": 5
+}

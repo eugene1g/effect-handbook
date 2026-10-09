@@ -2,6 +2,23 @@
 
 This is the list to check generated or pasted code against. Each row names the shape to search for, why it is wrong on `4.0.2`, the preferred shape, and the section that owns the explanation. For a reviewer's yes/no version of the same material, use the [Review Checklists](../reference/review-checklists).
 
+## Effect 3 names that do not exist in Effect 4
+
+Generated code most often breaks on a name carried over from Effect 3. Each of these fails to compile against `effect@4.0.2`; use the Effect 4 spelling instead.
+
+| Effect 3 name | Effect 4 |
+| --- | --- |
+| `Effect.catchAll` | `Effect.catch` |
+| `Effect.catchAllCause` | `Effect.catchCause` |
+| `Effect.catchSome` | `Effect.catchIf` or `Effect.catchTag` |
+| `Effect.either` | `Effect.result` (returns a `Result`) |
+| `Effect.tapErrorCause` | `Effect.tapCause` |
+| `Effect.zipLeft` / `Effect.zipRight` | `Effect.tap` / `Effect.andThen` |
+| `Context.Tag`, `Effect.Service` | `Context.Service` — see [Services, Context & Layers](../foundations/services-context-layers) |
+| `Layer.scoped` | `Layer.effect` (it already handles a `Scope` requirement) |
+| `@effect/platform`, `@effect/rpc`, `@effect/sql`, `@effect/cli` | modules inside `effect`: `FileSystem` and `Path` from `"effect"`, HTTP from `"effect/http"`, and so on; host Layers from `@effect/platform-node` — see [Getting Started](../foundations/getting-started#install-effect-4) |
+| `NodeRuntime` from `"effect"` | `NodeRuntime` from `@effect/platform-node` |
+
 ## Anti-patterns: construction and running
 
 | Anti-pattern | Why it is wrong | Preferred shape | Details |

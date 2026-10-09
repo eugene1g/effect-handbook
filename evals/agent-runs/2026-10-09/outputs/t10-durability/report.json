@@ -1,0 +1,14 @@
+{
+  "edition": "4.0 (effect@4.0.2, audited 2026-10-09)",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/deep-dives/durability-and-distribution-ladder.md#rung-three-orchestrate-a-durable-business-process",
+    "https://eugene1g.github.io/effect-handbook/deep-dives/durability-and-distribution-ladder.md#rung-four-make-immutable-events-authoritative",
+    "https://eugene1g.github.io/effect-handbook/deep-dives/durability-and-distribution-ladder.md#rung-one-persist-data-or-completed-results",
+    "https://eugene1g.github.io/effect-handbook/deep-dives/durability-and-distribution-ladder.md#rung-two-persist-independent-jobs",
+    "https://eugene1g.github.io/effect-handbook/deep-dives/durability-and-distribution-ladder.md#rung-five-distribute-ownership-by-key",
+    "https://eugene1g.github.io/effect-handbook/deep-dives/durability-and-distribution-ladder.md#begin-with-the-failure-boundary",
+    "https://eugene1g.github.io/effect-handbook/deep-dives/durability-and-distribution-ladder.md#compose-rungs-by-assigning-one-owner-to-each-truth"
+  ],
+  "assumptions": "The approval signals (manager, finance) arrive via an external webhook or UI action rather than being polled, making DurableDeferred the natural fit for the human-wait steps. The process runs on a single cluster of workers (no need for per-approval-id distributed entity ownership). The payment provider has an idempotency-key API; if it does not, the design would need an outbox or uniqueness constraint at the application layer instead.",
+  "confidence": 5
+}

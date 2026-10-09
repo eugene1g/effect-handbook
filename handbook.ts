@@ -121,6 +121,23 @@ export const officialEffectLinks: ReadonlyArray<{ readonly text: string; readonl
   { text: "LLMS.md", link: upstreamUrl("blob", "LLMS.md") }
 ])
 
+// Effect 3 names that coding agents most often reach for and that do not exist
+// in Effect 4, with the Effect 4 spelling. Rendered at the top of llms.txt and
+// the essentials digest, and listed on troubleshooting/anti-patterns.md (docs:check
+// verifies every entry appears there). Found by the agent evaluation in evals/agent-runs/.
+export const effect3Names: ReadonlyArray<{ readonly wrong: string; readonly right: string }> = Object.freeze([
+  { wrong: "`Effect.catchAll`", right: "`Effect.catch`" },
+  { wrong: "`Effect.catchAllCause`", right: "`Effect.catchCause`" },
+  { wrong: "`Effect.catchSome`", right: "`Effect.catchIf` or `Effect.catchTag`" },
+  { wrong: "`Effect.either`", right: "`Effect.result` (returns a `Result`)" },
+  { wrong: "`Effect.tapErrorCause`", right: "`Effect.tapCause`" },
+  { wrong: "`Effect.zipLeft` / `Effect.zipRight`", right: "`Effect.tap` / `Effect.andThen`" },
+  { wrong: "`Context.Tag`, `Effect.Service`", right: "`Context.Service`" },
+  { wrong: "`Layer.scoped`", right: "`Layer.effect` (it already handles a `Scope` requirement)" },
+  { wrong: "`@effect/platform`, `@effect/rpc`, `@effect/sql`, `@effect/cli`", right: "modules inside `effect`: `FileSystem` and `Path` from `\"effect\"`, HTTP from `\"effect/http\"`, and so on; host Layers from `@effect/platform-node`" },
+  { wrong: "`NodeRuntime` from `\"effect\"`", right: "`NodeRuntime` from `@effect/platform-node`" }
+])
+
 export const handbookGroups = [
   {
     text: "Start Here",

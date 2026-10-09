@@ -1,0 +1,112 @@
+/**
+ * Tests for EmployeeRepository + RaiseService using @effect/vitest.
+ *
+ * Test layer: EmployeeRepository.layerTest (known fixture data)
+ *   - "emp-1": salary 100 000
+ * effect@4.0.2, @effect/vitest
+ */
+
+import { assert, it, layer } from "@effect/vitest"
+import { Effect, Layer } from "effect"
+
+import {
+  EmployeeNotFound,
+  EmployeeRepository,
+  RaiseTooLarge,
+  RaiseService,
+} from "./main.js"
+
+// Compose RaiseService on top of the test repository.
+const TestLayer: Layer.Layer<RaiseService> = RaiseService.layer.pipe(
+  Layer.provide(EmployeeRepository.layerTest)
+)
+
+// Build the layer once and share across all tests in this block.
+layer(TestLayer)("RaiseService tests", (it) => {
+  // -----------------------------------------------------------------------
+  // Success path
+  // -----------------------------------------------------------------------
+
+  it.effect(
+    "approveRaise succeeds when amount is exactly 10 % of salary",
+    () =>
+      Effect.gen(function* () {
+        const svc = yield* RaiseService
+        // emp-1 has salary 100 000; 10 % = 10 000 — boundary must pass.
+        yield* svc.approveRaise("emp-1", 10_000)
+        // If we reach here without an error the raise was approved.
+        assert.isTrue(true)
+      })
+  )
+
+  it.effect(
+    "approveRaise succeeds when amount is below 10 % of salary",
+    () =>
+      Effect.gen(function* () {
+        const svc = yield* RaiseService
+        // 5 000 is 5 % of 100 000 — clearly within the cap.
+        yield* svc.approveRaise("emp-1", 5_000)
+        assert.isTrue(true)
+      })
+  )
+
+  // -----------------------------------------------------------------------
+  // EmployeeNotFound error
+  // -----------------------------------------------------------------------
+
+  it.effect(
+    "approveRaise fails with EmployeeNotFound for an unknown employee id",
+    () =>
+      Effect.gen(function* () {
+        const svc = yield* RaiseService
+        // Effect.flip swaps success/failure; the result type becomes
+        // Effect<EmployeeNotFound | RaiseTooLarge, void>.
+        const err = yield* svc.approveRaise("no-such-id", 1_000).pipe(
+          Effect.flip
+        )
+        assert.instanceOf(err, EmployeeNotFound)
+        if (err instanceof EmployeeNotFound) {
+          assert.strictEqual(err.id, "no-such-id")
+        }
+      })
+  )
+
+  // -----------------------------------------------------------------------
+  // RaiseTooLarge error
+  // -----------------------------------------------------------------------
+
+  it.effect(
+    "approveRaise fails with RaiseTooLarge when amount exceeds 10 % of salary",
+    () =>
+      Effect.gen(function* () {
+        const svc = yield* RaiseService
+        // emp-1 has salary 100 000; 10 % = 10 000; requesting 15 000.
+        const err = yield* svc.approveRaise("emp-1", 15_000).pipe(
+          Effect.flip
+        )
+        assert.instanceOf(err, RaiseTooLarge)
+        if (err instanceof RaiseTooLarge) {
+          assert.strictEqual(err.id, "emp-1")
+          assert.strictEqual(err.amount, 15_000)
+          assert.strictEqual(err.salary, 100_000)
+          assert.strictEqual(err.maxAllowed, 10_000)
+        }
+      })
+  )
+
+  it.effect(
+    "approveRaise fails with RaiseTooLarge just above the 10 % boundary",
+    () =>
+      Effect.gen(function* () {
+        const svc = yield* RaiseService
+        // 10 001 exceeds the 10 000 cap by 1.
+        const err = yield* svc.approveRaise("emp-1", 10_001).pipe(
+          Effect.flip
+        )
+        assert.instanceOf(err, RaiseTooLarge)
+        if (err instanceof RaiseTooLarge) {
+          assert.strictEqual(err.maxAllowed, 10_000)
+        }
+      })
+  )
+})

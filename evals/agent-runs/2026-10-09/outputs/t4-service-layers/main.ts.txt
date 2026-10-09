@@ -1,0 +1,179 @@
+/**
+ * t4-service-layers — EmployeeRepository + RaiseService with typed errors,
+ * a live in-memory Layer, and a test Layer.
+ *
+ * effect@4.0.2
+ */
+
+import { Context, Effect, Layer, Schema } from "effect"
+
+// ---------------------------------------------------------------------------
+// Typed errors
+// ---------------------------------------------------------------------------
+
+export class EmployeeNotFound extends Schema.TaggedError<EmployeeNotFound>()(
+  "EmployeeNotFound",
+  { id: Schema.String }
+) {}
+
+export class RaiseTooLarge extends Schema.TaggedError<RaiseTooLarge>()(
+  "RaiseTooLarge",
+  {
+    id: Schema.String,
+    amount: Schema.Number,
+    salary: Schema.Number,
+    maxAllowed: Schema.Number,
+  }
+) {}
+
+// ---------------------------------------------------------------------------
+// Domain type
+// ---------------------------------------------------------------------------
+
+export interface Employee {
+  readonly id: string
+  readonly name: string
+  readonly salary: number
+}
+
+// ---------------------------------------------------------------------------
+// EmployeeRepository service
+// ---------------------------------------------------------------------------
+
+export class EmployeeRepository extends Context.Service<
+  EmployeeRepository,
+  {
+    readonly findById: (id: string) => Effect.Effect<Employee, EmployeeNotFound>
+  }
+>()("app/EmployeeRepository") {
+  /**
+   * Live layer: the in-memory Map is created once when the Layer is built.
+   * Seed data lives here; swap this layer at the app edge to use a real DB.
+   */
+  static readonly layer = Layer.effect(
+    EmployeeRepository,
+    Effect.gen(function* () {
+      const store = new Map<string, Employee>([
+        ["1", { id: "1", name: "Alice", salary: 100_000 }],
+        ["2", { id: "2", name: "Bob", salary: 80_000 }],
+      ])
+      yield* Effect.log("EmployeeRepository: in-memory store initialised")
+      return EmployeeRepository.of({
+        findById: (id) => {
+          const emp = store.get(id)
+          return emp !== undefined
+            ? Effect.succeed(emp)
+            : Effect.fail(new EmployeeNotFound({ id }))
+        },
+      })
+    })
+  )
+
+  /**
+   * Test layer: a controlled in-memory Map with known fixture data.
+   * Layer.sync means the Map is built synchronously once per layer build.
+   */
+  static readonly layerTest = Layer.sync(EmployeeRepository, () => {
+    const store = new Map<string, Employee>([
+      ["emp-1", { id: "emp-1", name: "Test Employee", salary: 100_000 }],
+    ])
+    return EmployeeRepository.of({
+      findById: (id) => {
+        const emp = store.get(id)
+        return emp !== undefined
+          ? Effect.succeed(emp)
+          : Effect.fail(new EmployeeNotFound({ id }))
+      },
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
+// RaiseService — depends on EmployeeRepository
+// ---------------------------------------------------------------------------
+
+export class RaiseService extends Context.Service<
+  RaiseService,
+  {
+    /**
+     * Approve a raise for an employee.
+     *
+     * Fails with EmployeeNotFound if the employee does not exist.
+     * Fails with RaiseTooLarge if amount > 10 % of the employee's salary.
+     */
+    readonly approveRaise: (
+      id: string,
+      amount: number
+    ) => Effect.Effect<void, EmployeeNotFound | RaiseTooLarge>
+  }
+>()("app/RaiseService") {
+  static readonly layer = Layer.effect(
+    RaiseService,
+    Effect.gen(function* () {
+      const repo = yield* EmployeeRepository
+      return RaiseService.of({
+        approveRaise: Effect.fn("RaiseService.approveRaise")(function* (
+          id: string,
+          amount: number
+        ) {
+          const employee = yield* repo.findById(id)
+          const maxAllowed = employee.salary * 0.1
+          if (amount > maxAllowed) {
+            yield* Effect.fail(
+              new RaiseTooLarge({
+                id,
+                amount,
+                salary: employee.salary,
+                maxAllowed,
+              })
+            )
+          }
+        }),
+      })
+    })
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Application layer (live)
+// ---------------------------------------------------------------------------
+
+export const AppLayer = RaiseService.layer.pipe(
+  Layer.provide(EmployeeRepository.layer)
+)
+
+// ---------------------------------------------------------------------------
+// Demo program
+// ---------------------------------------------------------------------------
+
+const program = Effect.gen(function* () {
+  const svc = yield* RaiseService
+
+  // Success path: 5 000 is 5 % of 100 000 — well within the 10 % cap.
+  yield* Effect.log("=== Success path ===")
+  yield* svc.approveRaise("1", 5_000)
+  yield* Effect.log("Raise of 5 000 approved for employee 1 (Alice)")
+
+  // RaiseTooLarge: 15 000 is 15 % of 100 000 — exceeds 10 % cap.
+  yield* Effect.log("=== RaiseTooLarge path ===")
+  yield* svc.approveRaise("1", 15_000).pipe(
+    Effect.catchTag("RaiseTooLarge", (err) =>
+      Effect.log(
+        `RaiseTooLarge: requested ${err.amount}, max allowed ${err.maxAllowed} for employee ${err.id}`
+      )
+    )
+  )
+
+  // EmployeeNotFound: unknown ID.
+  yield* Effect.log("=== EmployeeNotFound path ===")
+  yield* svc.approveRaise("unknown", 1_000).pipe(
+    Effect.catchTag("EmployeeNotFound", (err) =>
+      Effect.log(`EmployeeNotFound: no employee with id "${err.id}"`)
+    )
+  )
+})
+
+Effect.runPromise(program.pipe(Effect.provide(AppLayer))).catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

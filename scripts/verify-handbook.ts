@@ -3,7 +3,7 @@ import path from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
-import { deepDivePages, handbookGroups, handbookPages, handbookRelease, siteGroups, sitePages } from "../handbook.ts"
+import { deepDivePages, effect3Names, handbookGroups, handbookPages, handbookRelease, siteGroups, sitePages } from "../handbook.ts"
 import { diagramProblems } from "./diagrams.ts"
 import { releaseHistoryProblems, releaseHistorySource } from "./release-history.ts"
 import { assertVersionsMatchRelease } from "./versions.ts"
@@ -64,6 +64,10 @@ assert(sitePages.some((page) => page.source === releaseHistorySource), `${releas
 const markdownBySource = new Map()
 for (const page of sitePages) markdownBySource.set(page.source, await readFile(path.join(docsRoot, page.source), "utf8"))
 for (const problem of await diagramProblems(markdownBySource)) assert(false, problem)
+const antiPatterns = markdownBySource.get("troubleshooting/anti-patterns.md") ?? ""
+for (const entry of effect3Names) {
+  assert(antiPatterns.includes(`| ${entry.wrong} |`), `troubleshooting/anti-patterns.md must list ${entry.wrong} in "Effect 3 names that do not exist in Effect 4"`)
+}
 for (const problem of releaseHistoryProblems(await readFile(path.join(docsRoot, releaseHistorySource), "utf8"), handbookRelease)) {
   assert(false, `docs/${releaseHistorySource} ${problem}`)
 }

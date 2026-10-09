@@ -110,11 +110,12 @@ Use the Effect 4 Handbook at https://HOST/ for Effect questions. Rules:
 
 1. Fetch Markdown, never HTML: append `.md` to any page path (`/` is `/index.md`).
 2. Use the edition for the installed version: read `node_modules/effect/package.json`, take `major.minor`, and prefix every path with it (`https://HOST/4.0/llms.txt` for effect 4.0.x). https://HOST/versions.json lists the published editions; never use an edition from a different major.
-3. Start at that edition's `llms.txt`. Use its "Intent and primitive map" to find the exact section; use its `effect-4-modules.md` when you already know the module name.
-4. Fetch one page or one domain bundle (`effect-4-core.md`, `-web`, `-concurrency`, `-distributed`, `-ai`) rather than the full `effect-4-handbook.md`, unless the task spans the whole library.
-5. Prefer `compile` and `run` examples from the edition's `effect-4-examples.json`; treat `pseudocode` fences as sketches and `invalid` fences as counter-examples.
-6. The installed `effect` package (`node_modules/effect/AGENTS.md`, `ai-docs/src`, and the `.d.ts` files) wins over the handbook when they disagree.
-7. Cite sections as `<edition>/<twin path>#<anchor>` and name the audited release from the twin's first line.
+3. Start at that edition's `llms.txt`. Use its "Intent and primitive map" to find the exact section; use its `effect-4-modules.md` when you already know the module name. Take page URLs from those lists — never guess a path.
+4. For breadth, read `effect-4-essentials.md` (every page and section in brief, each linked to the full text); otherwise fetch one page or one domain bundle (`effect-4-core.md`, `-web`, `-concurrency`, `-distributed`, `-ai`). Fetch the full `effect-4-handbook.md` only when the task needs every rule at once.
+5. Before writing code, check the "Effect 3 names that do not exist in Effect 4" list at the top of `llms.txt` (for example `Effect.catchAll` is `Effect.catch`, `Layer.scoped` is `Layer.effect`, and there is no `@effect/platform`).
+6. Prefer `compile` and `run` examples from the edition's `effect-4-examples.json`; treat `pseudocode` fences as sketches and `invalid` fences as counter-examples.
+7. The installed `effect` package (`node_modules/effect/AGENTS.md`, `ai-docs/src`, and the `.d.ts` files) wins over the handbook when they disagree.
+8. Cite sections as `<edition>/<twin path>#<anchor>` and name the audited release from the twin's first line.
 ```
 
 The repository also ships the same protocol as an installable skill at `.agents/skills/use-effect-4-handbook/SKILL.md`, for agent frameworks that load skills from a directory.

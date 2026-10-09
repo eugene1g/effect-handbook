@@ -4,6 +4,7 @@ import process from "node:process"
 import { fileURLToPath } from "node:url"
 
 import { deepDivePages, handbookGroups, handbookPages, handbookRelease, siteGroups, sitePages } from "../handbook.ts"
+import { diagramProblems } from "./diagrams.ts"
 import { releaseHistoryProblems, releaseHistorySource } from "./release-history.ts"
 import { assertVersionsMatchRelease } from "./versions.ts"
 
@@ -60,6 +61,9 @@ try {
   assert(false, `versions.json disagrees with handbook.ts: ${error.message}`)
 }
 assert(sitePages.some((page) => page.source === releaseHistorySource), `${releaseHistorySource} must be registered in handbook.ts`)
+const markdownBySource = new Map()
+for (const page of sitePages) markdownBySource.set(page.source, await readFile(path.join(docsRoot, page.source), "utf8"))
+for (const problem of await diagramProblems(markdownBySource)) assert(false, problem)
 for (const problem of releaseHistoryProblems(await readFile(path.join(docsRoot, releaseHistorySource), "utf8"), handbookRelease)) {
   assert(false, `docs/${releaseHistorySource} ${problem}`)
 }

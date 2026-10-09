@@ -195,6 +195,10 @@ td code, th code { white-space: nowrap; }
   pre code { font-size: 12px; }
 }
 
+.diagram { display: block; margin: 1.5rem auto 0.5rem; padding: 12px; max-width: 100%; overflow-x: auto; background: #fff; border-radius: 8px; text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+p:has(> .diagram) + p { margin-top: 0.25rem; font-size: 0.9em; color: var(--muted, #6b7280); text-align: center; }
+
 @media print {
   :root { color-scheme: light; --bg: #fff; --text: #111; --muted: #333; --panel: #fff; --panel-strong: #f5f5f5; --border: #ccc; --border-soft: #ddd; --code: #f6f6f6; }
   body::before, .sidebar, .mobile-bar, .reading-progress, .page-kicker, .page-footer, .copy-code, .lang { display: none !important; }

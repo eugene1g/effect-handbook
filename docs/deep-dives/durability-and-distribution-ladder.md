@@ -11,6 +11,10 @@ This guide follows one business operation—applying an approved compensation ch
 
 All workflow, persistence, event-log, and cluster APIs in this guide are tagged `@stability unstable`. Pin the version and re-audit before upgrading — event-log payloads and cluster runner traffic are `SchemaBinary`-encoded on the wire and in storage, so a future change to that encoding makes an upgrade a deployment event rather than a dependency bump.
 
+![Diagram: the durability ladder, from in-memory state through Persistence, EventLog, and Workflow to Cluster entities, with the need that justifies each step up](/diagrams/durability-ladder.svg)
+
+_Climb only as far as the guarantee requires: each rung keeps more across restarts and nodes, and costs more to operate._
+
 ## Begin with the failure boundary
 
 Suppose `applyApprovedRaise` must validate an approval, update payroll, and publish a notification. Before choosing an API, write down what must remain true after each failure:

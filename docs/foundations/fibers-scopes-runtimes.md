@@ -2,6 +2,10 @@
 
 What happens after you build an `Effect`: how it finishes (`Exit` and its full `Cause`), the fibers that run it and the handles that supervise them, the `Scope` that bounds every resource, the scheduler and clock underneath, the one-shot and gate primitives fibers coordinate with, and the runtimes that run Effects from non-Effect code. [Core Runtime & Execution](core-runtime-execution) covers building and combining Effects; this page covers owning them while they run.
 
+![Diagram: an Effect is run on a root fiber; forkChild, forkScoped, and forkDetach give forked fibers different owners; acquireRelease and Layers register finalizers in a Scope; the run ends in an Exit](/diagrams/effect-fiber-scope-ownership.svg)
+
+_An Effect is only a description until an owned edge runs it on a root fiber. Every fiber it forks has an owner that ends it, every resource is released by the Scope that acquired it, and the run ends in an `Exit` carrying the full `Cause`._
+
 ## Exit
 
 `effect/Exit` — stable

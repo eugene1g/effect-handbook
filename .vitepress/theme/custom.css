@@ -200,3 +200,21 @@
     white-space: nowrap;
   }
 }
+
+/* Diagrams: pre-rendered SVGs from diagrams/*.mmd, shown at natural size on a light panel in both themes. */
+.vp-doc p > img[src*="/diagrams/"] {
+  display: block;
+  margin: 1.5rem auto 0.5rem;
+  padding: 12px;
+  max-width: 100%;
+  height: auto;
+  background: #fff;
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+.vp-doc p:has(> img[src*="/diagrams/"]) + p {
+  margin-top: 0.25rem;
+  font-size: 0.9em;
+  color: var(--vp-c-text-2);
+  text-align: center;
+}

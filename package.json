@@ -24,6 +24,7 @@
     "docs:eval": "node scripts/evaluate-retrieval.ts",
     "docs:examples": "pnpm --filter effect-4-handbook-example-validation validate",
     "docs:check": "node scripts/verify-handbook.ts",
+    "docs:diagrams": "node scripts/diagrams.ts",
     "docs:dev": "node scripts/dev-site.ts",
     "docs:build": "pnpm docs:check && vitepress build && pnpm docs:agent && pnpm docs:pages && pnpm docs:retrieval && pnpm docs:standalone && pnpm docs:versions",
     "docs:preview": "vitepress preview",

@@ -74,7 +74,10 @@ async function verifyMarkdownLinks(relativePath, markdown) {
     const resolved = new URL(reference, `${origin}${base}${directory === "." ? "" : `${directory}/`}`)
     assert(resolved.pathname.startsWith(base), `${relativePath} escapes the configured base ${base}: ${reference}`)
     const target = decodeURIComponent(resolved.pathname.slice(base.length))
-    assert(/\.(md|json|txt)$/.test(target), `${relativePath} links to a non-Markdown route (agents must stay in Markdown): ${reference}`)
+    // Diagram images are the one non-Markdown target a twin may reference: the
+    // caption after each image carries its meaning for readers who cannot see it.
+    const isDiagram = /^diagrams\/[a-z0-9-]+\.svg$/.test(target)
+    assert(isDiagram || /\.(md|json|txt)$/.test(target), `${relativePath} links to a non-Markdown route (agents must stay in Markdown): ${reference}`)
     assert(await isFile(path.join(distRoot, target)), `${relativePath} links to a missing artifact: ${reference}`)
     if (resolved.hash && target.endsWith(".md")) {
       const id = decodeURIComponent(resolved.hash.slice(1))

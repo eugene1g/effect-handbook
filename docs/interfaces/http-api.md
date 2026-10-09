@@ -6,6 +6,10 @@ Describe the API once as data: groups of endpoints, each with Schema-typed path 
 
 > **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
 
+![Diagram: an HttpApi request passes middleware and decoding, then the handler; invalid input is a 400, declared errors use their declared status, defects and encoding failures are 500s, and a disconnect interrupts the request fiber](/diagrams/httpapi-request-lifecycle.svg)
+
+_Invalid input fails with 400 before the handler runs and is not a server failure. A declared error uses the status declared for it; a defect or a response that cannot be encoded is a 500 reported to `ErrorReporter`; a disconnect interrupts the request fiber and runs the handler's finalizers._
+
 ## HttpApiEndpoint
 
 `effect/http-api/HttpApiEndpoint` — unstable

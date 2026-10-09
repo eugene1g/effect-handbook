@@ -73,6 +73,8 @@ export function mapOutsideFences(markdown, transform) {
 export function rewriteSiteLinks(markdown, source) {
   return mapOutsideFences(markdown, (line) =>
     line.replace(/(\]\()([^\s)>]+)([^)]*\))/g, (match, opening, href, closing) => {
+      // Diagrams live under public/diagrams/, which is published beside the bundles.
+      if (href.startsWith("/diagrams/")) return `${opening}.${href}${closing}`
       const resolved = resolveMarkdownTarget(href, source)
       if (!resolved) return match
       return `${opening}./${resolved.target}${resolved.suffix}${closing}`

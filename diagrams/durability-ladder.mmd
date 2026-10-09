@@ -1,0 +1,10 @@
+flowchart BT
+  M["In-memory state<br/>Ref, Cache, Queue — lost on restart"]
+  P["Persistence<br/>current state and cached results survive restarts"]
+  L["EventLog<br/>replayable history of what happened"]
+  W["Workflow + Activity<br/>restartable orchestration, journaled steps"]
+  C["Cluster entities<br/>distributed identity and single ownership"]
+  M -->|"need it after a restart"| P
+  P -->|"need the history, not just the state"| L
+  L -->|"need multi-step progress to resume"| W
+  W -->|"need one owner per key across nodes"| C

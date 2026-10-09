@@ -8,7 +8,7 @@
 
 ### Version and validation scope
 
-This edition describes the published `effect@4.0.2` API — the second patch release of the first stable Effect 4 line — not unreleased `main`. The source audit covered all 139 modules exported from the `effect` root barrel, all 20 public `effect/<area>` families (213 modules), the platform/SQL/AI/Atom/OpenTelemetry/Vitest packages, their tests and examples, and every canonical Markdown page in this site. Examples were checked with pnpm, Node's native TypeScript execution, TypeScript 7.0.2 in strict mode, and the Effect `@effect/tsgo` diagnostics. Short fragments may declare application-specific boundaries, but every Effect API shown is present in the audited release.
+This edition describes the published `effect@4.0.2` API — not unreleased `main`. The source audit covered all 139 modules exported from the `effect` root barrel, all 20 public `effect/<area>` families (213 modules), the platform/SQL/AI/Atom/OpenTelemetry/Vitest packages, their tests and examples, and every canonical Markdown page in this site. Examples were checked with pnpm, Node's native TypeScript execution, TypeScript 7.0.2 in strict mode, and the Effect `@effect/tsgo` diagnostics. Short fragments may declare application-specific boundaries, but every Effect API shown is present in the audited release.
 
 New to Effect 4? Start with [Getting Started](foundations/getting-started) — it covers installation (`npm install effect` now installs Effect 4), TypeScript and ESM settings, and a first program.
 
@@ -25,8 +25,6 @@ Stability is declared per API with a JSDoc tag, not by import path. Since 4.0.2 
 | `@stability experimental` | May change in a **patch** release. | No API in `effect@4.0.2` carries this tag; the handbook will name any that appear in later releases. |
 
 "Unstable" describes the compatibility contract, not the quality: HTTP, SQL, and RPC are what production Effect applications are built on. Every handbook section carries a stable or unstable badge for its module. Each page describes the pinned release. What changed from one audited release to the next — behavior, stability, renamed options and telemetry names, new modules, and handbook corrections — is recorded in [Release History](reference/release-history); the per-package `CHANGELOG.md` files in the Effect repository remain the authoritative record of every change.
-
-**Coming from a 4.0 release candidate?** The release candidates kept the subsystem families under `effect/unstable/*`; the stable release moved them to `effect/<area>` with no compatibility exports. Drop the `unstable/` segment (`effect/unstable/http` → `effect/http`), rename `httpapi` to `http-api`, import `Arbitrary` from `"effect"`, and replace the removed `effect/Encoding` module with the format modules under `effect/encoding` (`Base64`, `Base64Url`, `Hex`, `EncodingError`). Service keys and type ids that embedded `httpapi` or `Encoding` changed with them, so re-check persisted or serialized references.
 
 ### Official upstream companions
 

@@ -57,36 +57,17 @@ Edition **4.0** (updated in place). Tag [`effect@4.0.2`](https://github.com/Effe
 - Corrected every claim the delta made false (above), flipped the nineteen stability badges, and rewrote the stability tables in Orientation and Getting Started.
 - Replaced the dead **Official Effect → Cookbooks** navigation link: the tagged source has no `cookbooks/` folder, and the only upstream cookbook is published as the official [v4 Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook).
 - `pnpm docs:links` now also checks the navigation menu, the VitePress config and theme, the README, and the agent skills, and names where each failing URL is linked from.
+- The recommended `tsconfig.json` targets `ES2025` (with a matching `lib`), and the validation project compiles every example with that target.
 - Added this Release History page; `pnpm docs:check` requires an entry for every audited release.
 - Validation: 714 fences, all passing strict TypeScript 7 and strict Effect diagnostics; new runtime probes for `Stream.scan` on empty streams, `Effect.retry` with defect causes, and pending interruption over a failed uninterruptible region.
 
 ## `effect@4.0.0` — audited 2026-10-01
 
-Edition **4.0** (first edition). Tag [`effect@4.0.0`](https://github.com/Effect-TS/effect/tree/effect%404.0.0), commit `67ba4e46`, published 2026-10-01: the first stable release of Effect 4. Baseline: `effect@4.0.0-rc.116`. Range reviewed: `rc.117`, `rc.118`, and `4.0.0`.
-
-### Changes in Effect that matter to readers
-
-- The subsystem families moved from `effect/unstable/<area>` to `effect/<area>` with no compatibility exports; `httpapi` became `http-api` (including service keys and type ids), `Arbitrary` became a root module, and `effect/Encoding` was replaced by `effect/encoding/{Base64, Base64Url, Hex, EncodingError}`. See [Stability and support](../#stability-and-support).
-- Stability became a per-API `@stability` tag rather than a path segment, with a published long-term-support policy.
-- API and behavior changes folded into the pages included Schema check renames, single-identifier type-only `Schema.brand`, `[successes, failures]` ordering for `partition` and `separate` helpers, `Scope.close` requiring `Scope.Closeable`, `Queue.takeN` and shutdown semantics, `Effect.race*` interrupting losers, and fixes across HttpRouter, HttpApi, MCP, `@effect/sql-pg`, Atom, and workflows.
+Edition **4.0** (first edition). Tag [`effect@4.0.0`](https://github.com/Effect-TS/effect/tree/effect%404.0.0), commit `67ba4e46`, published 2026-10-01: the first stable release of Effect 4 and the baseline for every later entry.
 
 ### Changes in the handbook
 
-- Swept every page of release-candidate prose and re-verified each claim against the tagged source; rewrote Getting Started for a stable release; added Stability and support, Official upstream companions, and Coding conventions for agents to the Orientation page.
-- Added the long-form [MCP deep dive](../deep-dives/exposing-an-effect-application-over-mcp), Markdown twins for every page, `llms.txt`, and the agent reading protocol ([PR #2](https://github.com/eugene1g/effect-handbook/pull/2)).
+- Audited every page and example against the tagged source; Getting Started covers installation, compiler settings, and the `@stability` model ([PR #2](https://github.com/eugene1g/effect-handbook/pull/2)).
+- Added the long-form [MCP deep dive](../deep-dives/exposing-an-effect-application-over-mcp), Markdown twins for every page, `llms.txt`, and the [agent reading protocol](agent-guide) ([PR #2](https://github.com/eugene1g/effect-handbook/pull/2)).
 - Routed web-framework intents (Express, Hono, Fastify) to `ManagedRuntime` in the capability catalog ([PR #3](https://github.com/eugene1g/effect-handbook/pull/3)).
 - Introduced editions: one handbook per Effect `major.minor`, served at `/<major.minor>/`, with an edition switcher and `versions.json` ([PR #4](https://github.com/eugene1g/effect-handbook/pull/4)).
-
-## `effect@4.0.0-rc.116` — audited 2026-09-19
-
-Pre-release, before editions existed. Tag [`effect@4.0.0-rc.116`](https://github.com/Effect-TS/effect/tree/effect%404.0.0-rc.116), commit `d62dd0d6`. Baseline: `effect@4.0.0-rc.108`. Summarized from [PR #1](https://github.com/eugene1g/effect-handbook/pull/1).
-
-### Changes in Effect that matter to readers
-
-- `Stream.partition` returns `[passes, fails]` and takes `capacity`; `Stream.mapBoth` takes `{ onElement, onError }`; the `Stream.scan` seed became a thunk; `Effect.orElseSucceed` receives the error.
-- `SchemaGetter` and `SchemaTransformation` became plain data with standalone combinators; `ByteSize.Input` string literals must be whole numbers with a unit.
-- Added `Decision` / `DecisionModel`, the Schema compilers, PostgreSQL session settings, HTTP `QUERY`, and the MCP `2026-07-28` adapter. Earlier release candidates (through rc.113) brought PascalCase `Config` and CLI constructors, `SchemaBinary`, the native `Arbitrary` engine, and `ByteSize`.
-
-### Changes in the handbook
-
-- Made the handbook Effect 4 only (removed the Effect 3 migration page), linked the official effect.website v4 guides from every topic, and added seven pages and three capabilities with retrieval cases.

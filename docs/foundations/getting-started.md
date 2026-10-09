@@ -1,18 +1,12 @@
 # Getting Started
 
-Everything else in this handbook assumes a project where `effect@4.0.2` is installed, TypeScript is strict, and one entrypoint runs an Effect. This page gets you there and names the traps on the way: mismatched package versions, compiler settings that silently weaken the types, and code written for a release candidate.
+Everything else in this handbook assumes a project where `effect@4.0.2` is installed, TypeScript is strict, and one entrypoint runs an Effect. This page gets you there and names the traps on the way: mismatched package versions, compiler settings that silently weaken the types, and packages that do not exist for Effect 4.
 
 > **Official guides:** [Installation](https://effect.website/docs/v4/getting-started/installation) (asks for Node.js 22.18+; the `4.0.2` README states Node.js 18+ as the general minimum), [Importing Effect](https://effect.website/docs/v4/getting-started/importing-effect), [The Effect Type](https://effect.website/docs/v4/getting-started/the-effect-type), [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; in `4.0.2` the type is `Fiber`), [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it calls `Option` and `Result` yieldable inside `Effect.gen`; in `4.0.2` they are not — use `Effect.fromOption` and `Effect.fromResult`), [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than the pinned `4.0.2` release, so where they differ, this page and the tagged source win.
 
 ## Install Effect 4
 
-Effect 4 is the `latest` release line: a plain `pnpm add effect` installs it. Pin the exact version anyway, so that an upgrade is a deliberate, audited change rather than a side effect of a fresh install.
-
-| npm dist-tag (checked 2026-10-01 with `npm view effect dist-tags`) | `effect` |
-| --- | --- |
-| `latest` | `4.0.2` |
-| `rc` | `4.0.0-rc.118` — a superseded release candidate; do not install it |
-| `beta` | `4.0.0-beta.107` — superseded; do not install it |
+Effect 4 is the `latest` release on npm: a plain `pnpm add effect` installs it. Pin the exact version anyway, so that an upgrade is a deliberate, audited change rather than a side effect of a fresh install.
 
 ```sh
 pnpm add effect@4.0.2 @effect/platform-node@4.0.2
@@ -31,8 +25,6 @@ pnpm add -D typescript@7 @types/node
 
 Do not install `@effect/platform`, `@effect/cli`, `@effect/rpc`, `@effect/sql`, `@effect/cluster`, `@effect/workflow`, `@effect/ai`, or `@effect/experimental`: they have no Effect 4 release, and their modules ship inside `effect` under `effect/<area>` paths such as `effect/http`, `effect/rpc`, and `effect/sql`.
 
-**Code written for a 4.0 release candidate** imports those families from `effect/unstable/<area>`; the stable release removed that path with no compatibility exports. Drop the `unstable/` segment, rename `httpapi` to `http-api`, import `Arbitrary` from `"effect"`, and replace `effect/Encoding` with the modules under `effect/encoding`. The compiler finds every site: each old import fails with "Cannot find module".
-
 ## Runtime and compiler requirements
 
 The library's floor and this handbook's validation target are different things. The first column is what `4.0.2` asks of you; the second is what every example here is compiled and run with.
@@ -50,7 +42,8 @@ Set `"type": "module"` in your own `package.json`, then start from this `tsconfi
 ```json
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2025",
+    "lib": ["ES2025"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "moduleDetection": "force",
@@ -70,6 +63,7 @@ Set `"type": "module"` in your own `package.json`, then start from this `tsconfi
 | Setting | Status | Why it matters for Effect code |
 | --- | --- | --- |
 | `strict` | **required** | Without it, `E` and `R` inference degrades and `null` flows through unchecked. |
+| `target` / `lib`: `ES2025` | handbook choice; set both to your oldest runtime | ES2025 is the newest target TypeScript 7 accepts. It assumes a current runtime — Node.js 24+ or a current evergreen browser — for library APIs such as `Promise.try` and Iterator helpers. Effect itself needs nothing newer than ES2022, so lower both settings together when you support older hosts; add `"DOM"` to `lib` for browser code. |
 | `exactOptionalPropertyTypes` | recommended; on in the Effect repository and in this handbook | Keeps "key absent" and "key present with `undefined`" distinct, which is the difference between `Schema.optionalKey` and `Schema.optional`. |
 | `module` / `moduleResolution`: `NodeNext` (or `Bundler` behind a bundler) | required in practice | Both honor the package `exports` map; subpaths such as `effect/http` and `effect/testing` do not resolve under legacy `node10` resolution. |
 | `verbatimModuleSyntax`, `erasableSyntaxOnly`, `rewriteRelativeImportExtensions` | recommended; on in the Effect repository | Source stays runnable by a type-stripping runtime: type-only imports are written `import type`, and enums, namespaces, and constructor parameter properties are rejected. |

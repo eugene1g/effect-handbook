@@ -49,7 +49,7 @@ Read the currently documented version and commit from `docs/index.md`. The old v
 
 ## 3. Acquire exact source safely
 
-Use the official `https://github.com/Effect-TS/effect.git` repository in an ignored versioned folder such as `.reference/effect-4.0.0-beta.123`. Do not delete or overwrite an existing clone.
+Use the official `https://github.com/Effect-TS/effect.git` repository in an ignored versioned folder such as `.reference/effect-4.0.2`. Do not delete or overwrite an existing clone.
 
 1. Resolve the exact `effect@<version>` tag or npm `gitHead` before checkout. A reproducible sequence is:
 

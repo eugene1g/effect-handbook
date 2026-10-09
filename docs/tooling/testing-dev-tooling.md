@@ -772,7 +772,7 @@ Several modules ship their own test harness. Each removes one piece of infrastru
 
 ## Effect language service (@effect/tsgo)
 
-`@effect/tsgo` — external package ([Effect-TS/tsgo](https://github.com/Effect-TS/tsgo)), versioned separately from `effect`; this handbook validates with `0.45.0`
+`@effect/tsgo` — external package ([Effect-TS/tsgo](https://github.com/Effect-TS/tsgo)), versioned separately from `effect`; this handbook validates with `0.47.2`
 
 A build of TypeScript-Go with the Effect language service embedded. It reports Effect-specific mistakes — a floating Effect, an unprovided requirement, error handling on an Effect that cannot fail, two copies of `effect` in one program — as diagnostics, and offers quick fixes and refactors for them. The same rules run in the editor, in `tsc`, and in a dedicated CLI, which is what makes them usable in CI and by coding agents: the feedback arrives before any test runs.
 

@@ -1,0 +1,13 @@
+{
+  "edition": "4.0",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/concurrency/streaming-channels.md#stream",
+    "https://eugene1g.github.io/effect-handbook/concurrency/streaming-channels.md#ndjson",
+    "https://eugene1g.github.io/effect-handbook/concurrency/streaming-channels.md#sink",
+    "https://eugene1g.github.io/effect-handbook/concurrency/streaming-channels.md#2-transforming-streams",
+    "https://eugene1g.github.io/effect-handbook/concurrency/streaming-channels.md#7-where-buffering-hides",
+    "https://eugene1g.github.io/effect-handbook/interfaces/platform-runtime-hosts.md#platform-packages"
+  ],
+  "assumptions": "1. NodeStream.fromReadable is imported from @effect/platform-node (confirmed by the streaming-channels handbook entry). 2. Stream.decodeText() and Stream.splitLines are operators used without extra arguments for UTF-8 text splitting (confirmed in the transforming-streams table). 3. Schema.fromJsonString wraps a struct schema to accept a raw JSON string as input, confirmed by the callback-stream example in the handbook. 4. Effect.catch (not Effect.catchAll) is the Effect 4 name for catching all typed failures, per the anti-patterns list at the top of llms.txt. 5. FileSystem is imported from 'effect' not '@effect/platform', per the anti-patterns. 6. NodeFileSystem.layer is provided even though file creation uses raw node:fs, because NodeRuntime.runMain may require platform services. 7. Stream.grouped(100) flushes the final partial batch when the stream ends — confirmed by the batching section. 8. The sample file is written with node:fs writeFileSync synchronously in Effect.sync to avoid circular FileSystem dependency before the stream pipeline.",
+  "confidence": 4
+}

@@ -1,0 +1,14 @@
+{
+  "edition": "4.0 — effect@4.0.2",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/operations/telemetry-export.md#otlp",
+    "https://eugene1g.github.io/effect-handbook/operations/telemetry-export.md#choosing-and-owning-an-export-path",
+    "https://eugene1g.github.io/effect-handbook/operations/telemetry-export.md#layer-order-and-shutdown",
+    "https://eugene1g.github.io/effect-handbook/operations/telemetry-export.md#otelnodesdk",
+    "https://eugene1g.github.io/effect-handbook/operations/observability.md#cardinality-names-and-attribute-sets-are-bounded",
+    "https://eugene1g.github.io/effect-handbook/operations/observability.md#structured-log-calls-and-annotations--merit-cycle-run",
+    "https://eugene1g.github.io/effect-handbook/recipes/production-observability.md"
+  ],
+  "assumptions": "Chose Effect's native Otlp.layerJson (from effect/observability) over the @effect/opentelemetry NodeSdk bridge for the following reasons documented in the handbook: (1) Otlp.layerJson is the handbook's 'recommended starting point for new projects' when there is no existing OTel SDK setup; (2) it covers all three signals (traces, metrics, logs) in one Layer with zero extra peer dependencies; (3) loggerMergeWithExisting: true (the default) keeps tracerLogger so logs are correlated with traces out of the box; (4) NodeSdk is the right choice only when a platform team manages an OTel SDK setup or SDK-native auto-instrumentation is needed. The Otlp module is marked unstable in the handbook; this is accepted for a new service where the simpler dependency graph outweighs the stability caveat. FetchHttpClient.layer is provided as the HTTP transport, as shown in all handbook examples. Layer.launch is used (not Effect.runPromise) so that the ObservabilityLayer scope is properly closed and exporters flushed on shutdown. Metric.counter has no employee-id label because every distinct label combination is a separate stored time series; per-employee detail belongs in span attributes and log annotations per the handbook cardinality rules.",
+  "confidence": 5
+}

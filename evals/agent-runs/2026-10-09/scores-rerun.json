@@ -1,0 +1,92 @@
+[
+  {
+    "task": "t7b-ndjson-stream",
+    "fetches": 5,
+    "words": 34709,
+    "path": [
+      "llms.txt",
+      "concurrency/streaming-channels.md",
+      "interfaces/platform-runtime-hosts.md",
+      "interfaces/platform-runtime-hosts.md",
+      "interfaces/platform-runtime-hosts.md"
+    ],
+    "usedEssentials": false,
+    "usedAgentGuide": false,
+    "firstContentPage": "concurrency/streaming-channels.md",
+    "firstContentHit": true,
+    "anyHit": true,
+    "fetchedAggregate": false,
+    "edition": "4.0",
+    "citations": 6,
+    "confidence": 4,
+    "typescript": "5 error(s)",
+    "tsErrors": [
+      "error TS2551: Property 'decodeUnknown' does not exist on type 'typeof import(\"/agent/workspace/effect-handbook/node_modules/.pnpm/effect@4.0.2/node_modules/effect/dist/Schema\")'. Did you mean 'decodeUnknownExit'?",
+      "error TS2375: Type 'Effect<void, unknown, unknown>' is not assignable to type 'Effect<void, never, never>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.",
+      "error TS2488: Type 'never' must have a '[Symbol.iterator]()' method that returns an iterator.",
+      "error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'Option<unknown>'.",
+      "error TS2345: Argument of type '<E, R>(self: Stream<readonly { readonly employeeId: string; readonly hours: number; }[], E, R>) => Effect<void, E, R>' is not assignable to parameter of type '(_: Stream<readonly [unknown, ...unknown[]], unknown, unknown>) => Effect<void, unknown, unknown>'."
+    ],
+    "effectDiagnostics": "2 problem(s)",
+    "effectProblems": [
+      "/agent/workspace/effect-handbook/.validation/agent-eval/t7b-ndjson-stream/main.ts(97,7): error effect(missingEffectError): Missing errors unknown in the expected Effect type.",
+      "/agent/workspace/effect-handbook/.validation/agent-eval/t7b-ndjson-stream/main.ts(97,7): error effect(missingEffectContext): This Effect requires a service that is missing from the expected Effect context: `unknown`."
+    ],
+    "run": "exit 1",
+    "runTail": "    at file:///agent/workspace/effect-handbook/.validation/agent-eval/t7b-ndjson-stream/main.ts:40:31\n    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)\n    at async node:internal/modules/esm/loader:650:26\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:105:5)\n\nNode.js v26.11.1"
+  },
+  {
+    "task": "t8b-express-cancel",
+    "fetches": 3,
+    "words": 7220,
+    "path": [
+      "llms.txt",
+      "recipes/request-cancellation-through-a-host.md",
+      "recipes/managed-runtime-integration.md"
+    ],
+    "usedEssentials": false,
+    "usedAgentGuide": false,
+    "firstContentPage": "recipes/request-cancellation-through-a-host.md",
+    "firstContentHit": true,
+    "anyHit": true,
+    "fetchedAggregate": false,
+    "edition": "4.0 (effect@4.0.2, audited 2026-10-09)",
+    "citations": 5,
+    "confidence": 5,
+    "typescript": "2 error(s)",
+    "tsErrors": [
+      "error TS7006: Parameter 'req' implicitly has an 'any' type.",
+      "error TS7006: Parameter 'res' implicitly has an 'any' type."
+    ],
+    "effectDiagnostics": "pass",
+    "effectProblems": [],
+    "run": "not run (needs express)"
+  },
+  {
+    "task": "t9b-otlp",
+    "fetches": 5,
+    "words": 19685,
+    "path": [
+      "llms.txt",
+      "llms.txt",
+      "operations/telemetry-export.md",
+      "operations/observability.md",
+      "recipes/production-observability.md"
+    ],
+    "usedEssentials": false,
+    "usedAgentGuide": false,
+    "firstContentPage": "operations/telemetry-export.md",
+    "firstContentHit": true,
+    "anyHit": true,
+    "fetchedAggregate": false,
+    "edition": "4.0 — effect@4.0.2",
+    "citations": 7,
+    "confidence": 5,
+    "typescript": "pass",
+    "tsErrors": [],
+    "effectDiagnostics": "pass",
+    "effectProblems": [],
+    "run": "exit 130",
+    "runTail": "[20:01:14.524] INFO (#2): raise calculated { proposedSalary: 99750, approved: true } { cycleId: '2026-merit', employeeId: 'E-1002' }\n[20:01:14.524] INFO (#2): raise approved { newSalary: 99750 } { cycleId: '2026-merit', employeeId: 'E-1002' }\n[20:01:14.525] INFO (#2): fetching compensation band { cycleId: '2026-merit', employeeId: 'E-1003' }\n[20:01:14.526] INFO (#2): raise calculated { proposedSalary: 99750, approved: true } { cycleId: '2026-merit', employeeId: 'E-1003' }\n[20:01:14.526] INFO (#2): raise approved { newSalary: 99750 } { cycleId: '2026-merit', employeeId: 'E-1003' }\n[20:01:14.527] INFO (#2): merit cycle complete { processed: 3, approved: 3, denied: 0 } { cycleId: '2026-merit' }"
+  }
+]

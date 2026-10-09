@@ -31,6 +31,18 @@ The three failing programs used Effect 3 names that do not exist in Effect 4: `@
 - The agent guide's drop-in instructions and the `use-effect-4-handbook` skill now say to take URLs from `llms.txt` instead of guessing, to use Essentials for breadth, and to check the Effect 3 names list before writing code.
 - The site's 404 page tells agents to fetch `llms.txt` for page URLs.
 
+## Rerun of the failed tasks after the fix
+
+After the Effect 3 names list went live, the three failed tasks were rerun with fresh agents (`t7b`, `t8b`, `t9b`; raw results in [`scores-rerun.json`](scores-rerun.json)):
+
+| Task | Before | After |
+| --- | --- | --- |
+| t9 OTLP telemetry | 9 TypeScript errors, failed to run | passes strict TypeScript and Effect diagnostics; runs and exports from a launched Layer |
+| t8 Express + cancellation | `Layer.scoped` error | no Effect errors; it used `Layer.effect` with `acquireRelease`. The two remaining errors are untyped Express handler parameters caused by the scorer's minimal `express` stub (also present in the first run) |
+| t7 NDJSON streaming | `@effect/platform`, `Effect.catchAll` | both avoided, but it reached for `Schema.decodeUnknown`, another Effect 3 name, and still failed. This rerun is not clean evidence: the agent read the first attempt's file despite the rules |
+
+`Schema.decodeUnknown` / `Schema.encodeUnknown` and `Schema.decode` used as a decoder were added to the list (in Effect 4 the decoders are `Schema.decodeUnknownEffect` and friends, and `Schema.decode` builds a transformation).
+
 ## Limitations
 
 One run per task with one model; no repetition, so per-task results are noisy. Agents could not compile or run their code, unlike a real coding agent with a project open — a real agent would catch the three failures with the compiler, so this measures what the handbook alone teaches. The Express program was type-checked against a minimal `express` type stub. Re-fetch counts partly reflect the agents' tool output limits rather than the site.

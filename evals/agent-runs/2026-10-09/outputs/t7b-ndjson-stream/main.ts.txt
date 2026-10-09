@@ -1,0 +1,154 @@
+/**
+ * t7b-ndjson-stream — Ingest a very large NDJSON file of timesheet records
+ * without loading it into memory.
+ *
+ * Pipeline:
+ *  1. Create a small sample NDJSON file so the program runs end-to-end.
+ *  2. Open the file as a Node.js Readable stream (NodeStream.fromReadable).
+ *  3. Decode UTF-8 bytes to text, split into lines.
+ *  4. Decode each line with Schema ({ employeeId: string, hours: number }).
+ *  5. Skip and count malformed lines instead of failing.
+ *  6. Batch valid records in groups of 100 and hand each batch to a sink
+ *     that simply logs the batch size.
+ *
+ * Memory use stays bounded: pull-based back-pressure from Stream means only
+ * one chunk is in flight at a time; grouped(100) retains at most 100 records;
+ * the Ref counter is O(1).
+ *
+ * Effect 4.0.2 / @effect/platform-node
+ */
+
+import { createReadStream, writeFileSync } from "node:fs"
+import { Effect, FileSystem, Option, Ref, Schema, Stream } from "effect"
+import { NodeFileSystem, NodeRuntime, NodeStream } from "@effect/platform-node"
+
+// ---------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------
+
+const TimesheetRecord = Schema.Struct({
+  employeeId: Schema.String,
+  hours: Schema.Number,
+})
+
+type TimesheetRecord = typeof TimesheetRecord.Type
+
+/**
+ * Parses a raw JSON string and validates it against TimesheetRecord.
+ * Returns Effect<TimesheetRecord, ParseError>.
+ */
+const decodeJsonLine = Schema.decodeUnknown(Schema.fromJsonString(TimesheetRecord))
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const SAMPLE_FILE = "/tmp/t7b-timesheets.ndjson"
+const BATCH_SIZE = 100
+
+// ---------------------------------------------------------------------------
+// 1. Create a small sample NDJSON file so the program can run end-to-end.
+//    We use raw Node fs here (synchronous, before the Effect pipeline starts)
+//    so there is no circular dependency on FileSystem — just plain setup.
+// ---------------------------------------------------------------------------
+
+const createSampleFile: Effect.Effect<void> = Effect.sync(() => {
+  const lines: string[] = []
+
+  // 310 valid records — enough for three full batches plus a partial
+  for (let i = 0; i < 310; i++) {
+    lines.push(
+      JSON.stringify({
+        employeeId: `emp-${String(i).padStart(4, "0")}`,
+        hours: (i % 8) + 1,
+      }),
+    )
+  }
+
+  // Splice in several malformed lines at various positions
+  lines.splice(50, 0, "not-json-at-all")
+  lines.splice(120, 0, '{"employeeId":42,"hours":"not-a-number"}') // wrong types
+  lines.splice(200, 0, "{broken json")
+  lines.splice(310, 0, "") // empty line — will be filtered before decode
+
+  writeFileSync(SAMPLE_FILE, lines.join("\n") + "\n", "utf-8")
+}).pipe(
+  Effect.tap(() =>
+    Effect.log(
+      `[setup] Created ${SAMPLE_FILE}: 310 valid + 3 malformed + 1 empty line`,
+    ),
+  ),
+)
+
+// ---------------------------------------------------------------------------
+// 2. Simulated sink — logs the batch size (no real database needed)
+// ---------------------------------------------------------------------------
+
+const simulateSink = (batch: ReadonlyArray<TimesheetRecord>): Effect.Effect<void> =>
+  Effect.log(
+    `[sink] batch of ${batch.length} records ` +
+      `(${batch[0]?.employeeId} … ${batch[batch.length - 1]?.employeeId})`,
+  )
+
+// ---------------------------------------------------------------------------
+// 3. Main streaming pipeline — memory use stays bounded
+// ---------------------------------------------------------------------------
+
+const processTimesheets: Effect.Effect<void> = Effect.gen(function* () {
+  const malformedCount = yield* Ref.make(0)
+
+  // Open the file as a Node.js Readable, bridged into an Effect Stream.
+  // NodeStream.fromReadable lazily evaluates the factory and maps Node errors
+  // into the typed channel; closeOnDone defaults to true.
+  const byteStream: Stream.Stream<Uint8Array, Error> = NodeStream.fromReadable({
+    evaluate: () => createReadStream(SAMPLE_FILE),
+    onError: (err): Error =>
+      err instanceof Error ? err : new Error(String(err)),
+  })
+
+  yield* byteStream.pipe(
+    // Decode UTF-8 bytes incrementally (multi-byte chars handled across chunks)
+    Stream.decodeText(),
+    // Split on \n / \r\n / \r; carries an incomplete trailing line to the next pull
+    Stream.splitLines,
+    // Drop empty lines before attempting JSON decode
+    Stream.filter((line) => line.trim().length > 0),
+    // Attempt Schema decode; on failure, increment the counter and emit None
+    Stream.mapEffect((line) =>
+      decodeJsonLine(line).pipe(
+        Effect.map((record) => Option.some(record)),
+        // Effect.catch is the Effect 4 name for catching all typed failures
+        Effect.catch(() =>
+          Ref.update(malformedCount, (n) => n + 1).pipe(
+            Effect.as(Option.none<TimesheetRecord>()),
+          ),
+        ),
+      ),
+    ),
+    // Unwrap Option: Some → emit the record, None → emit nothing
+    Stream.flatMap((opt) =>
+      Option.isSome(opt) ? Stream.make(opt.value) : Stream.empty,
+    ),
+    // Batch into arrays of up to BATCH_SIZE; the final partial batch is
+    // flushed when the stream ends — bounded state, no unbounded accumulation
+    Stream.grouped(BATCH_SIZE),
+    // Hand each batch to the simulated sink
+    Stream.runForEach(simulateSink),
+  )
+
+  const skipped = yield* Ref.get(malformedCount)
+  yield* Effect.log(`[done] Finished. Skipped ${skipped} malformed line(s).`)
+})
+
+// ---------------------------------------------------------------------------
+// 4. Entrypoint — wire in the Node FileSystem layer and run
+// ---------------------------------------------------------------------------
+
+const program = Effect.gen(function* () {
+  yield* createSampleFile
+  yield* processTimesheets
+})
+
+// NodeFileSystem.layer provides FileSystem (used transitively by the platform
+// runtime); NodeRuntime.runMain installs structured SIGINT/SIGTERM handling.
+NodeRuntime.runMain(program.pipe(Effect.provide(NodeFileSystem.layer)))

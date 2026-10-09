@@ -134,6 +134,8 @@ export const effect3Names: ReadonlyArray<{ readonly wrong: string; readonly righ
   { wrong: "`Effect.zipLeft` / `Effect.zipRight`", right: "`Effect.tap` / `Effect.andThen`" },
   { wrong: "`Context.Tag`, `Effect.Service`", right: "`Context.Service`" },
   { wrong: "`Layer.scoped`", right: "`Layer.effect` (it already handles a `Scope` requirement)" },
+  { wrong: "`Schema.decodeUnknown` / `Schema.encodeUnknown`", right: "`Schema.decodeUnknownEffect` / `Schema.encodeUnknownEffect` (or the `Sync`, `Result`, `Exit`, `Option`, and `Promise` variants)" },
+  { wrong: "`Schema.decode(schema)` as a decoder", right: "`Schema.decodeEffect(schema)`; in Effect 4 `Schema.decode` builds a transformation from getters" },
   { wrong: "`@effect/platform`, `@effect/rpc`, `@effect/sql`, `@effect/cli`", right: "modules inside `effect`: `FileSystem` and `Path` from `\"effect\"`, HTTP from `\"effect/http\"`, and so on; host Layers from `@effect/platform-node`" },
   { wrong: "`NodeRuntime` from `\"effect\"`", right: "`NodeRuntime` from `@effect/platform-node`" }
 ])

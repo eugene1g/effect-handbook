@@ -37,17 +37,18 @@ Start at `llms.txt`. It is a few thousand words, lists every page and bundle wit
 
 | Task | Fetch | Why |
 | --- | --- | --- |
+| Get oriented, or plan work that spans several areas | `effect-4-essentials.md` | Every concise page and section in about a sixth of the full handbook: purpose, stability, and when to reach for it, each linking to the full section. Read it first, then fetch only the sections you need. |
 | "Which primitive do I use for X?" | `llms.txt` → the **Intent and primitive map**, then the linked section | One hop to the canonical paragraph, with alternatives listed next to it. |
 | Decide between two or three similar tools | [Choosing Effect Primitives](./choosing-effect-primitives) | Contrastive tables by error channel, lifetime, backpressure, durability, and distribution. |
 | Look up one module by name | `effect-4-modules.md` (or `.json`) | Alphabetical and per-area list of every module section with import path, stability badge, and twin anchor. |
 | Work inside one subsystem for a while | The matching domain bundle `effect-4-{core,web,concurrency,distributed,ai}.md` | All pages that subsystem needs, pre-concatenated, with cross-links already rewritten to twins. |
-| Review or generate code across the whole library | `effect-4-handbook.md` (identical to `llms-full.txt`) | Every concise page in reading order plus compact deep-dive summaries. Large; use it when the task is genuinely cross-cutting. |
+| Review or generate code across the whole library | `effect-4-handbook.md` (identical to `llms-full.txt`) | Every concise page in full, in reading order, plus compact deep-dive summaries. Large (about 300K tokens); use it only when the task genuinely needs every rule at once — otherwise start from the essentials. |
 | Program against the handbook (tooling, RAG, evaluation) | `effect-4-catalog.json`, `effect-4-examples.json`, `effect-4-modules.json` | Stable ids, task aliases, selection boundaries, and every example's disposition and hash. |
-| Diagnose a compiler error or runtime symptom | [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns) | Symptom → cause → fix tables, searchable by the exact diagnostic text. |
+| Diagnose a compiler error or runtime symptom | [Troubleshooting](../troubleshooting/troubleshooting-and-anti-patterns); for code to search for, [Generated-Code Anti-Patterns](../troubleshooting/anti-patterns) | Symptom → cause → fix tables, searchable by the exact diagnostic text. |
 | Produce a complete program | A page under `recipes/` | Each recipe is a single runnable file that the harness executes with asserted output. |
 | Understand how pieces compose into an application | A page under `deep-dives/` | Long-form; excluded from the aggregate and bundles on purpose. Fetch one only when the task needs the connected tutorial. |
 
-Budget roughly 1.3 tokens per word for prose pages and more for code-heavy pages; `llms.txt` gives the word counts so you can choose before fetching. Prefer one page over one bundle, and one bundle over the aggregate.
+Budget roughly 1.3 tokens per word for prose pages and more for code-heavy pages; `llms.txt` gives the word counts so you can choose before fetching. Prefer one page over one bundle, the essentials over a bundle when you need breadth, and anything over the aggregate.
 
 ## Reading the capability catalog
 

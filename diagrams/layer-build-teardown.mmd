@@ -1,0 +1,13 @@
+flowchart TB
+  subgraph build["1 · Build: dependencies first, each Layer once per MemoMap"]
+    direction LR
+    CFG["Config<br/>read and validate"] --> DB["Database<br/>acquire the pool"] --> REPO["Repository<br/>uses Database"] --> HTTP["HttpServer<br/>bind the port"]
+  end
+  subgraph run["2 · Run"]
+    APP["The program uses the services in R"]
+  end
+  subgraph close["3 · Teardown: reverse order when the Scope closes"]
+    direction LR
+    H2["HttpServer<br/>stop accepting, drain"] --> R2["Repository"] --> D2["Database<br/>close the pool"]
+  end
+  build --> run --> close

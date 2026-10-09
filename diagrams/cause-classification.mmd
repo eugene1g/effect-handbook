@@ -1,0 +1,9 @@
+flowchart TB
+  X["Exit#lt;A, E#gt;"] --> OK["Success(A)"]
+  X --> FAIL["Failure(Cause#lt;E#gt;)<br/>one or more reasons"]
+  FAIL --> T["Fail(E)<br/>expected, typed failure"]
+  FAIL --> D["Die(defect)<br/>bug or thrown exception"]
+  FAIL --> I["Interrupt<br/>external cancellation"]
+  T -->|"catch, catchTag, mapError,<br/>retry, orElse"| RT["recoverable in the E channel"]
+  D -->|"catchCause, catchDefect, exit inspection"| RD["not in E; Effect.retry does not retry it"]
+  I -->|"onInterrupt, exit inspection"| RI["not recoverable as a value;<br/>finalizers still run"]

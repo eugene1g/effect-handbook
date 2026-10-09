@@ -1,0 +1,8 @@
+flowchart LR
+  E["Effect#lt;A, E, R#gt;<br/>a lazy description"]
+  E -->|"run"| R["Root fiber<br/>started at an owned edge:<br/>runMain, ManagedRuntime,<br/>or Layer.launch"]
+  R --> C["Effect.forkChild<br/>child fiber, interrupted<br/>when its parent ends"]
+  R --> S1["Effect.forkScoped<br/>fiber owned by a Scope, interrupted<br/>when the Scope closes"]
+  R --> D["Effect.forkDetach<br/>detached fiber; needs its<br/>own shutdown policy"]
+  R --> SC["acquireRelease, Layer<br/>a Scope runs finalizers on close,<br/>in reverse acquisition order"]
+  R --> X["When it finishes: Exit#lt;A, E#gt;<br/>Success(A) or Failure(Cause#lt;E#gt;)"]

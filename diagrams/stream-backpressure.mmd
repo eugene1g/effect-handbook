@@ -1,0 +1,9 @@
+flowchart TB
+  PULL["Pull source<br/>Stream.fromIterable, Stream.paginate, a Channel<br/>produces only when asked"]
+  PUSH["Push source<br/>Stream.callback, a Queue, a PubSub<br/>produces on its own schedule"]
+  QB["Buffer between push and pull<br/>capacity and overflow strategy<br/>(Stream.callback defaults to unbounded)"]
+  OPS["Operators<br/>map, mapEffect({ concurrency }), grouped, buffer({ capacity })"]
+  SINK["Sink or run*<br/>pulls the next element: this is the demand"]
+  PUSH --> QB --> OPS
+  PULL --> OPS
+  OPS --> SINK

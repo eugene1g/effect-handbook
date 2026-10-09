@@ -8,6 +8,10 @@ Effect treats failure as a typed value, not an exception. `Option` models absenc
 
 > **Official guides:** [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors), [Two Types of Errors](https://effect.website/docs/v4/error-management/two-error-types). These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
+![Diagram: an Exit is a Success or a Failure carrying a Cause; a Cause holds Fail, Die, and Interrupt reasons, and each is handled by different combinators](/diagrams/cause-classification.svg)
+
+_A failed `Exit` carries a `Cause` with one or more reasons. Only `Fail(E)` is in the typed error channel; defects and interruptions travel in the `Cause`, and `Effect.retry` does not retry a `Cause` that contains them._
+
 ## Designing the error model
 
 Decide what each unpleasant outcome *is* before writing a class for it. The channel it lands in determines who can see it, who may recover from it, and what retry and alerting code will do with it.

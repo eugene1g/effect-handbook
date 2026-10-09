@@ -6,6 +6,10 @@
 >
 > **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
+![Diagram: pull sources produce on demand; push sources feed a buffer with a capacity and overflow strategy; operators sit between sources and the sink, which pulls each element](/diagrams/stream-backpressure.svg)
+
+_A stream runs on demand: the sink pulls, and each operator pulls from its source. A push source needs a buffer between itself and that demand, with an explicit capacity and overflow strategy._
+
 ## Stream
 
 `effect/Stream` — stable

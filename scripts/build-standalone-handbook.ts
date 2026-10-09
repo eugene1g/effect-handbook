@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import process from "node:process"
@@ -45,6 +46,16 @@ export async function buildStandaloneHandbook() {
     image: { lazyLoad: true },
     languages: ["ts", "tsx", "bash", "json"],
     config(md) {
+      // Diagrams are inlined as SVG so the file stays dependency-free (no <img src>).
+      const defaultImage = md.renderer.rules.image ?? ((tokens, index, options, _env, self) => self.renderToken(tokens, index, options))
+      md.renderer.rules.image = (tokens, index, options, env, self) => {
+        const token = tokens[index]
+        const diagram = (token.attrGet("src") ?? "").match(/^\/diagrams\/([a-z0-9-]+)\.svg$/)
+        if (!diagram) return defaultImage(tokens, index, options, env, self)
+        const svg = readFileSync(path.join(root, "public", "diagrams", `${diagram[1]}.svg`), "utf8").replace(/^<!--[\s\S]*?-->\s*/, "")
+        const label = md.utils.escapeHtml(token.content)
+        return `<span class="diagram" role="img" aria-label="${label}">${svg.replace(/<svg\b/, '<svg aria-hidden="true" focusable="false"')}</span>`
+      }
       const externalLinkOpen = md.renderer.rules.link_open ?? ((tokens, index, options, _env, self) =>
         self.renderToken(tokens, index, options))
       md.renderer.rules.link_open = (tokens, index, options, env, self) => {

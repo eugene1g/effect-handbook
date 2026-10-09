@@ -6,6 +6,10 @@ The `R` in `Effect<A, E, R>` is a typed set of required services. **Context** ho
 
 > **Official guides:** [Managing Services](https://effect.website/docs/v4/requirements-management/services). These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
+![Diagram: Layers build dependencies first (Config, Database, Repository, HttpServer), the program runs with the services, and teardown releases them in reverse order](/diagrams/layer-build-teardown.svg)
+
+_A Layer graph builds dependencies first and each Layer once per memo map; when the owning Scope closes, everything it built is released in reverse order._
+
 ## Context
 
 `effect/Context` — stable

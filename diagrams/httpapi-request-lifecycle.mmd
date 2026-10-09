@@ -1,0 +1,12 @@
+flowchart TB
+  REQ["HTTP request"] --> SRV["HttpServer runs it on a request fiber"]
+  SRV --> MW["Middleware: logger, tracer, CORS, auth"]
+  MW --> DEC["Decode path, query,<br/>headers, and payload"]
+  DEC -->|"invalid input"| E400["400<br/>not reported as a server failure"]
+  DEC -->|"valid"| H["Handler Effect"]
+  H -->|"declared error"| ERR["the status declared<br/>for that error schema"]
+  H -->|"defect"| E500["500<br/>reported to ErrorReporter"]
+  H -->|"success"| ENC["Encode the response"]
+  ENC -->|"cannot encode"| E500
+  ENC -->|"ok"| RES["Response"]
+  SRV -. "client disconnects or<br/>server shuts down" .-> INT["request fiber interrupted;<br/>handler finalizers run"]

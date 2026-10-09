@@ -151,9 +151,17 @@ export function renderMarkdownTwin(page, source, urls = {}) {
   const normalizedSiteUrl = normalizeSiteUrl(urls.siteUrl)
   const route = pageRoute(page.source)
   const header = `<!-- Markdown twin of ${routeUrl(route, normalizedBase, normalizedSiteUrl)} · The Effect 4 Handbook (effect@${handbookRelease.version}, audited ${handbookRelease.auditedAt}) · Index: ${artifactUrl(llmsIndexFilename, normalizedBase, normalizedSiteUrl)} · Modules: ${artifactUrl(moduleIndexFilename, normalizedBase, normalizedSiteUrl)} · Agent guide: ${artifactUrl(agentGuideSource, normalizedBase, normalizedSiteUrl)} -->`
-  const relinked = rewriteLinksToRelativeTwins(source, page.source)
+  const relinked = rewriteDiagramLinks(rewriteLinksToRelativeTwins(source, page.source), page.source)
   const withContents = insertContentsLine(relinked, page.source)
   return `${header}\n\n${withContents}`
+}
+
+/** Point root-relative diagram images (`/diagrams/<name>.svg`) at the published copy, relative to the twin so any base works. */
+export function rewriteDiagramLinks(markdown, source) {
+  const directory = path.posix.dirname(source)
+  return mapOutsideFences(markdown, (line) =>
+    line.replace(/(\]\()\/diagrams\/([a-z0-9-]+\.svg)(\))/g, (_match, opening, file, closing) =>
+      `${opening}${path.posix.relative(directory === "." ? "" : directory, `diagrams/${file}`)}${closing}`))
 }
 
 /** Rewrite page-relative route links to the relative `.md` twin paths. */

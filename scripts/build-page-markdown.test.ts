@@ -14,6 +14,7 @@ import {
   checkPageMarkdownArtifacts,
   headingAnchors,
   renderMarkdownTwin,
+  rewriteDiagramLinks,
   rewriteLinksToRelativeTwins,
   writePageMarkdownArtifacts
 } from "./build-page-markdown.ts"
@@ -44,7 +45,7 @@ test("writes Markdown twins that preserve the source and detects drift", async (
     // targets, the twin is the canonical source: same headings, same fences.
     assert.deepEqual(headingAnchors(body), headingAnchors(source), page.source)
     assert.equal(body.split("\n```").length, source.split("\n```").length, page.source)
-    assert.equal(rewriteLinksToRelativeTwins(source, page.source), body, page.source)
+    assert.equal(rewriteDiagramLinks(rewriteLinksToRelativeTwins(source, page.source), page.source), body, page.source)
   }
 
   for (const name of ["llms.txt", "effect-4-modules.md", "effect-4-modules.json", "robots.txt", "versions.json"]) {
@@ -159,4 +160,12 @@ test("builds grouped links for root, Pages base, and an absolute site URL", () =
   assert.doesNotMatch(robots, /Sitemap:/)
   assert.match(buildRobotsTxt({ siteUrl: "https://example.com/handbook" }), /\nSitemap: https:\/\/example\.com\/handbook\/sitemap\.xml\n$/)
   assert.equal(handbookRelease.version, "4.0.2")
+})
+
+test("points diagram images at the published copy relative to twins and bundles", () => {
+  const source = "![A diagram of the layer graph](/diagrams/layer-build-teardown.svg)\n\n```md\n![kept](/diagrams/x.svg)\n```\n"
+  assert.match(rewriteDiagramLinks(source, "foundations/services-context-layers.md"), /\]\(\.\.\/diagrams\/layer-build-teardown\.svg\)/)
+  assert.match(rewriteDiagramLinks(source, "index.md"), /\]\(diagrams\/layer-build-teardown\.svg\)/)
+  assert.match(rewriteDiagramLinks(source, "foundations/services-context-layers.md"), /\[kept\]\(\/diagrams\/x\.svg\)/)
+  assert.match(rewriteSiteLinks(source, "foundations/services-context-layers.md"), /\]\(\.\/diagrams\/layer-build-teardown\.svg\)/)
 })

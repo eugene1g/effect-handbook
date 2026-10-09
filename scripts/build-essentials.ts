@@ -5,7 +5,7 @@
  * paragraph, subsection links, and "Reach for it when" line, each pointing at
  * the full section in the page's Markdown twin.
  */
-import { handbookGroups, handbookRelease } from "../handbook.ts"
+import { effect3Names, handbookGroups, handbookRelease } from "../handbook.ts"
 import { rewriteSiteLinks } from "./build-agent-handbook.ts"
 import { headingAnchors } from "./build-page-markdown.ts"
 
@@ -87,6 +87,7 @@ export function buildEssentials(sources: ReadonlyMap<string, string>): string {
     "",
     "# The Effect 4 Handbook — Essentials",
     "",
+    ...renderEffect3Names(`./${effect3NamesAnchor}`),
     `The essentials of every concise handbook page for \`effect@${handbookRelease.version}\` (audited ${handbookRelease.auditedAt}), in reading order: what each page and section is for, its stability, and when to reach for it. Every heading links to the full section in that page's Markdown twin; fetch the twin for code, tables, edge cases, and the exact rules. Use [the complete concise handbook](./effect-4-handbook.md) only for an exhaustive review.`,
     ""
   ]
@@ -115,6 +116,18 @@ export function buildEssentials(sources: ReadonlyMap<string, string>): string {
     }
   }
   return `${out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`
+}
+
+export const effect3NamesAnchor = "troubleshooting/anti-patterns.md#effect-3-names-that-do-not-exist-in-effect-4"
+
+/** The "names that do not exist in Effect 4" block shared by llms.txt and the essentials digest. */
+export function renderEffect3Names(listUrl: string): Array<string> {
+  return [
+    `**Before you write code:** these Effect 3 names do not exist in Effect 4 and are the most common cause of broken generated code ([full list](${listUrl})).`,
+    "",
+    ...effect3Names.map((entry) => `- ${entry.wrong} → ${entry.right}`),
+    ""
+  ]
 }
 
 export function essentialsWordCount(markdown: string): number {

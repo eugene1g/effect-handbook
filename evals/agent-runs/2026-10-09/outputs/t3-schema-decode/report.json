@@ -1,0 +1,14 @@
+{
+  "edition": "4.0 (effect@4.0.2, audited 2026-10-09)",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/data/schema.md#schema",
+    "https://eugene1g.github.io/effect-handbook/data/schema.md#1-decoding-and-encoding--pick-your-result-style",
+    "https://eugene1g.github.io/effect-handbook/data/schema.md#3-structs-the-workhorse",
+    "https://eugene1g.github.io/effect-handbook/data/schema.md#5-refinements--check-and-refine",
+    "https://eugene1g.github.io/effect-handbook/data/schema.md#7-branded-schemas",
+    "https://eugene1g.github.io/effect-handbook/data/schema-tooling.md#schema-schemaerror",
+    "https://eugene1g.github.io/effect-handbook/foundations/errors-option-result.md#result"
+  ],
+  "assumptions": "Schema.isPattern accepts a RegExp directly (documented in the built-in checks table under String). Schema.encodeSync takes a typed domain value (not unknown) and returns the Encoded wire shape. Result.mapError is available and transforms the failure side without needing to pattern-match manually. The SchemaError.message field uses the default formatter and produces a human-readable string suitable for InvalidRaiseRequest.",
+  "confidence": 4
+}

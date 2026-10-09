@@ -1,0 +1,267 @@
+/**
+ * comp-service — production telemetry with Effect 4 native OTLP exporters.
+ *
+ * Signals exported over OTLP/HTTP to http://localhost:4318:
+ *   • Traces  — /v1/traces   (one span per business operation, low-cardinality names)
+ *   • Metrics — /v1/metrics  (counter for approved raises)
+ *   • Logs    — /v1/logs     (structured, correlated with active trace/span ids)
+ *
+ * Telemetry is flushed on shutdown: Otlp.layerJson installs scoped exporters
+ * whose finalizers flush and then release the HTTP client they post through.
+ * Each flush is bounded by shutdownTimeout (3 seconds per exporter, the default),
+ * so the process exits within about 9 seconds even when the collector is unreachable.
+ */
+
+import { Effect, Layer, Metric, NodeRuntime } from "effect"
+import { FetchHttpClient } from "effect/http"
+import { Otlp } from "effect/observability"
+
+// ---------------------------------------------------------------------------
+// Telemetry Layer
+// ---------------------------------------------------------------------------
+
+/**
+ * Single OTLP export graph for all three signals.
+ *
+ * Choice rationale (see report.json): Effect's native Otlp exporters are
+ * preferred over @effect/opentelemetry's NodeSdk bridge because:
+ *  1. There is no pre-existing OTel SDK setup or auto-instrumentation to
+ *     integrate with — this is a greenfield service.
+ *  2. Otlp.layerJson covers all three signals (logs, metrics, traces) with
+ *     zero extra peer dependencies.
+ *  3. The handbook explicitly recommends "new projects use effect/observability's
+ *     Otlp" (telemetry-export.md tip, production-observability.md rationale).
+ *  4. Graceful flush on shutdown is built in; no manual SDK teardown needed.
+ *
+ * Layer.provide(App, TelemetryLayer) — not Layer.merge — so that telemetry is
+ * constructed before the application and released after it, ensuring spans and
+ * log lines emitted during App's own finalizers still reach the exporter.
+ */
+export const TelemetryLayer = Otlp.layerJson({
+  baseUrl: "http://localhost:4318",
+  resource: {
+    serviceName: "comp-service",
+    serviceVersion: "1.0.0",
+    attributes: { "deployment.environment": "production" }
+  },
+  // Default intervals: logs 1 s, traces 5 s, metrics 10 s.
+  // Override for tighter or looser batching as needed.
+  loggerExportInterval: "1 second",
+  tracerExportInterval: "5 seconds",
+  metricsExportInterval: "10 seconds",
+  // Upper bound per exporter for the flush that runs when the scope closes.
+  // With an unreachable collector the process exits after ~3 s instead of hanging.
+  shutdownTimeout: "3 seconds",
+  // Keep the default (true): Otlp.layerJson merges the OTLP logger into the
+  // existing logger set, so the default console logger and tracerLogger both
+  // keep running alongside it.  tracerLogger is what turns each Effect.log*
+  // call into a span event, giving log-trace correlation for free.
+  loggerMergeWithExisting: true
+}).pipe(
+  Layer.provide(FetchHttpClient.layer)
+)
+
+// ---------------------------------------------------------------------------
+// Metrics
+// ---------------------------------------------------------------------------
+
+/**
+ * Counter for approved raises.  incremental: true enforces monotonic growth —
+ * the OTLP exporter will reject a negative delta and skip the update.
+ * No per-employee label: every attribute combination is a separate time series,
+ * so metric attributes must come from a small, fixed vocabulary.
+ */
+const approvedRaisesTotal = Metric.counter("comp_approved_raises_total", {
+  description: "Total number of approved salary raises",
+  incremental: true
+})
+
+// ---------------------------------------------------------------------------
+// Domain stubs (in-memory fakes; no real database or HRIS needed)
+// ---------------------------------------------------------------------------
+
+interface CompBand {
+  readonly min: number
+  readonly max: number
+}
+
+interface RaiseApproval {
+  readonly employeeId: string
+  readonly newSalary: number
+  readonly approved: boolean
+}
+
+/** Simulated HRIS comp-band lookup — low latency, always succeeds. */
+const fetchCompBand = (employeeId: string): Effect.Effect<CompBand> =>
+  Effect.gen(function*() {
+    yield* Effect.logInfo("fetching comp band")
+    yield* Effect.sleep("10 millis") // simulated I/O
+    return { min: 80_000, max: 160_000 }
+  }).pipe(
+    Effect.withSpan("hris.fetchCompBand", {
+      // Span name: stable operation identifier, never an instance id.
+      // Employee id travels as an attribute.
+      attributes: { "employee.id": employeeId },
+      kind: "client"
+    })
+  )
+
+/** Simulated performance-rating lookup. */
+const fetchPerformanceRating = (employeeId: string, cycleId: string): Effect.Effect<number> =>
+  Effect.gen(function*() {
+    yield* Effect.logInfo("fetching performance rating")
+    yield* Effect.sleep("8 millis") // simulated I/O
+    return 4.2 // out of 5.0
+  }).pipe(
+    Effect.withSpan("hris.fetchPerformanceRating", {
+      attributes: { "employee.id": employeeId, "cycle.id": cycleId },
+      kind: "client"
+    })
+  )
+
+// ---------------------------------------------------------------------------
+// Business operations — instrumented
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute and record a merit raise for one employee in one review cycle.
+ *
+ * Span name: "merit.computeRaise" — identifies the operation type.
+ * Employee id and cycle id: span attributes (high-cardinality detail, per-event).
+ *
+ * Effect.fn("name") creates a span named "name" for every invocation and is the
+ * idiomatic way to add tracing to service methods.
+ */
+const computeMeritRaise = Effect.fn("merit.computeRaise")(
+  function*(employeeId: string, cycleId: string) {
+    // Annotate the current span with the ids that identify this invocation.
+    // These ride in span attributes, not in the span name.
+    yield* Effect.annotateCurrentSpan({
+      "employee.id": employeeId,
+      "cycle.id": cycleId
+    })
+
+    // Propagate structured context to every log line emitted inside this block.
+    // Logs carry traceId/spanId from the active span (via tracerLogger) so they
+    // are automatically correlated with the trace in any backend.
+    yield* Effect.annotateLogs({ employeeId, cycleId })
+
+    yield* Effect.logInfo("starting merit raise computation")
+
+    const band = yield* fetchCompBand(employeeId)
+    const rating = yield* fetchPerformanceRating(employeeId, cycleId)
+
+    // Merit formula: rating-scaled increase, capped at band maximum.
+    const meritPct = Math.min((rating / 5.0) * 0.08, 0.08) // up to 8 %
+    const currentSalary = 120_000
+    const proposed = Math.round(currentSalary * (1 + meritPct))
+    const newSalary = Math.min(proposed, band.max)
+
+    yield* Effect.logInfo("merit raise computed", {
+      currentSalary,
+      newSalary,
+      meritPct: meritPct.toFixed(4),
+      bandMax: band.max
+    })
+
+    return { employeeId, cycleId, newSalary }
+  }
+)
+
+/**
+ * Approve a raise recommendation.
+ *
+ * Span name: "merit.approveRaise" — low-cardinality operation identifier.
+ * The approved-raises counter is incremented; the counter has no per-employee
+ * label so it stays a single time series regardless of headcount.
+ */
+const approveRaise = Effect.fn("merit.approveRaise")(
+  function*(employeeId: string, cycleId: string, newSalary: number): Effect.Effect<RaiseApproval> {
+    yield* Effect.annotateCurrentSpan({
+      "employee.id": employeeId,
+      "cycle.id": cycleId,
+      "raise.new_salary": newSalary
+    })
+
+    yield* Effect.annotateLogs({ employeeId, cycleId })
+
+    // Simulate manager approval check (always approved in this stub).
+    yield* Effect.sleep("5 millis")
+
+    // Increment the approved-raises counter.  This is the only metric update
+    // for this signal; the exporter reads it at each metricsExportInterval.
+    yield* Metric.update(approvedRaisesTotal, 1)
+
+    yield* Effect.logInfo("raise approved", { newSalary })
+
+    return { employeeId, newSalary, approved: true }
+  }
+)
+
+/**
+ * Run the full merit-raise workflow for one employee.
+ *
+ * Span name: "merit.run" — top-level operation, root of the trace for this employee.
+ */
+const runMeritWorkflow = (employeeId: string, cycleId: string) =>
+  Effect.gen(function*() {
+    yield* Effect.annotateCurrentSpan({ "employee.id": employeeId, "cycle.id": cycleId })
+    yield* Effect.annotateLogs({ employeeId, cycleId, service: "comp-service" })
+
+    yield* Effect.logInfo("merit workflow started")
+
+    const { newSalary } = yield* computeMeritRaise(employeeId, cycleId)
+    const approval = yield* approveRaise(employeeId, cycleId, newSalary)
+
+    yield* Effect.logInfo("merit workflow completed", {
+      approved: approval.approved,
+      newSalary: approval.newSalary
+    })
+
+    return approval
+  }).pipe(
+    Effect.withSpan("merit.run", {
+      // root: true starts a fresh trace (no inherited parent span).
+      root: true,
+      attributes: { "employee.id": employeeId, "cycle.id": cycleId }
+    })
+  )
+
+// ---------------------------------------------------------------------------
+// Main program
+// ---------------------------------------------------------------------------
+
+/**
+ * A small instrumented program: process three employees in one merit cycle.
+ * Each employee gets its own trace root ("merit.run"), with child spans for
+ * the computation and approval steps.
+ */
+const program = Effect.gen(function*() {
+  const cycleId = "2026-merit-q1"
+  const employees = ["E-1001", "E-1002", "E-1003"]
+
+  yield* Effect.logInfo("merit cycle batch started", { cycleId, count: employees.length })
+
+  const results = yield* Effect.forEach(employees, (employeeId) =>
+    runMeritWorkflow(employeeId, cycleId).pipe(
+      Effect.tapError((err) =>
+        Effect.logError("merit workflow failed", { employeeId, error: String(err) })
+      )
+    ))
+
+  const approvedCount = results.filter((r) => r.approved).length
+  yield* Effect.logInfo("merit cycle batch finished", { cycleId, approvedCount })
+})
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * TelemetryLayer is *provided to* program — not merged beside it — so it is
+ * built first (HTTP client + exporters start) and released last (flush runs
+ * after all business work completes, including finalizers).
+ */
+NodeRuntime.runMain(
+  program.pipe(Effect.provide(TelemetryLayer))
+)

@@ -184,7 +184,7 @@ export default defineConfig({
     },
     notFound: {
       title: "TOPIC NOT FOUND",
-      quote: "That route is not in this edition of the Effect 4 Handbook. Search the handbook or return to its orientation page.",
+      quote: "That route is not in this edition of the Effect 4 Handbook. Search the handbook or return to its orientation page. Coding agents: fetch llms.txt at the site root for every page's Markdown URL instead of guessing paths.",
       link: "/",
       linkLabel: "return to the handbook",
       linkText: "Back to the handbook"

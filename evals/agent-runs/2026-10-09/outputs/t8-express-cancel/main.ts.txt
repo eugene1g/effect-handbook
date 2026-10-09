@@ -1,0 +1,280 @@
+/**
+ * Express + Effect 4 integration.
+ *
+ * GET /payroll/:id
+ *   - Runs an Effect program that consults a DatabasePool (Layer, acquired once,
+ *     released on shutdown) and calls a downstream HR service via fetch.
+ *   - When the HTTP client disconnects, the fiber is interrupted and the
+ *     in-flight fetch is aborted (two-hop cancellation).
+ *   - Typed errors map to HTTP status codes.
+ *   - SIGTERM triggers graceful shutdown: stop intake → drain → dispose runtime.
+ *
+ * External systems are stubbed with in-memory fakes so the file runs standalone.
+ */
+
+import { Cause, Context, Data, Effect, Exit, Layer, ManagedRuntime, Option } from "effect"
+import express from "express"
+
+// ─── Domain errors ────────────────────────────────────────────────────────────
+
+class PayrollNotFound extends Data.TaggedError("PayrollNotFound")<{
+  readonly id: string
+}> {}
+
+class DownstreamUnavailable extends Data.TaggedError("DownstreamUnavailable")<{
+  readonly cause: unknown
+}> {}
+
+// ─── Database pool service (created once, closed on SIGTERM) ─────────────────
+
+interface DbPool {
+  readonly query: (sql: string, params: readonly unknown[]) => Effect.Effect<readonly Record<string, unknown>[]>
+}
+
+class DatabasePool extends Context.Service<DatabasePool, DbPool>()("app/DatabasePool") {
+  /**
+   * Layer.scoped acquires the pool once and registers cleanup in the same scope.
+   * ManagedRuntime holds that scope open for the lifetime of the application;
+   * runtime.dispose() runs the cleanup (pool.end()) exactly once.
+   */
+  static readonly layer: Layer.Layer<DatabasePool> = Layer.scoped(
+    DatabasePool,
+    Effect.gen(function* () {
+      // In a real app: yield* Effect.promise(() => pg.Pool({ ... }).connect())
+      const pool = yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          console.log("[db] pool acquired")
+          // Stub: in-memory records keyed by id
+          const store: Record<string, { id: string; salary: number; currency: string }> = {
+            "emp-1": { id: "emp-1", salary: 95_000, currency: "USD" },
+            "emp-2": { id: "emp-2", salary: 120_000, currency: "GBP" },
+          }
+          return store
+        }),
+        (store) =>
+          Effect.sync(() => {
+            // In a real app: pool.end()
+            void store
+            console.log("[db] pool released")
+          })
+      )
+
+      const impl: DbPool = {
+        query: (_sql, params) =>
+          Effect.sync(() => {
+            const id = String(params[0])
+            const row = pool[id]
+            return row ? [row] : []
+          }),
+      }
+      return impl
+    })
+  )
+}
+
+// ─── Downstream HR service stub ───────────────────────────────────────────────
+//
+// In production this would call a real HTTP endpoint.  The stub is implemented
+// as a slow (50 ms) Promise that honours the AbortSignal so interruption is
+// observable: when the fiber is interrupted Effect aborts its own signal and
+// the Promise rejects immediately, freeing the "socket".
+
+const hrServiceFetch = (id: string, signal: AbortSignal): Promise<{ bonus: number }> =>
+  new Promise((resolve, reject) => {
+    console.log(`[hr-service] fetch ${id} in flight`)
+    const timer = setTimeout(() => {
+      console.log(`[hr-service] fetch ${id} done`)
+      resolve({ bonus: 5_000 })
+    }, 50)
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer)
+        console.log(`[hr-service] fetch ${id} aborted`)
+        reject(new Error("aborted"))
+      },
+      { once: true }
+    )
+  })
+
+// ─── Payroll service ─────────────────────────────────────────────────────────
+
+interface PayrollRecord {
+  readonly id: string
+  readonly salary: number
+  readonly currency: string
+  readonly bonus: number
+}
+
+class PayrollService extends Context.Service<
+  PayrollService,
+  {
+    readonly fetchPayroll: (
+      id: string
+    ) => Effect.Effect<PayrollRecord, PayrollNotFound | DownstreamUnavailable>
+  }
+>()("app/PayrollService") {
+  static readonly layer: Layer.Layer<PayrollService, never, DatabasePool> = Layer.effect(
+    PayrollService,
+    Effect.gen(function* () {
+      const db = yield* DatabasePool
+      return {
+        fetchPayroll: (id) =>
+          Effect.gen(function* () {
+            // 1. Query the pool (already in Effect, no signal needed)
+            const rows = yield* db.query("SELECT * FROM payroll WHERE id = $1", [id])
+            if (rows.length === 0) {
+              return yield* Effect.fail(new PayrollNotFound({ id }))
+            }
+            const row = rows[0] as { id: string; salary: number; currency: string }
+
+            // 2. Enrich via downstream HTTP service.
+            //    Hop two: Effect passes its own AbortSignal to the callback.
+            //    When the fiber is interrupted, Effect aborts that signal, and
+            //    hrServiceFetch rejects → the adapter catches and yields a failure,
+            //    which is suppressed anyway because the fiber is being interrupted.
+            const detail = yield* Effect.tryPromise({
+              try: (signal) => hrServiceFetch(id, signal),
+              catch: (cause) => new DownstreamUnavailable({ cause }),
+            })
+
+            return { id: row.id, salary: row.salary, currency: row.currency, bonus: detail.bonus }
+          }),
+      }
+    })
+  )
+}
+
+// ─── Application Layer (wires dependencies) ───────────────────────────────────
+
+const AppLive: Layer.Layer<PayrollService> = PayrollService.layer.pipe(
+  Layer.provide(DatabasePool.layer)
+)
+
+// ─── The Effect program called from the route handler ─────────────────────────
+
+const getPayroll = (id: string): Effect.Effect<PayrollRecord, PayrollNotFound | DownstreamUnavailable, PayrollService> =>
+  Effect.flatMap(PayrollService, (svc) => svc.fetchPayroll(id))
+
+// ─── ManagedRuntime – ONE instance for the entire process ─────────────────────
+
+const runtime = ManagedRuntime.make(AppLive)
+
+// ─── Express setup ────────────────────────────────────────────────────────────
+
+const app = express()
+let accepting = true
+const inFlight = new Set<Promise<unknown>>()
+
+app.get("/payroll/:id", (req, res) => {
+  // Refuse new work once shutdown has started
+  if (!accepting) {
+    res.status(503).json({ error: "shutting down" })
+    return
+  }
+
+  // Express's IncomingMessage has no AbortSignal.
+  // Create one per request and abort it on client disconnect.
+  const controller = new AbortController()
+  res.on("close", () => {
+    if (!res.writableEnded) {
+      // Client disconnected before the response was finished
+      controller.abort()
+    }
+  })
+
+  const { id } = req.params
+
+  // Hop one: controller.signal interrupts the fiber when the client disconnects.
+  // runPromiseExit never rejects; it returns an Exit that distinguishes
+  // success, interruption, and typed failure.
+  const response: Promise<void> = runtime
+    .runPromiseExit(getPayroll(id), { signal: controller.signal })
+    .then((exit) => {
+      if (Exit.isSuccess(exit)) {
+        res.status(200).json(exit.value)
+        return
+      }
+
+      if (Cause.hasInterruptsOnly(exit.cause)) {
+        // Interrupt-only means clean cancellation.
+        // Distinguish "client left" from "shutting down" via the signal.
+        if (!res.writableEnded) {
+          if (controller.signal.aborted) {
+            // Client disconnect
+            res.status(499).end() // 499 Client Closed Request (nginx convention)
+          } else {
+            // Shutdown aborted us
+            res.status(503).json({ error: "shutting down" })
+          }
+        }
+        return
+      }
+
+      // Map typed failures to HTTP status codes
+      const errOpt: Option.Option<PayrollNotFound | DownstreamUnavailable> =
+        Cause.findErrorOption(exit.cause)
+      if (Option.isSome(errOpt)) {
+        const e = errOpt.value
+        if (e._tag === "PayrollNotFound") {
+          res.status(404).json({ error: `Payroll not found: ${e.id}` })
+        } else if (e._tag === "DownstreamUnavailable") {
+          res.status(502).json({ error: "Downstream HR service unavailable" })
+        } else {
+          res.status(500).json({ error: "Internal error" })
+        }
+      } else {
+        // Defect (unexpected exception)
+        res.status(500).json({ error: "Internal error" })
+      }
+    })
+
+  // Track in-flight promises so shutdown can drain them
+  inFlight.add(response)
+  void response.finally(() => inFlight.delete(response))
+})
+
+// ─── Server startup ───────────────────────────────────────────────────────────
+
+const server = app.listen(3000, () => {
+  console.log("[app] listening on :3000")
+  // Warm the runtime: pay Layer acquisition cost at boot so a broken deployment
+  // fails its start-up probe rather than the first real request.
+  void runtime.runPromise(Effect.void).catch((err: unknown) => {
+    console.error("[app] runtime warm-up failed:", err)
+    process.exit(1)
+  })
+})
+
+// ─── Graceful shutdown ────────────────────────────────────────────────────────
+
+const settleWithin = (work: Promise<unknown>, millis: number): Promise<void> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(resolve, millis)
+    void work.finally(() => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
+
+// Memoised: SIGTERM arriving twice (or a hot-reload hook) gets the same Promise.
+let stopping: Promise<void> | undefined
+
+const shutdown = (): Promise<void> =>
+  (stopping ??= (async () => {
+    console.log("[app] SIGTERM: shutting down")
+    accepting = false // 1. stop intake (synchronous)
+
+    // 2. stop the server from accepting new connections
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+
+    // 3. drain in-flight requests with a 10-second bound
+    await settleWithin(Promise.allSettled([...inFlight]), 10_000)
+
+    // 4. interrupt any surviving fibers and release the Layer (closes the pool)
+    await runtime.dispose()
+    console.log("[app] disposed, exiting")
+    process.exit(0)
+  })())
+
+process.on("SIGTERM", () => void shutdown())

@@ -1,0 +1,103 @@
+/**
+ * Bounded payroll-recalculation job processor
+ *
+ * Execution policy:
+ * - Queue capacity: 100 (producers suspend / wait when full)
+ * - Concurrent workers: exactly 4
+ * - Shutdown (SIGINT or Scope close):
+ *     1. Producer fiber is interrupted → no new jobs accepted
+ *     2. Workers finish their CURRENT job (uninterruptible per-job processing)
+ *     3. Remaining buffered jobs are cleared and logged as abandoned
+ */
+
+import { NodeRuntime } from "@effect/platform-node"
+import { Cause, Effect, Fiber, Queue, Stream } from "effect"
+
+interface PayrollJob {
+  readonly id: number
+  readonly employeeId: string
+}
+
+/**
+ * Simulate payroll recalculation for one employee.
+ * Wrapped in Effect.uninterruptible so a shutdown signal does not cut a job
+ * mid-flight — the worker always finishes the job it started.
+ */
+const processJob = (job: PayrollJob): Effect.Effect<void> =>
+  Effect.uninterruptible(
+    Effect.gen(function* () {
+      yield* Effect.log(`[worker] starting  job ${job.id} for ${job.employeeId}`)
+      yield* Effect.sleep("80 millis") // fake payroll computation
+      yield* Effect.log(`[worker] completed job ${job.id}`)
+    })
+  )
+
+const program = Effect.scoped(
+  Effect.gen(function* () {
+    // ── Bounded queue, capacity 100 ──────────────────────────────────────────
+    // Queue.bounded suspends an Effect producer when the queue is full, giving
+    // natural backpressure.  The E channel is Cause.Done — the protocol's
+    // normal end-of-stream signal used by Queue.end.
+    const queue = yield* Queue.bounded<PayrollJob, Cause.Done>(100)
+
+    // ── Shutdown finalizer ────────────────────────────────────────────────────
+    // Runs when the Scope closes: on normal completion or on SIGINT interruption
+    // (NodeRuntime.runMain interrupts the root fiber on SIGINT/SIGTERM).
+    // At this point the stream has stopped pulling, so whatever remains in the
+    // buffer was never handed to a worker — log it as abandoned.
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        const abandoned = yield* Queue.clear(queue)
+        if (abandoned.length === 0) {
+          yield* Effect.log("Shutdown: no queued jobs were abandoned")
+        } else {
+          yield* Effect.log(
+            `Shutdown: ${abandoned.length} queued job(s) abandoned (never started)`
+          )
+          for (const job of abandoned) {
+            yield* Effect.log(`  ABANDONED: job ${job.id} (${job.employeeId})`)
+          }
+        }
+      })
+    )
+
+    // ── Producer ──────────────────────────────────────────────────────────────
+    // forked as a child fiber so it is interrupted when the parent scope closes,
+    // which immediately stops new offers → "no new jobs accepted" on shutdown.
+    const producer = yield* Effect.gen(function* () {
+      yield* Effect.log("Producer: enqueueing 20 payroll-recalculation jobs")
+      for (let i = 1; i <= 20; i++) {
+        // Queue.offer suspends here when the queue is full (backpressure).
+        yield* Queue.offer(queue, {
+          id: i,
+          employeeId: `emp-${String(i).padStart(3, "0")}`
+        })
+      }
+      // Signal normal end-of-stream; buffered jobs continue to drain.
+      yield* Queue.end(queue)
+      yield* Effect.log("Producer: all 20 jobs enqueued; queue closed")
+    }).pipe(Effect.forkChild)
+
+    // ── 4 concurrent workers ──────────────────────────────────────────────────
+    // Stream.fromQueue pulls items with backpressure and ends when it sees
+    // Cause.Done.  Stream.mapEffect fans out to exactly 4 in-flight effects.
+    // Each effect is uninterruptible, so an interrupt signal waits for the
+    // current job to finish before the stream terminates.
+    yield* Effect.log("Workers: starting (concurrency = 4)")
+    yield* Stream.fromQueue(queue).pipe(
+      Stream.mapEffect(processJob, { concurrency: 4 }),
+      Stream.runDrain
+    )
+
+    // Surface any producer-side failure before returning.
+    yield* Fiber.join(producer)
+
+    yield* Effect.log("All 20 jobs processed. Shutting down cleanly.")
+  })
+)
+
+// NodeRuntime.runMain:
+// - forks the program as the root fiber
+// - sends an interrupt on SIGINT / SIGTERM so Scope finalizers run
+// - exits with code 0 on success, 130 on interrupt-only, non-zero on failure
+NodeRuntime.runMain(program)

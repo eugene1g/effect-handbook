@@ -1,0 +1,14 @@
+{
+  "edition": "4.0 (effect@4.0.2, audited 2026-10-09)",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/foundations/services-context-layers.md#context",
+    "https://eugene1g.github.io/effect-handbook/foundations/services-context-layers.md#layer",
+    "https://eugene1g.github.io/effect-handbook/foundations/services-context-layers.md#resourceful-services",
+    "https://eugene1g.github.io/effect-handbook/foundations/services-context-layers.md#designing-a-service-contract",
+    "https://eugene1g.github.io/effect-handbook/foundations/services-context-layers.md#test-layers-and-substitution",
+    "https://eugene1g.github.io/effect-handbook/tooling/testing-dev-tooling.md#effect-vitest",
+    "https://eugene1g.github.io/effect-handbook/tooling/testing-dev-tooling.md#sharing-a-layer-across-tests"
+  ],
+  "assumptions": "Layer.sync is the correct combinator for a synchronously-built layer (thunk form); verified against the Layer combinator table in the handbook. Effect.flip is the idiomatic way to assert a typed error in @effect/vitest tests — the result is EmployeeNotFound | RaiseTooLarge and narrowed via instanceof after the assert. The 10% cap uses strict greater-than (amount > maxAllowed), so amount === maxAllowed succeeds. Effect.fn is used for the approveRaise method body to carry a trace name, matching handbook examples.",
+  "confidence": 4
+}

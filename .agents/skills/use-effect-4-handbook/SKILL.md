@@ -11,8 +11,9 @@ The handbook is a source-audited guide to one Effect release, published as Markd
 
 1. **Markdown only.** Append `.md` to any page path (`/` → `index.md`, `deep-dives/` → `deep-dives/index.md`). Never fetch an HTML route or `effect-4-handbook.html`.
 2. **Pick the edition for the installed version.** Read `node_modules/effect/package.json`, take `major.minor`, and use `$HANDBOOK/<major.minor>/` as the base for everything below (`$HANDBOOK/4.0/llms.txt` for effect 4.0.x). `$HANDBOOK/versions.json` lists every published edition with its exact Effect version and audit date; if your minor is absent, use the highest listed edition below it in the same major, never another major. The bare site root is the newest edition.
-3. **Start at the edition's `llms.txt`.** It lists every artifact and page with word counts and maps intents to exact sections. Fetch it once per task.
-4. **Smallest unit first.** One section beats one page, one page beats one domain bundle, one bundle beats `effect-4-handbook.md`. Budget about 1.3 tokens per word.
+3. **Start at the edition's `llms.txt`.** It lists every artifact and page with word counts and maps intents to exact sections. Fetch it once per task, and take page URLs from it — guessed paths 404.
+   Before writing code, read its "Effect 3 names that do not exist in Effect 4" block: `Effect.catchAll`, `Effect.either`, `Context.Tag`, `Layer.scoped`, `@effect/platform`, and `NodeRuntime` from `"effect"` all fail to compile.
+4. **Smallest unit first.** One section beats one page, one page beats one domain bundle, one bundle beats `effect-4-handbook.md`. For a broad overview read `effect-4-essentials.md` (about 33K words) instead of a bundle. Budget about 1.3 tokens per word.
 5. **Installed package wins.** When `node_modules/effect` (its `AGENTS.md`, `ai-docs/src`, or `.d.ts` files) disagrees with the handbook, trust the installed version and note the drift.
 6. **Cite edition + twin + anchor**, for example `4.0/foundations/core-runtime-execution.md#effect`, and name the audited release from the twin's first line.
 
@@ -40,6 +41,7 @@ The handbook is a source-audited guide to one Effect release, published as Markd
 | `effect-4-catalog.json` | Capability ids, task aliases, choose/avoid boundaries, alternatives, error/requirement/lifetime facts, canonical anchors. |
 | `effect-4-examples.json` | Every fence with `source`, `heading`, `sha256`, `disposition`, `fixture`, `requiredChecks`. |
 | `effect-4-{core,web,concurrency,distributed,ai}.md` | Domain bundles; links already point at twins. |
+| `effect-4-essentials.md` | Every concise page and section in brief, each linked to the full text; the default broad read. |
 | `effect-4-handbook.md` = `llms-full.txt` | All concise pages plus deep-dive summaries; cross-cutting work only. |
 | `<page>.md` | Twin of one page: provenance header, optional contents line, twin links. |
 

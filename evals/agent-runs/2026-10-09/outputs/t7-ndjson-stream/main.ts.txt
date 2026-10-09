@@ -1,0 +1,137 @@
+/**
+ * t7-ndjson-stream — Stream a large NDJSON file of timesheet records in
+ * constant memory: split lines, decode with a Schema, skip malformed entries
+ * (counting them), and write valid records to a sink in batches of 100.
+ *
+ * Effect 4.0.2 / @effect/platform-node
+ */
+
+import { Console, Effect, Option, Ref, Schema, Stream } from "effect"
+import { FileSystem } from "@effect/platform"
+import { NodeFileSystem, NodeRuntime } from "@effect/platform-node"
+
+// ---------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------
+
+const TimesheetRecordSchema = Schema.Struct({
+  employeeId: Schema.String,
+  hours: Schema.Number,
+})
+
+type TimesheetRecord = typeof TimesheetRecordSchema.Type
+
+/**
+ * Parses a raw JSON string and validates it against TimesheetRecordSchema.
+ * Returns Effect<TimesheetRecord, ParseError>.
+ */
+const decodeJsonLine = Schema.decode(Schema.fromJsonString(TimesheetRecordSchema))
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const SAMPLE_FILE = "./timesheets.ndjson"
+const BATCH_SIZE = 100
+
+// ---------------------------------------------------------------------------
+// Create a small sample NDJSON file so the program can run end-to-end
+// ---------------------------------------------------------------------------
+
+const createSampleFile: Effect.Effect<void, never, FileSystem.FileSystem> =
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+
+    const lines: string[] = []
+
+    // 310 valid records
+    for (let i = 0; i < 310; i++) {
+      lines.push(
+        JSON.stringify({ employeeId: `emp-${String(i).padStart(4, "0")}`, hours: (i % 8) + 1 }),
+      )
+    }
+
+    // Splice in several malformed lines at various positions
+    lines.splice(50, 0, "not-json-at-all")
+    lines.splice(120, 0, '{"employeeId":42,"hours":"not-a-number"}') // wrong types
+    lines.splice(200, 0, "{broken json")
+    lines.splice(310, 0, "") // empty line — filtered out before decoding
+
+    yield* fs.writeFileString(SAMPLE_FILE, lines.join("\n") + "\n")
+    yield* Console.log(
+      `[setup] Created sample file ${SAMPLE_FILE} with ${lines.length} lines ` +
+        `(3 malformed, 1 empty, 310 valid)`,
+    )
+  })
+
+// ---------------------------------------------------------------------------
+// Simulated sink — logs the batch size
+// ---------------------------------------------------------------------------
+
+const simulateSink = (
+  batch: ReadonlyArray<TimesheetRecord>,
+): Effect.Effect<void> =>
+  Console.log(
+    `[sink] batch of ${batch.length} records` +
+      ` (employeeIds ${batch[0]?.employeeId} … ${batch[batch.length - 1]?.employeeId})`,
+  )
+
+// ---------------------------------------------------------------------------
+// Main streaming pipeline — memory use stays bounded
+// ---------------------------------------------------------------------------
+
+const processTimesheets: Effect.Effect<
+  void,
+  never,
+  FileSystem.FileSystem
+> = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const malformedCount = yield* Ref.make(0)
+
+  // fs.stream returns Stream<Uint8Array, PlatformError>; chunkSize is a plain number.
+  const byteStream = fs.stream(SAMPLE_FILE, { chunkSize: 65_536 })
+
+  yield* byteStream.pipe(
+    // Decode UTF-8 bytes → text incrementally (multi-byte chars handled correctly)
+    Stream.decodeText(),
+    // Split on \n / \r\n / \r; carries incomplete last line to next pull
+    Stream.splitLines,
+    // Drop empty lines before attempting JSON decode
+    Stream.filter((line) => line.trim().length > 0),
+    // Attempt to decode each line; on failure, count and emit None
+    Stream.mapEffect((line) =>
+      decodeJsonLine(line).pipe(
+        Effect.map((record) => Option.some(record)),
+        Effect.catchAll(() =>
+          Ref.update(malformedCount, (n) => n + 1).pipe(
+            Effect.as(Option.none<TimesheetRecord>()),
+          ),
+        ),
+      ),
+    ),
+    // Unwrap Option: Some → emit element, None → emit nothing (flatMap to sub-stream)
+    Stream.flatMap((opt) =>
+      Option.isSome(opt) ? Stream.make(opt.value) : Stream.empty,
+    ),
+    // Batch into arrays of up to BATCH_SIZE; final partial batch is flushed at stream end
+    Stream.grouped(BATCH_SIZE),
+    // Process each batch through the (simulated) sink
+    Stream.runForEach(simulateSink),
+  )
+
+  const skipped = yield* Ref.get(malformedCount)
+  yield* Console.log(
+    `[done] Finished. Skipped ${skipped} malformed line(s).`,
+  )
+})
+
+// ---------------------------------------------------------------------------
+// Entrypoint
+// ---------------------------------------------------------------------------
+
+const program = Effect.gen(function* () {
+  yield* createSampleFile
+  yield* processTimesheets
+}).pipe(Effect.provide(NodeFileSystem.layer))
+
+NodeRuntime.runMain(program)

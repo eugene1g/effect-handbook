@@ -11,3 +11,7 @@ The deterministic lane does not pretend to evaluate an LLM. For a periodic model
 5. a focused runtime assertion when cleanup, interruption, concurrency, retry, or durability is part of the claim.
 
 Record model/version, handbook catalog hash, prompt, selected capability IDs, generated-code diagnostics, and runtime results. This separates a deterministic PR gate from a networked, potentially nondeterministic periodic model benchmark.
+
+## Agent runs
+
+`agent-runs/<date>/` records end-to-end evaluations with real coding agents: each agent gets only the live `llms.txt` and one task, fetches the site through a logging wrapper, and its program is then compiled with the validation settings, executed, and tested. Each run keeps its rules, tasks, scoring script, raw scores, the agents' outputs, and a `REPORT.md` with findings and the changes they led to. The scripts record the sandbox paths they ran with; adjust them to rerun. See [2026-10-09](agent-runs/2026-10-09/REPORT.md).

@@ -1,0 +1,13 @@
+{
+  "edition": "4.0 (effect@4.0.2, audited 2026-10-09)",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/interfaces/http-api.md#httpapiendpoint",
+    "https://eugene1g.github.io/effect-handbook/interfaces/http-api.md#httpapigroup",
+    "https://eugene1g.github.io/effect-handbook/interfaces/http-api.md#httpapi-1",
+    "https://eugene1g.github.io/effect-handbook/interfaces/http-api.md#httpapierror",
+    "https://eugene1g.github.io/effect-handbook/interfaces/http-api.md#httpapibuilder",
+    "https://eugene1g.github.io/effect-handbook/interfaces/http-api.md#httpapiclient"
+  ],
+  "assumptions": "All HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiBuilder, and HttpApiClient symbols are re-exported from the top-level 'effect/http-api' barrel (consistent with every handbook example). HttpRouter.serve and FetchHttpClient are re-exported from 'effect/http'. Schema.TaggedError's third constructor argument ({ httpApiStatus }) sets the status code for HttpApi error mapping, as shown in the handbook's status-mapping section. The id path param is kept as Schema.String since the task specifies 'id is a string path param'.",
+  "confidence": 4
+}

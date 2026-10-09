@@ -1,0 +1,115 @@
+/**
+ * Effect HttpApi example: GET /employees/:id with typed EmployeeNotFound (404)
+ * Schema-first definition, in-memory handler, Node server on port 3000, typed client.
+ */
+
+import { Context, Effect, Layer, Schema } from "effect"
+import { FetchHttpClient, HttpClient, HttpClientRequest, HttpRouter } from "effect/http"
+import {
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiClient,
+  HttpApiEndpoint,
+  HttpApiGroup,
+} from "effect/http-api"
+import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
+import { createServer } from "node:http"
+
+// ---------------------------------------------------------------------------
+// Domain schemas
+// ---------------------------------------------------------------------------
+
+class Employee extends Schema.Class<Employee>("Employee")({
+  id: Schema.String,
+  name: Schema.String,
+  department: Schema.String,
+}) {}
+
+/** Declared error: encodes as HTTP 404 with JSON body. */
+class EmployeeNotFound extends Schema.TaggedError<EmployeeNotFound>()(
+  "EmployeeNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 }
+) {}
+
+// ---------------------------------------------------------------------------
+// API definition (contract only – no server code)
+// ---------------------------------------------------------------------------
+
+const getEmployee = HttpApiEndpoint.get("getEmployee", "/employees/:id", {
+  params: { id: Schema.String },
+  success: Employee,
+  error: EmployeeNotFound,
+})
+
+class EmployeesGroup extends HttpApiGroup.make("employees").add(getEmployee) {}
+
+class Api extends HttpApi.make("api").add(EmployeesGroup) {}
+
+// ---------------------------------------------------------------------------
+// In-memory store
+// ---------------------------------------------------------------------------
+
+const store = new Map<string, Employee>([
+  ["1", new Employee({ id: "1", name: "Alice", department: "Engineering" })],
+  ["2", new Employee({ id: "2", name: "Bob", department: "Product" })],
+])
+
+// ---------------------------------------------------------------------------
+// Server handler layer
+// ---------------------------------------------------------------------------
+
+const EmployeesHandlers = HttpApiBuilder.group(
+  Api,
+  "employees",
+  (handlers) =>
+    handlers.handle("getEmployee", ({ params }) => {
+      const employee = store.get(params.id)
+      return employee !== undefined
+        ? Effect.succeed(employee)
+        : Effect.fail(new EmployeeNotFound({ id: params.id }))
+    })
+)
+
+// ---------------------------------------------------------------------------
+// Server layer
+// ---------------------------------------------------------------------------
+
+const ApiRoutes = HttpApiBuilder.layer(Api).pipe(Layer.provide(EmployeesHandlers))
+
+const ServerLayer = HttpRouter.serve(ApiRoutes).pipe(
+  Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 }))
+)
+
+// ---------------------------------------------------------------------------
+// Typed client (derived from the same Api contract)
+// ---------------------------------------------------------------------------
+
+/** Type alias for the fully typed client surface. */
+export type EmployeeApiClient = HttpApiClient.ForApi<typeof Api>
+
+/**
+ * A Context service wrapping the derived typed client.
+ * Provide ApiClientLayer to get a client that calls localhost:3000.
+ */
+export class ApiClient extends Context.Service<ApiClient, EmployeeApiClient>()(
+  "t5/ApiClient"
+) {
+  static readonly layer: Layer.Layer<ApiClient> = Layer.effect(
+    ApiClient,
+    HttpApiClient.make(Api, {
+      transformClient: (client) =>
+        client.pipe(
+          HttpClient.mapRequest(
+            HttpClientRequest.prependUrl("http://localhost:3000")
+          )
+        ),
+    })
+  ).pipe(Layer.provide(FetchHttpClient.layer))
+}
+
+// ---------------------------------------------------------------------------
+// Process entry point – launch the server
+// ---------------------------------------------------------------------------
+
+Layer.launch(ServerLayer).pipe(NodeRuntime.runMain)

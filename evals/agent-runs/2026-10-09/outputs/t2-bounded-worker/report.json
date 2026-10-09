@@ -1,0 +1,13 @@
+{
+  "edition": "4.0 (effect@4.0.2, audited 2026-10-09)",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/concurrency/concurrency-coordination.md#queue",
+    "https://eugene1g.github.io/effect-handbook/concurrency/concurrency-coordination.md#queue-lifecycle-who-ends-it-and-what-a-failure-does",
+    "https://eugene1g.github.io/effect-handbook/deep-dives/structured-concurrency-through-a-bounded-worker.md#turn-a-queue-into-a-bounded-worker-pipeline",
+    "https://eugene1g.github.io/effect-handbook/deep-dives/structured-concurrency-through-a-bounded-worker.md#complete-interrupt-or-shut-down-deliberately",
+    "https://eugene1g.github.io/effect-handbook/deep-dives/structured-concurrency-through-a-bounded-worker.md#runnable-capstone-bounded-admission-and-bounded-execution",
+    "https://eugene1g.github.io/effect-handbook/foundations/getting-started.md#a-first-complete-program"
+  ],
+  "assumptions": "Effect.uninterruptible wrapping the per-job Effect inside Stream.mapEffect causes an interrupt signal to be deferred until the current job completes — this is the standard Effect interruption model and the handbook confirms it. Queue.clear on an ended-but-not-fully-drained queue returns the remaining buffered items; the handbook documents clear as 'everything buffered, possibly []' without restricting it to open queues. The finalizer registered via Effect.addFinalizer runs after Stream.runDrain (and after in-flight uninterruptible jobs finish) because Effect's scope-close sequencing waits for outstanding fibers before running finalizers.",
+  "confidence": 4
+}

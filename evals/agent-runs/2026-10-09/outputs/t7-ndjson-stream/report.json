@@ -1,0 +1,10 @@
+{
+  "edition": "4.0 (effect@4.0.2, audited 2026-10-09)",
+  "citations": [
+    "https://eugene1g.github.io/effect-handbook/concurrency/streaming-channels.md#stream",
+    "https://eugene1g.github.io/effect-handbook/concurrency/streaming-channels.md#ndjson",
+    "https://eugene1g.github.io/effect-handbook/interfaces/platform-runtime-hosts.md#filesystem"
+  ],
+  "assumptions": "Schema.fromJsonString(schema) is the correct combinator to parse a JSON string and validate with the given schema (confirmed by the handbook's decodePayrollEvent example). Stream.flatMap mapping None to Stream.empty is the idiomatic way to filter with side-effects in Effect 4 (the handbook notes filterMap takes a Filter/Result type, not an Option-returning function). chunkSize for fs.stream accepts a plain number (confirmed by handbook note that chunkSize and truncate's length are plain numbers). NodeFileSystem.layer provides FileSystem without needing the full NodeServices.layer aggregate.",
+  "confidence": 4
+}

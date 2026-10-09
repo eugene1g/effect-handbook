@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { defineConfig } from "vitepress"
 
-import { capabilities, handbookRelease, siteGroups, sitePages, slugifyHeading } from "../handbook.ts"
+import { capabilities, handbookRelease, officialEffectLinks, siteGroups, sitePages, slugifyHeading } from "../handbook.ts"
 import { renderMarkdownTwin } from "../scripts/build-page-markdown.ts"
 import { resolveEditionContext } from "../scripts/versions.ts"
 
@@ -134,12 +134,7 @@ export default defineConfig({
       { text: "For Agents", link: "/reference/agent-guide" },
       {
         text: "Official Effect",
-        items: [
-          { text: "Cookbooks", link: upstreamUrl("tree", "cookbooks") },
-          { text: "Schema guide", link: upstreamUrl("blob", "packages/effect/SCHEMA.md") },
-          { text: "AI documentation source", link: upstreamUrl("tree", "ai-docs/src") },
-          { text: "LLMS.md", link: upstreamUrl("blob", "LLMS.md") }
-        ]
+        items: officialEffectLinks.map((item) => ({ ...item }))
       },
       {
         text: "Downloads",
@@ -235,10 +230,6 @@ function absoluteArtifactUrl(relativePath: string): string {
 
 function artifactHref(relativePath: string): string {
   return siteUrl ? new URL(relativePath, siteUrl).href : absoluteArtifactUrl(relativePath)
-}
-
-function upstreamUrl(kind: "blob" | "tree", pathname: string): string {
-  return `https://github.com/Effect-TS/effect/${kind}/${encodeURIComponent(handbookRelease.tag)}/${pathname}`
 }
 
 function appendCapabilityAliases(html: string, source: string | undefined): string {

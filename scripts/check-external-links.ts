@@ -1,20 +1,45 @@
 #!/usr/bin/env node
 
-import { readFile } from "node:fs/promises"
+import { readFile, readdir } from "node:fs/promises"
 import { execFile } from "node:child_process"
 import path from "node:path"
 import process from "node:process"
 import { promisify } from "node:util"
 import { fileURLToPath } from "node:url"
 
-import { sitePages } from "../handbook.ts"
+import { officialEffectLinks, sitePages } from "../handbook.ts"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const exec = promisify(execFile)
-const urls = new Set()
+// url -> set of places it appears, so a failure names what to fix.
+const urls = new Map<string, Set<string>>()
+// Placeholder and local hosts used in prose examples, never published links.
+const ignoredHosts = new Set(["localhost", "127.0.0.1", "example.com", "example.github.io", "registry.example", "handbook.invalid"])
 
-for (const page of sitePages) {
-  const markdown = await readFile(path.join(root, "docs", page.source), "utf8")
+function addUrl(url: string, source: string) {
+  let hostname
+  try {
+    hostname = new URL(url).hostname
+  } catch {
+    throw new Error(`${source} contains an unparsable URL: ${url}`)
+  }
+  if (ignoredHosts.has(hostname) || hostname.endsWith(".example") || hostname.endsWith(".invalid")) return
+  const sources = urls.get(url) ?? new Set<string>()
+  sources.add(source)
+  urls.set(url, sources)
+}
+
+// 1. Markdown links outside code fences: every canonical page, plus the
+//    repository's own Markdown that ships to readers and agents.
+const markdownSources = [
+  ...sitePages.map((page) => path.join("docs", page.source)),
+  "README.md",
+  "validation/README.md",
+  "evals/README.md",
+  ...(await markdownFilesUnder(".agents"))
+]
+for (const source of markdownSources) {
+  const markdown = await readFile(path.join(root, source), "utf8")
   let fence
   for (const line of markdown.split("\n")) {
     const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/)
@@ -24,12 +49,38 @@ for (const page of sitePages) {
       continue
     }
     if (fence) continue
-    for (const match of line.matchAll(/\]\((https?:\/\/[^\s)>]+)(?:\s+[^)]*)?\)/g)) urls.add(match[1])
+    for (const match of line.matchAll(/\]\((https?:\/\/[^\s)>]+)(?:\s+[^)]*)?\)/g)) addUrl(match[1], source)
   }
-  if (fence) throw new Error(`${page.source} has an unclosed code fence`)
+  if (fence) throw new Error(`${source} has an unclosed code fence`)
 }
 
-const queue = [...urls].sort()
+// 2. Links the site chrome computes rather than authors in Markdown. The
+//    release-pinned "Official Effect" menu is defined in handbook.ts so it can
+//    be checked here without the site's dependencies; any other absolute URL
+//    written literally in the VitePress config is picked up by step 3.
+for (const item of officialEffectLinks) addUrl(item.link, "handbook.ts (officialEffectLinks)")
+
+// 3. Literal URLs in the VitePress config and custom theme components.
+for (const source of [".vitepress/config.ts", ...(await filesUnder(".vitepress/theme", /\.(vue|ts|css)$/))]) {
+  const text = await readFile(path.join(root, source), "utf8")
+  for (const match of text.matchAll(/https?:\/\/[^\s"'`)<>\\]+/g)) {
+    if (!match[0].includes("${")) addUrl(match[0], source)
+  }
+}
+
+async function markdownFilesUnder(directory: string) {
+  return filesUnder(directory, /\.md$/)
+}
+
+async function filesUnder(directory: string, pattern: RegExp): Promise<Array<string>> {
+  const entries = await readdir(path.join(root, directory), { withFileTypes: true, recursive: true })
+  return entries
+    .filter((entry) => entry.isFile() && pattern.test(entry.name))
+    .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)))
+    .sort()
+}
+
+const queue = [...urls.keys()].sort()
 const failures = []
 let next = 0
 const workers = Array.from({ length: Math.min(3, queue.length) }, async () => {
@@ -43,7 +94,10 @@ const workers = Array.from({ length: Math.min(3, queue.length) }, async () => {
 await Promise.all(workers)
 
 if (failures.length) {
-  for (const failure of failures) console.error(`FAIL ${failure.status ?? "network"} ${failure.url}: ${failure.message}`)
+  for (const failure of failures) {
+    console.error(`FAIL ${failure.status ?? "network"} ${failure.url}: ${failure.message}`)
+    console.error(`     linked from: ${[...(urls.get(failure.url) ?? [])].join(", ")}`)
+  }
   console.error(`External-link check failed: ${failures.length} of ${queue.length} URLs were unavailable.`)
   process.exitCode = 1
 } else {

@@ -5,7 +5,7 @@ Use one domain Schema across the HTTP contract and SQL result decoder, while kee
 ## Contract
 
 - **Classification:** Runnable example; complete `employees-api.ts`. It uses an in-process HttpApi client and an embedded PGlite database, so no port or external database is required.
-- **Install:** `pnpm add effect@4.0.0 @effect/sql-pglite@4.0.0`
+- **Install:** `pnpm add effect@4.0.2 @effect/sql-pglite@4.0.2`
 - **Run:** Node 26+: `node employees-api.ts`
 - **Expected output:** `[{"id":1,"name":"Ada","email":"ada@example.com"}]`.
 - **Core handler type:** after `EmployeeRepository` is supplied, the HttpApi handler Layer has no business-service requirement. `SqlSchema` retains `SchemaError | SqlError | NoSuchElementError`; this recipe treats those as invariant/infrastructure defects at the repository boundary, so endpoint handlers expose no declared domain error.

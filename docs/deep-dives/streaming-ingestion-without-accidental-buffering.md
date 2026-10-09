@@ -1,6 +1,6 @@
 # Streaming Ingestion Without Accidental Buffering
 
-> Audited **2026-09-19** against `effect@4.0.0`. Stable stream primitives come from `effect`; the NDJSON codec used here is the unstable `effect/encoding` surface and should be version-pinned.
+> Audited **2026-10-09** against `effect@4.0.2`. Stable stream primitives come from `effect`; the NDJSON codec used here is the unstable `effect/encoding` surface and should be version-pinned.
 
 A streaming import is not constant-memory merely because its type is `Stream`. Constant-memory behavior comes from the whole pipeline: a pull-based source, incremental framing, bounded records, bounded concurrency, bounded batches, and a terminal consumer that does not collect the complete input.
 

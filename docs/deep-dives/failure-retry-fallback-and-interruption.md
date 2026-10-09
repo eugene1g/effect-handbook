@@ -1,6 +1,6 @@
 # Failure, Retry, Fallback, and Interruption
 
-Reliable Effect code does not ask only “did it throw?” It distinguishes an expected domain failure from a defect, an interruption, a timeout, an exhausted retry policy, and a failed alternative implementation. This guide follows one operation through those choices against `effect@4.0.0`.
+Reliable Effect code does not ask only “did it throw?” It distinguishes an expected domain failure from a defect, an interruption, a timeout, an exhausted retry policy, and a failed alternative implementation. This guide follows one operation through those choices against `effect@4.0.2`.
 
 Use [Core Runtime & Execution](../foundations/core-runtime-execution) for `Effect`, `Exit`, `Cause`, and `ExecutionPlan`; [Errors, Option & Result](../foundations/errors-option-result) for the full recovery surface; [Scheduling & Time](../concurrency/scheduling-time) for Schedule semantics; [Observability](../operations/observability) for telemetry; and [Testing & Dev Tooling](../tooling/testing-dev-tooling) for virtual time.
 
@@ -257,6 +257,8 @@ const guardedLookup = idempotentLookup.pipe(Effect.retry(hrisRetry))
 Do not put a logging side effect inside the retried operation merely to count retries: it also runs on the first attempt and may duplicate higher-level logging. `Schedule.tap` observes retry decisions directly.
 
 **Build the attempt inside the retried Effect.** `Effect.retry` re-runs an *Effect*, not a Promise. If a Promise is started once and the retried Effect merely awaits it, every "retry" replays the same settled rejection and the foreign call runs exactly once; call the Promise-returning function inside `Effect.tryPromise({ try: (signal) => ... })` so each attempt starts new work. Retry the transient operation, not the whole use case around it.
+
+**`Effect.retry` skips when the cause contains a defect or interruption.** If the `Cause` that ended the attempt holds any `Die` or `Interrupt` reason — even alongside a typed failure that the `while` predicate would accept — `Effect.retry` passes the cause through unchanged rather than retrying. This is almost always correct: a defect is a bug, an interruption is an external signal, and neither should be silently restarted. When a mixed cause should still be retried, recover the typed failure first with `Effect.catchCause` (leaving only a `Fail` reason) before applying the retry policy. Similarly, `Effect.repeat` and `Effect.schedule` now preserve defects raised inside their finalizer steps rather than discarding them.
 
 For simple policies `Effect.retry` also accepts an options object, `{ times, while, until, schedule }`, as used in [the classifier example](#route-each-variant-to-the-layer-that-decides-its-policy); [Scheduling & Time](../concurrency/scheduling-time#schedule) owns the Schedule API inventory.
 

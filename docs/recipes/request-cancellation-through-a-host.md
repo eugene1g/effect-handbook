@@ -5,7 +5,7 @@ When a framework that is not Effect owns the request — Express, Hono, a queue 
 ## Contract
 
 - **Classification:** Runnable example; complete `request-cancellation.ts`. No network, no timers longer than 25 ms.
-- **Install:** `pnpm add effect@4.0.0`
+- **Install:** `pnpm add effect@4.0.2`
 - **Run:** Node 26+: `node request-cancellation.ts`
 - **Before the bridge:** `compBand(employeeId)` is `Effect<string, HrisUnavailable, HrisDirectory>`.
 - **At the bridge:** `runtime.runPromiseExit(effect, { signal })` is `Promise<Exit<string, HrisUnavailable>>`. It never rejects, so the host maps success, interruption, and typed failure to three different responses.

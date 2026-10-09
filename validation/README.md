@@ -20,7 +20,7 @@ tracked semantic probes.
 
 One Effect diagnostic is disabled project-wide in `tsconfig.base.json`:
 `unstableApiUsage` warns on every API tagged `@stability unstable`, which in
-Effect 4.0.0 covers every `effect/<area>` module the handbook documents (http,
+Effect 4.0.2 covers every `effect/<area>` module the handbook documents (http,
 sql, rpc, ai, cluster, …). The rule is advisory rather than a correctness check,
 so it is switched off through the plugin's `diagnosticSeverity` option instead
 of being suppressed fence by fence; every other rule runs at strict severity.
@@ -50,7 +50,7 @@ unknown fixtures, and incomplete coverage.
 
 ## Pinned evidence
 
-The root `pnpm-workspace.yaml` and `pnpm-lock.yaml` own one frozen dependency graph for both the site tooling and this private validation package. `target.json` records Effect `4.0.0`, its tag and source commit, the audit
+The root `pnpm-workspace.yaml` and `pnpm-lock.yaml` own one frozen dependency graph for both the site tooling and this private validation package. `target.json` records Effect `4.0.2`, its tag and source commit, the audit
 date, Node 26+ CI contract, matching Node 26 type declarations, pnpm, TypeScript, `@effect/tsgo`, Vitest, and
 `@effect/doctest`. `validation/package.json` pins the validation dependencies and the root lockfile records their exact graph. The generated manifest records a hash inventory of every
 tracked harness input, fixture, probe, configuration, registry, and lockfile.

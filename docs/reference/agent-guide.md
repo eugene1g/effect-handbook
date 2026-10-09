@@ -86,7 +86,7 @@ Cite a section as its Markdown twin URL plus anchor, for example `/foundations/c
 
 When quoting a code fence, quote the whole fence. The examples are validated as units; a trimmed fragment may drop the import or the type annotation that made it compile.
 
-State the audited release when a claim could change between versions: "the Effect 4 Handbook, audited against `effect@4.0.0`". The release and audit date appear in the header line of every twin and in `handbookRelease` inside the JSON artifacts.
+State the audited release when a claim could change between versions: "the Effect 4 Handbook, audited against `effect@4.0.2`". The release and audit date appear in the header line of every twin and in `handbookRelease` inside the JSON artifacts.
 
 ## When the handbook is not enough
 

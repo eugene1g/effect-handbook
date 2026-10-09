@@ -2,9 +2,9 @@
 
 _Effect provides a composable time stack: typed duration values, a testable clock-aware date/time system, a cron parser, an effect-native PRNG, and `Schedule`, the algebraic policy engine powering retry and repeat._
 
-> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/07_datetime) examples.
+> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/07_datetime) examples.
 
-> **Official guides:** [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules) introduces `Effect.repeat`, `Effect.schedule`, and `Effect.retry`; [Choosing and combining schedules](https://effect.website/docs/v4/scheduling/choosing-and-combining-schedules) walks through the constructors, limiters, and combinators; the [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook) has complete retry and polling programs. Section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules) introduces `Effect.repeat`, `Effect.schedule`, and `Effect.retry`; [Choosing and combining schedules](https://effect.website/docs/v4/scheduling/choosing-and-combining-schedules) walks through the constructors, limiters, and combinators; the [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook) has complete retry and polling programs. Section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
 ## Schedule
 
@@ -314,7 +314,7 @@ Interruption stops both the running attempt and the pending delay, so a retried 
 
 ### Scheduled repeat via Schedule.cron
 
-`Schedule.cron` parses a standard 5-field (or 6-field with seconds) cron expression and builds a schedule sleeping until the next matching wall-clock time. Accepts an optional IANA timezone string.
+`Schedule.cron` parses a standard 5-field (or 6-field with seconds) cron expression and builds a schedule sleeping until the next matching wall-clock time. Accepts an optional IANA timezone string. DST transitions are handled correctly: `Cron.next` will not return a past occurrence or exhaust its search limit when the current time falls inside a repeated DST interval.
 
 ```ts
 import { Effect, Schedule } from "effect"

@@ -2,9 +2,9 @@
 
 Effect's test services make time, console output, randomness, and dependencies deterministic; `@effect/vitest` integrates those services with a test runner. The repository's documentation tools then compile and validate examples so docs can be treated like code rather than inert prose.
 
-> **Official companions:** Browse the release-matched authored [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src) for executable examples across Effect. [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0/LLMS.md) is its generated single-file aggregate and begins with Effect's coding conventions.
+> **Official companions:** Browse the release-matched authored [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src) for executable examples across Effect. [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.2/LLMS.md) is its generated single-file aggregate and begins with Effect's coding conventions.
 
-> **Official guides:** [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than this handbook's pinned `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than this handbook's pinned `4.0.2` release, so where they differ, this page and the tagged source win.
 
 **Pick the tool by the claim you need to prove.** Each row is evidence for one kind of statement and for nothing beyond it; [Testing an Effect Application](../deep-dives/testing-an-effect-application) turns the table into a full strategy.
 
@@ -164,7 +164,7 @@ Official guide: [TestClock](https://effect.website/docs/v4/testing/testclock).
 
 ## TestConsole
 
-`effect/testing/TestConsole` — stable
+`effect/testing/TestConsole` — unstable
 
 A test implementation of the Effect `Console` service that captures output instead of printing it. All calls through `Console.log`, `Console.error`, etc. are recorded in memory for deterministic assertion via `TestConsole.logLines` and `TestConsole.errorLines`.
 
@@ -379,7 +379,7 @@ it.effect.prop(
 
 `prop` accepts either an array of schemas/arbitraries (positional) or an object record (named destructuring). Prefer a constructive check such as `Schema.isBetween` over an opaque `Schema.makeFilter` predicate for generated domains: an opaque filter works, but only as a bounded residual filter that can exhaust its discard budget.
 
-> **Migrating from the fast-check bridge:** replace `Schema.toArbitrary(schema)(FastCheck)` with `Arbitrary.schema(schema)`; `FastCheck.sample` with `Arbitrary.sampleEffect` (`numRuns` → `count`); `FastCheck.assert(FastCheck.property(...))` with `Arbitrary.checkEffect` and handle the result (`numRuns` → `runs`, `path` → `replay`, `maxSkipsPerRun` → `maxDiscards`, `endOnFailure` → `maxShrinks: 0`); and `{ fastCheck: { numRuns } }` with `{ arbitrary: { runs } }`. Raw fast-check arbitraries are no longer accepted by `@effect/vitest`. Seeds, distributions, and shrink results are not compatible, so re-record any saved failure. If a test truly needs fast-check, install it yourself and use it directly with Vitest. Effect's release-matched [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/effect/ARBITRARY.md) goes deeper.
+> **Migrating from the fast-check bridge:** replace `Schema.toArbitrary(schema)(FastCheck)` with `Arbitrary.schema(schema)`; `FastCheck.sample` with `Arbitrary.sampleEffect` (`numRuns` → `count`); `FastCheck.assert(FastCheck.property(...))` with `Arbitrary.checkEffect` and handle the result (`numRuns` → `runs`, `path` → `replay`, `maxSkipsPerRun` → `maxDiscards`, `endOnFailure` → `maxShrinks: 0`); and `{ fastCheck: { numRuns } }` with `{ arbitrary: { runs } }`. Raw fast-check arbitraries are no longer accepted by `@effect/vitest`. Seeds, distributions, and shrink results are not compatible, so re-record any saved failure. If a test truly needs fast-check, install it yourself and use it directly with Vitest. Effect's release-matched [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.2/packages/effect/ARBITRARY.md) goes deeper.
 
 Use when testing pure transformations, codecs, data-structure invariants, or any function where the claim is "this holds for all valid inputs."
 
@@ -387,7 +387,7 @@ Official guide: [Schema to Arbitrary](https://effect.website/docs/v4/schema/arbi
 
 ## TestSchema
 
-`effect/testing/TestSchema` — stable
+`effect/testing/TestSchema` — unstable
 
 A class-based helper wrapping a `Schema` with ergonomic methods for asserting decoding, encoding, construction (`make`), and property-based round-trip verification.
 
@@ -819,7 +819,7 @@ The rules fall into four groups (`0.47.2` ships 118: 23 correctness, 20 anti-pat
 | Effect-native | `globalDateInEffect`, `globalTimersInEffect`, `globalRandomInEffect`, `globalFetchInEffect`, `processEnvInEffect`, `globalConsoleInEffect` (all `off`) | ambient `Date.now()`, `setTimeout`, `Math.random()`, `fetch`, `process.env`, and `console` inside Effect code — exactly the dependencies `TestClock`, `Random`, `HttpClient`, `Config`, and `TestConsole` exist to control. Turn these on for application code that must be deterministic under test. |
 | Style | `unnecessaryEffectGen`, `catchAllToMapError`, `effectFnOpportunity`, `schemaStructWithTag` (`suggestion`) | simplifications with a mechanical fix |
 
-Severity is per rule: `diagnosticSeverity` maps a rule name to `"off"`, `"suggestion"`, `"message"`, `"warning"`, or `"error"`; `overrides` applies different levels to file globs; and an `@effect-diagnostics` or `@effect-diagnostics-next-line` comment adjusts one file or one line. `effect-tsgo config` opens an interactive rule picker for an existing `tsconfig.json`. One rule deserves a project-level decision up front: `unstableApiUsage` warns on every API tagged `@stability unstable`, which in `4.0.0` is every call into `effect/http`, `effect/sql`, `effect/rpc`, `effect/ai`, and the other area families. A project that builds on those modules sets `"diagnosticSeverity": { "unstableApiUsage": "off" }` (this handbook's validation does exactly that); a library that wants to stay inside the semver-covered surface leaves it on.
+Severity is per rule: `diagnosticSeverity` maps a rule name to `"off"`, `"suggestion"`, `"message"`, `"warning"`, or `"error"`; `overrides` applies different levels to file globs; and an `@effect-diagnostics` or `@effect-diagnostics-next-line` comment adjusts one file or one line. `effect-tsgo config` opens an interactive rule picker for an existing `tsconfig.json`. One rule deserves a project-level decision up front: `unstableApiUsage` warns on every API tagged `@stability unstable`, which in `4.0.2` is every call into `effect/http`, `effect/sql`, `effect/rpc`, `effect/ai`, and the other area families. A project that builds on those modules sets `"diagnosticSeverity": { "unstableApiUsage": "off" }` (this handbook's validation does exactly that); a library that wants to stay inside the semver-covered surface leaves it on.
 
 - **Run the diagnostics on test code too.** `floatingEffectInVitest` is the static counterpart of the false green described under [`@effect/vitest`](#effect-vitest): `it("…", () => Effect.fail("boom"))` passes at runtime and fails this check.
 - **Pin it like any other toolchain dependency.** Each release is built against specific TypeScript (and Oxlint) versions listed in its README; upgrade it together with TypeScript rather than independently.

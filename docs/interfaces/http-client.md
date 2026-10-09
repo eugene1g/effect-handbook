@@ -4,7 +4,7 @@ Effect 4 ships three stacked layers: a fully typed **HTTP client** (request as v
 
 Four cooperating modules: `HttpClient` is the service you acquire and decorate with policy; `HttpClientRequest` is an immutable request built with pipes; `HttpClientResponse` decodes a raw response through a Schema; `HttpClientError` is the tagged error family for transport/status/body failures. Composing a schema decoder also adds `SchemaError`. Idiomatic use: wrap the union in a domain service so callers never touch headers.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpClient example](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/50_http-client) builds a typed client service.
+> **Official example:** Effect's release-matched [`ai-docs` HttpClient example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/50_http-client) builds a typed client service.
 
 ## HttpClient
 

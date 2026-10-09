@@ -2,9 +2,9 @@
 
 The `R` in `Effect<A, E, R>` is a typed set of required services. **Context** holds those services, **Layer** is the recipe for constructing them (with dependencies and lifecycles), and the runtime blocks execution until every requirement is satisfied.
 
-> **Official examples:** Effect's release-matched [`ai-docs` service examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/01_effect/03_services) cover `Context.Service`, `Context.Reference`, Layer composition, and dynamically constructed Layers.
+> **Official examples:** Effect's release-matched [`ai-docs` service examples](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/01_effect/03_services) cover `Context.Service`, `Context.Reference`, Layer composition, and dynamically constructed Layers.
 
-> **Official guides:** [Managing Services](https://effect.website/docs/v4/requirements-management/services). These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Managing Services](https://effect.website/docs/v4/requirements-management/services). These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
 ## Context
 
@@ -443,7 +443,7 @@ The service-side rules are short; the strategy (stub, fake, recording fake, fail
 
 ## LayerMap
 
-`effect/LayerMap` — stable
+`effect/LayerMap` — unstable
 
 A service that lazily builds, caches, and tears down layers keyed by a value. Creates resources on first use per key, releases them after an idle timeout.
 
@@ -491,7 +491,7 @@ All keys of one `LayerMap` build against a single memo map forked from the one t
 
 ## LayerRef
 
-`effect/LayerRef` — stable
+`effect/LayerRef` — unstable
 
 The unkeyed counterpart to `LayerMap`: a refreshable, reference-counted cache for one layer-built service context. `LayerRef.make(layer)` builds lazily on first scoped borrow, shares the context, optionally keeps it alive while idle, and lets you invalidate or refresh it. Existing borrowers keep their old context until their scopes close; the next borrow receives the rebuilt one.
 

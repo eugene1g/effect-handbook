@@ -1,6 +1,6 @@
 # Schema — From External Input to Domain and Back
 
-Effect Schema is most useful when it owns a complete boundary, not just an isolated validation call. This guide follows one value from untrusted JSON, form, or query input into a domain model, through application logic, and back to a JSON-safe representation. It targets `effect@4.0.0`.
+Effect Schema is most useful when it owns a complete boundary, not just an isolated validation call. This guide follows one value from untrusted JSON, form, or query input into a domain model, through application logic, and back to a JSON-safe representation. It targets `effect@4.0.2`.
 
 Use [Schema](../data/schema) for the complete module reference, [Errors, Option & Result](../foundations/errors-option-result) for failure modeling, [Configuration & Secrets](../foundations/configuration-secrets) for StringTree-backed configuration, and [HttpApi](../interfaces/http-api), [RPC](../interfaces/rpc), [SQL](../interfaces/sql), and [Persistence](../tooling/persistence) for the boundaries that consume Schemas.
 
@@ -310,7 +310,7 @@ The sample round-trips, but `Schema.Int` alone does not make division and multip
 
 The same ownership question applies to every carrier narrower than its `Type`: `Schema.DurationFromMillis` cannot round-trip a nanosecond-precision duration, while `DurationFromNanos` and `DurationFromString` can. Pick the codec by the precision you promise ([Effect data types at the boundary](../data/schema#16-effect-data-types-at-the-boundary)).
 
-Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it may still spell `transformEffect` as `transformOrFail`). The official guides track Effect's `main` branch rather than a specific tagged release, so where they differ, this page and the tagged `effect@4.0.0` source win.
+Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it may still spell `transformEffect` as `transformOrFail`). The official guides track Effect's `main` branch rather than a specific tagged release, so where they differ, this page and the tagged `effect@4.0.2` source win.
 
 ## Make error reporting a boundary concern
 

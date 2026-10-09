@@ -1,6 +1,6 @@
 # Adopting Effect in an Existing TypeScript Codebase
 
-Audited against `effect@4.0.0` and the matching Effect repository source on 2026-09-19.
+Audited against `effect@4.0.2` and the matching Effect repository source on 2026-10-09.
 
 Most teams do not get to start over. They have a Promise-based service that works, callers that depend on its exact shape, and a list of production incidents that all sound alike: a request nobody could cancel, a failure nobody could tell apart from another failure, a batch job that opened four hundred connections. This guide takes one such service from a compensation platform and moves it to Effect without a rewrite, one verifiable step at a time.
 

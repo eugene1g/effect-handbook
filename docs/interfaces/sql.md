@@ -2,7 +2,7 @@
 
 > **Note:** The query API, schema adapters, resolvers, models, and migrator live in the stable-but-`unstable/`-namespaced core at `effect/sql/*`. They are database-agnostic. A driver package like `@effect/sql-pg` contributes one thing: a `Layer` producing the `SqlClient` service wired to a real connection pool and the correct dialect compiler. Write your service against `SqlClient`; swap the driver layer to change databases.
 
-> **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
+> **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
 
 ## Where SQL belongs in an application
 
@@ -136,7 +136,7 @@ const promote = Effect.fn("promote")(
 )
 ```
 
-> **Tip:** `withTransaction` opens a `sql.transaction` tracing span and emits `db.transaction.commit` / `rollback` / `savepoint` events. Every query carries the client's span attributes.
+> **Tip:** `withTransaction` opens a `sql.transaction` tracing span and emits `effect.sql.transaction.commit` / `effect.sql.transaction.rollback` / `effect.sql.transaction.savepoint` events. Every query carries the client's span attributes.
 
 **Commit or rollback is decided by exactly one thing: the `Exit` of the effect you pass in.** Sequencing only orders statements; `withTransaction` never inspects what ran inside. Two plausible mistakes therefore commit half a unit:
 
@@ -276,7 +276,7 @@ Segment constructors (`literal`, `identifier`, `parameter`, `arrayHelper`, inser
 
 None of the execution views disables parameter binding: `.raw` and `.values` change the *projection*, `.unprepared` changes the *execution strategy*, and `${}` holes stay bound parameters in all of them.
 
-> **Note:** Every execution opens a `sql.execute` client span carrying `db.operation.name` and `db.query.text` — the compiled SQL with placeholders, never the bound parameters. Text spliced in through `sql.literal` / `sql.unsafe` *is* part of that query text, one more reason to keep values in `${}`. Driver-level spans (connection acquisition, stream pulls) are not parented under `sql.execute` by default; opt in for a region with `Effect.provideService(Statement.SpanPropagationEnabled, true)` (default `false`, ignored while tracing is disabled). `.returning(...)` helpers escape identifiers per dialect and number placeholders correctly when a cached fragment is reused.
+> **Note:** Every execution opens a client span named by the OpenTelemetry database conventions — the client's `db.namespace`, else `server.address[:server.port]`, else `db.system.name`, falling back to `sql.execute` (the rule is exported as `Statement.spanName`). It carries `db.query.text` — the compiled SQL with placeholders, never the bound parameters — and the Effect execution method in `effect.sql.method`. Text spliced in through `sql.literal` / `sql.unsafe` *is* part of that query text, one more reason to keep values in `${}`. Driver-level spans (connection acquisition, stream pulls) are not parented under the statement span by default; opt in for a region with `Effect.provideService(Statement.SpanPropagationEnabled, true)` (default `false`, ignored while tracing is disabled). `.returning(...)` helpers escape identifiers per dialect and number placeholders correctly when a cached fragment is reused.
 
 **Reach for it when** you need a non-default execution mode (stream, raw, values, unprepared), want to `compile()` and assert on generated SQL, or you're authoring a custom dialect/helper.
 
@@ -688,7 +688,7 @@ Pass `softDeleteColumn` and deletes flip that column to `CURRENT_TIMESTAMP` whil
 
 ### Logging and telemetry safety
 
-Never log connection strings, full parameter lists, or personal row values. Name operations with low-cardinality, allow-listed span names (`Effect.fn("Employees.findById")`) rather than interpolated text, and remember that `db.query.text` is exported with every `sql.execute` span.
+Never log connection strings, full parameter lists, or personal row values. Name operations with low-cardinality, allow-listed span names (`Effect.fn("Employees.findById")`) rather than interpolated text, and remember that `db.query.text` is exported with every statement span.
 
 ### Verification levels
 
@@ -781,7 +781,7 @@ TLS follows the URL's `sslmode` unless `ssl` is set explicitly. `sslmode=prefer`
 
 **Raw results.** `executeRaw` returns a `PgConnection.Result`, the native client's own result shape.
 
-New tuning knobs beyond the ones above include `multiplex` / `multiplexConcurrency` (pipelining several statements over one connection), `maxMessageSize`, and the pool options `minConnections`, `maxConnections`, `idleTimeout`, and `connectionTTL`. Pass `Statement.SpanPropagationEnabled` (default `false`) with `Effect.provideService` to parent driver spans under `sql.execute`.
+New tuning knobs beyond the ones above include `multiplex` / `multiplexConcurrency` (pipelining several statements over one connection), `maxMessageSize`, and the pool options `minConnections`, `maxConnections`, `idleTimeout`, and `connectionTTL`. Pass `Statement.SpanPropagationEnabled` (default `false`) with `Effect.provideService` to parent driver spans under the statement span.
 
 A per-client `PgTypes.Registry` starts from the built-in codecs and overrides them without touching other clients. Use it for enum arrays, and for any type that needs a codec the built-ins do not provide:
 

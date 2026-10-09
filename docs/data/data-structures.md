@@ -2,7 +2,7 @@
 
 Effect's data structure modules share a common design: immutable, `pipe`-first dual APIs, and structural `Equal`/`Hash` throughout. Once familiar with one module, the rest follow the same pattern.
 
-> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is a stale name; 4.0.0 spells it `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than the pinned 4.0.0 release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is a stale name; 4.0.2 spells it `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than the pinned 4.0.2 release, so where they differ, this page and the tagged source win.
 
 ## Array
 
@@ -161,7 +161,7 @@ const program = pipe(
 
 Use when accumulating many small pieces and avoiding repeated array copies — especially in stream processing, recursive algorithms, or custom collectors.
 
-Official guide: [Chunk](https://effect.website/docs/v4/data-types/chunk) (it says `fromIterable` copies its input; in 4.0.0 that is only true for non-array iterables).
+Official guide: [Chunk](https://effect.website/docs/v4/data-types/chunk) (it says `fromIterable` copies its input; in 4.0.2 that is only true for non-array iterables).
 
 ## HashMap
 
@@ -358,7 +358,7 @@ Use when keys are strings and prefix-based lookup is a core operation.
 
 ## Graph
 
-`effect/Graph` — stable
+`effect/Graph` — unstable
 
 Typed graph with directed and undirected support, user-defined node and edge data, and a broad algorithm set: DFS/BFS/topological traversal, shortest paths (Dijkstra, A*, Bellman-Ford, Floyd-Warshall), path enumeration, cycle witnesses, connectivity analysis, minimum spanning forests, transitive reduction, bipartite matching, and maximum flow / minimum cut. Nodes identified by `NodeIndex` (allocated number); edges by `EdgeIndex`.
 
@@ -521,7 +521,7 @@ Use when modeling relationships — hierarchies, approval chains, dependency gra
 
 ## HashRing
 
-`effect/HashRing` — stable
+`effect/HashRing` — unstable
 
 Weighted consistent-hashing ring. Register nodes (any value implementing `PrimaryKey`), each with an optional weight. Route string keys to nodes via `HashRing.get(ring, key)` (returns `A | undefined`), or precompute a balanced shard distribution with `HashRing.getShards(ring, shardCount)`.
 
@@ -569,7 +569,7 @@ HashRing.remove(ring, w3)
 > Membership and mutation operations (`add`, `addMany`, `has`, and `remove`)
 > compare that key, so an equivalent node value targets the same ring member.
 
-`get` and `getShards` answer different questions. `get(ring, key)` is a pure nearest-point lookup. `getShards(ring, count)` builds a *balanced* table: each node is capped at its weight's share of `count` (at least one shard), and shards whose nearest node is already full spill to the next eligible node — so a shard's owner is not always the node `get` would pick for the same hash. Both return `undefined` for an empty ring. `count` is normalised like other Effect counts: fractions are floored, and `NaN` or a non-positive value yields an empty array.
+`get` and `getShards` answer different questions. `get(ring, key)` is a pure nearest-point lookup. `getShards(ring, count)` builds a *balanced* table: each node is capped at its weight's share of `count` (at least one shard), and shards whose nearest node is already full spill to the next eligible node — so a shard's owner is not always the node `get` would pick for the same hash. Both return `undefined` for an empty ring. `count` is normalised like other Effect counts: fractions are floored, and `NaN` or a non-positive value yields an empty array. `getShards` is deterministic: the same nodes and weights always produce the same shard table regardless of the order in which nodes were added or removed (weights are summed in node-key order; hash ties are broken by node key).
 
 Use when distributing work across a dynamic set of nodes where stable key-to-node assignments with minimal remapping are needed.
 

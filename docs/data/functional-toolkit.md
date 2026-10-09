@@ -2,7 +2,7 @@
 
 Effect ships a full standard library — structural equality, comparators, branded types, pattern matching, optics, arbitrary-precision decimals, and more — all composable with each other and the rest of the ecosystem.
 
-> **Official guides:** [Pattern Matching](https://effect.website/docs/v4/code-style/pattern-matching), [Branded Types](https://effect.website/docs/v4/code-style/branded-types), [Equal](https://effect.website/docs/v4/trait/equal), [Hash](https://effect.website/docs/v4/trait/hash), [Equivalence](https://effect.website/docs/v4/behaviour/equivalence), [Order](https://effect.website/docs/v4/behaviour/order), [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal), [Dual APIs](https://effect.website/docs/v4/code-style/dual); each is linked again, with any caveat, in the section it belongs to. These track Effect's `main` branch rather than this page's tagged 4.0.0 source, so where they differ, this page and the tagged source win.
+> **Official guides:** [Pattern Matching](https://effect.website/docs/v4/code-style/pattern-matching), [Branded Types](https://effect.website/docs/v4/code-style/branded-types), [Equal](https://effect.website/docs/v4/trait/equal), [Hash](https://effect.website/docs/v4/trait/hash), [Equivalence](https://effect.website/docs/v4/behaviour/equivalence), [Order](https://effect.website/docs/v4/behaviour/order), [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal), [Dual APIs](https://effect.website/docs/v4/code-style/dual); each is linked again, with any caveat, in the section it belongs to. These track Effect's `main` branch rather than this page's tagged 4.0.2 source, so where they differ, this page and the tagged source win.
 
 ## Match
 
@@ -504,7 +504,7 @@ Failures surface as `Brand.BrandError`: a tagged, error-like value that wraps a 
 
 Use to prevent primitive confusion — mixing `EmployeeId` with `DepartmentId`, salary cents with share counts, validated with raw strings — without wrapper classes at runtime.
 
-Official guides: [Branded Types](https://effect.website/docs/v4/code-style/branded-types) (its illustrative `Brand` declaration uses a symbol key; in 4.0.0 brand keys are strings), [Schema branded types](https://effect.website/docs/v4/schema/advanced-usage).
+Official guides: [Branded Types](https://effect.website/docs/v4/code-style/branded-types) (its illustrative `Brand` declaration uses a symbol key; in 4.0.2 brand keys are strings), [Schema branded types](https://effect.website/docs/v4/schema/advanced-usage).
 
 ## Optic
 
@@ -757,11 +757,11 @@ Key APIs: make / fromString / fromStringUnsafe / fromBigInt / fromNumber / fromN
 
 Use for any financial or compensation calculation where floating-point rounding is unacceptable.
 
-Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are stale names; 4.0.0 uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
+Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are stale names; 4.0.2 uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
 
 ## ByteSize
 
-`effect/ByteSize` — stable
+`effect/ByteSize` — unstable
 
 An exact, non-negative, integral byte count: a branded `bigint`, so a 9 EiB object store and a 12-byte header use the same type without precision loss. It replaced the ad-hoc `FileSystem.Size` / `FileSystem.MiB` helpers and is now the size vocabulary across the ecosystem — `FileSystem` `File.Info.size`, HTTP body limits, and `Config.ByteSize`.
 
@@ -847,7 +847,7 @@ Use when building patch-sourced state propagation that needs to compute, merge, 
 
 ## Newtype
 
-`effect/Newtype` — stable
+`effect/Newtype` — unstable
 
 A zero-cost type wrapper — a type-level distinct alias for another type, with helpers to lift its `Equivalence`, `Order`, `Combiner`, and `Reducer` instances. Related to `Brand` but different: a Newtype carries no runtime value of its own; it is the carrier type with a phantom tag.
 
@@ -949,7 +949,7 @@ pipe(120_000, applyMerit(0.04))       // 124_800
 
 Use for `pipe` or `flow` (everyday use), or when building dual-mode utility functions for your own library.
 
-Official guides: [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it states that `Option` and `Result` can be yielded inside `Effect.gen`; in 4.0.0 they cannot — convert with `Effect.fromOption` / `Effect.fromResult`), [Dual APIs](https://effect.website/docs/v4/code-style/dual).
+Official guides: [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it states that `Option` and `Result` can be yielded inside `Effect.gen`; in 4.0.2 they cannot — convert with `Effect.fromOption` / `Effect.fromResult`), [Dual APIs](https://effect.website/docs/v4/code-style/dual).
 
 ## Number
 

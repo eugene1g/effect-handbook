@@ -2,12 +2,12 @@
 
 Represent the long-lived application as a Layer, put every background fiber and acquired handle under its Scope, then hand the launched Layer to `NodeRuntime.runMain`.
 
-> **Official guides:** [Guidelines](https://effect.website/docs/v4/code-style/guidelines) (why `runMain` rather than `runPromise`). Where that guide and the tagged `effect@4.0.0` source disagree, this page and the source win.
+> **Official guides:** [Guidelines](https://effect.website/docs/v4/code-style/guidelines) (why `runMain` rather than `runPromise`). Where that guide and the tagged `effect@4.0.2` source disagree, this page and the source win.
 
 ## Contract
 
 - **Classification:** Runnable example; complete `main.ts`.
-- **Install:** `pnpm add effect@4.0.0 @effect/platform-node@4.0.0`
+- **Install:** `pnpm add effect@4.0.2 @effect/platform-node@4.0.2`
 - **Run:** Node 26+: `node main.ts`
 - **Expected output:** `worker started`; then `heartbeat` every second. Press Ctrl+C or send SIGTERM and it prints `worker stopped` before exit.
 - **Program type:** `Layer.launch(WorkerLive)` is `Effect<never, never, never>` after the Layer has no unsatisfied dependencies.

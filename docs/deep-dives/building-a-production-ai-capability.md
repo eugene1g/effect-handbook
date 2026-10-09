@@ -1,6 +1,6 @@
 # Building a Production AI Capability
 
-Audited against `effect@4.0.0`, the matching `ai-docs` examples, and the implementation of `effect/ai` on 2026-09-19.
+Audited against `effect@4.0.2`, the matching `ai-docs` examples, and the implementation of `effect/ai` on 2026-10-09.
 
 A production AI feature is not a prompt wrapped in an HTTP handler. It is a normal application capability with a typed input boundary, an injectable model, narrowly authorized tools, validated output, explicit limits, observable cost, and a deterministic test seam.
 

@@ -82,12 +82,30 @@ const pageRelated = Object.freeze({
 
 export const handbookRelease = Object.freeze({
   package: "effect",
-  version: "4.0.0",
-  tag: "effect@4.0.0",
-  commit: "67ba4e46a11ccda0b6761578bfd22c04ae00167d",
-  publishedAt: "2026-10-01T03:11:28.537Z",
-  auditedAt: "2026-10-01"
+  version: "4.0.2",
+  tag: "effect@4.0.2",
+  commit: "269a7c864351231d42e6e95b7fa8f32050df3691",
+  publishedAt: "2026-10-07T18:21:31.965Z",
+  auditedAt: "2026-10-09"
 })
+
+function upstreamUrl(kind: "blob" | "tree", pathname: string): string {
+  return `https://github.com/Effect-TS/effect/${kind}/${encodeURIComponent(handbookRelease.tag)}/${pathname}`
+}
+
+// The "Official Effect" navigation menu. It lives here rather than in the
+// VitePress config so `pnpm docs:links` can check these URLs without
+// installing the site's dependencies. Release-pinned links must name a path
+// that exists at `handbookRelease.tag`; the official site's guides track `main`.
+export const officialEffectLinks: ReadonlyArray<{ readonly text: string; readonly link: string }> = Object.freeze([
+  // The upstream cookbook (formerly a `cookbooks/` folder on the pre-release
+  // repository, absent from the tagged source) is published as the official
+  // site's v4 Schedule cookbook.
+  { text: "Schedule cookbook", link: "https://effect.website/docs/v4/scheduling/cookbook" },
+  { text: "Schema guide", link: upstreamUrl("blob", "packages/effect/SCHEMA.md") },
+  { text: "AI documentation source", link: upstreamUrl("tree", "ai-docs/src") },
+  { text: "LLMS.md", link: upstreamUrl("blob", "LLMS.md") }
+])
 
 export const handbookGroups = [
   {

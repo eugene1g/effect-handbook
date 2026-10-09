@@ -2,7 +2,7 @@
 
 The CLI modules define parsers, help, completions, prompts, and command handlers as typed values that compose with ordinary Effects and Layers. Import the barrel with `import { Argument, Command, Flag, Prompt } from "effect/cli"`, or use the module paths shown in each section.
 
-> **Warning:** The framework lives under `effect/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/70_cli) provides a compact runnable companion.
+> **Warning:** The framework lives under `effect/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/70_cli) provides a compact runnable companion.
 
 ## CliConfig
 

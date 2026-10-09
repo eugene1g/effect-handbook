@@ -2,7 +2,7 @@
 
 `Config` is an `Effect`, validated by `Schema`, read from a swappable provider. Three-part model: **Config** describes what you need and its shape. **ConfigProvider** decides where values come from. **Redacted**/**Redactable** prevent sensitive values from appearing in logs.
 
-> **Official guides:** [Configuration](https://effect.website/docs/v4/configuration). These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Configuration](https://effect.website/docs/v4/configuration). These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
 ## Config
 
@@ -132,7 +132,7 @@ The three fallback tools differ in exactly this respect:
 | --- | --- | --- |
 | `Config.withDefault(value)`, `Config.option` | The value is absent. Validation errors and partially supplied groups still fail. | `ConfigError` |
 | `ConfigProvider.orElse(primary, fallback)` | The primary provider has no value at that path. A `SourceError` from the primary propagates, and a decoding error is never rescued. | `ConfigError` |
-| `Config.orElse(() => other)` | **Any** `ConfigError`, including a malformed value or an unreadable source. | the fallback |
+| `Config.orElse(() => other)` | **Any pure `ConfigError`**, including a malformed value or an unreadable source. A cause that mixes a `ConfigError` with a defect or interruption is not recovered — the mixed cause propagates. | the fallback |
 
 ```ts
 import { Config } from "effect"

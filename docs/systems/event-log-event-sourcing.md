@@ -259,7 +259,9 @@ Use when inspecting the protocol, implementing a custom transport, or debugging 
 
 A SQL-backed implementation of `EventJournal` on top of a `SqlClient`. `SqlEventJournal.layer(options?)` stores entries as encoded bytes and keeps per-remote sequence metadata in separate tables, giving a server or Node/SQLite program a durable journal that replays after restart. Drop-in replacement for `EventJournal.layerMemory`.
 
-- **Driver byte types are normalized.** Entry ids and payloads decode whether the SQL driver returns a BLOB as `Uint8Array` or as a plain `ArrayBuffer`.
+- **Driver byte types are normalized.** Entry ids and payloads decode whether the SQL driver returns a BLOB as `Uint8Array` or as a plain `ArrayBuffer`. PostgreSQL tables use `BYTEA` columns for entry and remote ids (not `UUID`); `BIGINT` timestamps decode whether the driver returns strings or bigints.
+
+> **Upgrade note (PostgreSQL only):** Tables created before 4.0.2 used `UUID` columns for `id`, `remote_id`, and `entry_id`. These columns are not migrated automatically. Recreate the journal tables only after confirming they are empty, or externally migrate those three columns to `BYTEA` while preserving all other data.
 - **Your callback's error is preserved.** A failure raised inside the `write` effect or the `withRemoteUncommited` callback comes back as that same error value in the typed channel, not wrapped in an `EventJournalError`; match on your own tags.
 - **The write is transactional with the handler.** Handler work that uses the same `SqlClient` commits or rolls back together with the journal insert.
 

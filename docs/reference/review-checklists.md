@@ -2,7 +2,7 @@
 
 Use this page three ways: in a **design review**, read a section before code exists and treat every "not decided yet" as an open design question; in a **code review**, answer each question from the diff alone; as a **coding-agent self-check**, run the relevant sections over generated code before proposing it. Every question is phrased so that **yes** is the safe answer — a "no" or "cannot tell from the diff" is a finding, and the link leads to the section that owns the rule and its evidence.
 
-The items describe Effect `4.0.0`. They are deliberately short; the owning pages carry the reasoning, the probed behavior, and the examples. For symptoms rather than rules, start from [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns); for choosing between primitives, from [Choosing Effect Primitives](choosing-effect-primitives).
+The items describe Effect `4.0.2`. They are deliberately short; the owning pages carry the reasoning, the probed behavior, and the examples. For symptoms rather than rules, start from [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns); for choosing between primitives, from [Choosing Effect Primitives](choosing-effect-primitives).
 
 ## Effect construction and running
 

@@ -39,7 +39,7 @@ pnpm docs:standalone  # regenerate only the double-clickable offline HTML
 pnpm docs:verify      # crawl and verify the production output
 pnpm docs:versions    # re-assemble only the editions in versions.json under dist/<version>/
 pnpm docs:smoke       # exercise both HTTP and file:// builds in headless Chrome
-pnpm docs:links       # check external documentation links (also runs weekly in CI)
+pnpm docs:links       # check external links in docs, README, skills, theme, and the site navigation (also runs weekly in CI)
 pnpm docs:eval        # measure catalog retrieval against checked-in realistic intent cases
 pnpm docs:examples    # extract and validate every TypeScript/TSX fence
 pnpm docs:test        # build and verify everything

@@ -2,9 +2,9 @@
 
 Effect v4 rebuilt Schema around a single `Codec` abstraction: a two-way, validating, possibly-effectful bridge between two TypeScript types. `Type` is the decoded, in-memory value; `Encoded` is the wire/storage shape. `decode` goes Encoded → Type (with validation); `encode` goes Type → Encoded. `Schema.String` is the degenerate case (both sides `string`); `Schema.FiniteFromString` (`Encoded = string`, `Type = number`) is the usual numeric boundary. Satellite modules — `SchemaParser`, `SchemaIssue`, `SchemaGetter`, `SchemaTransformation`, `SchemaRepresentation` — are the implementation; `Schema` is the interface.
 
-> **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
+> **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.2/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
 >
-> **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings are stale — see the sections below); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this page's tagged 4.0.0 source, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings are stale — see the sections below); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this page's tagged 4.0.2 source, so where they differ, this page and the tagged source win.
 
 ## Schema
 
@@ -66,7 +66,7 @@ Effect.runPromise(Schema.encodeUnknownEffect(SalaryFromString)(192400)).then(con
 
 Per-call behavior — excess keys, error accumulation, concurrency, rejected-input reporting — is covered in [Parse options are boundary policy](#14-parse-options-are-boundary-policy).
 
-Official guide: [Getting Started](https://effect.website/docs/v4/schema/getting-started) (its `"preserve"`, `propertyOrder`, and `parseOptions`-annotation passages do not apply to 4.0.0).
+Official guide: [Getting Started](https://effect.website/docs/v4/schema/getting-started) (its `"preserve"`, `propertyOrder`, and `parseOptions`-annotation passages do not apply to 4.0.2).
 
 ### 2. Type vs Encoded — the distinction that runs everything
 
@@ -223,7 +223,7 @@ const describe = CompAction.match({ _tag: "Promotion", fromLevel: 4, toLevel: 5 
 })
 ```
 
-`TaggedUnion` and a union augmented with `Schema.toTaggedUnion(tag)` also expose `.discriminants`: an ordered tuple of their literal tag values. Duplicate or missing discriminants are rejected while building the augmented union. The same augmentation provides `.cases` (member schema per tag), `.guards`, `.isAnyOf([...tags])`, and `.matchOrElse(value, cases, orElse)`, which handles a subset of tags and hands every remaining member — typed as the residual union — to `orElse`.
+`TaggedUnion` and a union augmented with `Schema.toTaggedUnion(tag)` also expose `.tag` (the property key used as discriminator, e.g. `"_tag"`) and `.discriminants` (an ordered tuple of their literal tag values). Duplicate or missing discriminants are rejected while building the augmented union. The same augmentation provides `.cases` (member schema per tag), `.guards`, `.isAnyOf([...tags])`, and `.matchOrElse(value, cases, orElse)`, which handles a subset of tags and hands every remaining member — typed as the residual union — to `orElse`.
 
 **Tagged structs.** `Schema.tag("Raise")` is a literal field with a constructor default, and `Schema.TaggedStruct("Raise", fields)` is shorthand for a struct whose `_tag` is that field. **`make` fills the tag; decoding and encoding still require it on the wire.** When the external payload has no discriminator, `Schema.tagDefaultOmit` supplies it while decoding or constructing and strips it on encode.
 
@@ -279,7 +279,7 @@ const PayComponents = Schema.Record(Schema.Literals(["base", "bonus"]), Schema.F
 
 Also available: `Schema.NonEmptyArray(item)` (infers `readonly [A, ...A[]]`), `Schema.ArrayEnsure(item)` (a single value or an array decodes to an array; a one-element array encodes back to the single value), `Schema.UniqueSymbol(sym)`, `Schema.Enum(TsEnum)` (exposes `.enums`; rejects non-finite numeric members), `Schema.JsonObject` (a string-keyed record of `Schema.Json` values — arrays and non-JSON leaves such as `Date` fail), and the primitives `BigInt`, `Symbol`, `ObjectKeyword`, `Any`, `Unknown`, `Never`, `Null`. Schema values keep their parts public — `.fields`, `.members`, `.elements`, `.rest`, `.literals`, `.key` / `.value`, `.schema` — so they can be recombined. `Schema.Literal(0)` and `Schema.Literal(-0)` each accept either signed zero and preserve the input's sign; add a transformation when a canonical sign matters.
 
-Official guide: [Basic Usage](https://effect.website/docs/v4/schema/basic-usage) (its "Transforming Keys" passage is stale: 4.0.0 records accept transformed key schemas).
+Official guide: [Basic Usage](https://effect.website/docs/v4/schema/basic-usage) (its "Transforming Keys" passage is stale: 4.0.2 records accept transformed key schemas).
 
 ### 5. Refinements — `check` and `refine`
 
@@ -430,7 +430,7 @@ Schema.decodeUnknownSync(PageFromQueryValue)("%7B%22page%22%3A1%2C%22size%22%3A2
 
 Getters that call services or do asynchronous work are covered in [Effectful schemas and services](#18-effectful-schemas-and-services).
 
-Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it still spells `transformEffect` as `transformOrFail`, and it predates `SchemaGetter.forbiddenEncoding` — this page and the tagged 4.0.0 source win).
+Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it still spells `transformEffect` as `transformOrFail`, and it predates `SchemaGetter.forbiddenEncoding` — this page and the tagged 4.0.2 source win).
 
 ### 7. Branded schemas
 
@@ -610,7 +610,7 @@ Equal.equals(decoded, new LevelBand({ min: 150_000, max: 210_000, level: 5 })) /
 | round trip under a stated equivalence | use `Equal.equals` or `Schema.toEquivalence`, never `===` |
 | the JSON form | `JSON.stringify(instance)` is not the codec; derive `Schema.toCodecJson(Class)` |
 
-Official guide: [Class APIs](https://effect.website/docs/v4/schema/classes) (its sample output for a failing `new` shows formatted issue text; 4.0.0 throws the generic message described in [section 13](#13-construction-and-deliberate-fallbacks)).
+Official guide: [Class APIs](https://effect.website/docs/v4/schema/classes) (its sample output for a failing `new` shows formatted issue text; 4.0.2 throws the generic message described in [section 13](#13-construction-and-deliberate-fallbacks)).
 
 ### 10. Annotations and derivations
 
@@ -683,7 +683,7 @@ const auditLine = Schema.toFormatter(Employee, {
 auditLine({ id: 1, displayName: "Ada" }) // { "id": 1, "displayName": <masked> }
 ```
 
-Official guides: [Schema Annotations](https://effect.website/docs/v4/schema/annotations) (its `parseOptions` annotation row and its claim that `concurrency` reaches union members are obsolete in 4.0.0), [Schema to Equivalence](https://effect.website/docs/v4/schema/equivalence), [Schema to Formatter](https://effect.website/docs/v4/schema/formatter).
+Official guides: [Schema Annotations](https://effect.website/docs/v4/schema/annotations) (its `parseOptions` annotation row and its claim that `concurrency` reaches union members are obsolete in 4.0.2), [Schema to Equivalence](https://effect.website/docs/v4/schema/equivalence), [Schema to Formatter](https://effect.website/docs/v4/schema/formatter).
 
 ### 11. Serialization codecs
 
@@ -831,7 +831,7 @@ Level.make(42, { disableChecks: true }) // 42 — a deliberate hole
 
 **Deliberate fallbacks.** `SchemaParser.makeOption(schema)` is the standalone form of `.makeOption(...)`. `Schema.catchDecoding` can replace a decoding failure with an effectful `Option` fallback; `catchDecodingWithContext` may additionally require services. These middlewares intentionally weaken a boundary, so reserve them for an explicit compatibility/defaulting policy rather than hiding malformed input.
 
-Official guide: [Default Constructors](https://effect.website/docs/v4/schema/default-constructors) (it types `makeEffect` as failing with `SchemaError` and prints formatted text for a throwing `make`; 4.0.0 behaves as the table above says).
+Official guide: [Default Constructors](https://effect.website/docs/v4/schema/default-constructors) (it types `makeEffect` as failing with `SchemaError` and prints formatted text for a throwing `make`; 4.0.2 behaves as the table above says).
 
 ### 14. Parse options are boundary policy
 
@@ -1557,7 +1557,7 @@ const draft07 = JsonSchema.toDocumentDraft07(orgDoc) // also toDocumentDraft04, 
 
 **Which model owns which artifact.** A value schema knows a shape. It does not know methods, paths, parameter locations, status codes, per-endpoint errors, security, or media types; those facts live on the assembled `HttpApi`. So **derive JSON Schema from `Schema` for value contracts, and derive the OpenAPI document from the API** with [`OpenApi.fromApi`](../interfaces/http-api#openapi). Point a generator at the wrong model and its output silently lacks everything that only the other model records.
 
-Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) (it documents an `additionalProperties` generation option and closed-by-default output; 4.0.0 uses `onExcessProperty` and is open by default).
+Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) (it documents an `additionalProperties` generation option and closed-by-default output; 4.0.2 uses `onExcessProperty` and is open by default).
 
 **Reach for it when** you need a machine-readable *value* contract for external consumers: JSON Schema config validation, cross-language codegen of a payload, or structured-output LLM prompting. For an HTTP API description, generate OpenAPI from `HttpApi` instead.
 

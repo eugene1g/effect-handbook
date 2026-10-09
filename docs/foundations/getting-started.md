@@ -1,8 +1,8 @@
 # Getting Started
 
-Everything else in this handbook assumes a project where `effect@4.0.0` is installed, TypeScript is strict, and one entrypoint runs an Effect. This page gets you there and names the traps on the way: mismatched package versions, compiler settings that silently weaken the types, and code written for a release candidate.
+Everything else in this handbook assumes a project where `effect@4.0.2` is installed, TypeScript is strict, and one entrypoint runs an Effect. This page gets you there and names the traps on the way: mismatched package versions, compiler settings that silently weaken the types, and code written for a release candidate.
 
-> **Official guides:** [Installation](https://effect.website/docs/v4/getting-started/installation) (asks for Node.js 22.18+; the `4.0.0` README states Node.js 18+ as the general minimum), [Importing Effect](https://effect.website/docs/v4/getting-started/importing-effect), [The Effect Type](https://effect.website/docs/v4/getting-started/the-effect-type), [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; in `4.0.0` the type is `Fiber`), [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it calls `Option` and `Result` yieldable inside `Effect.gen`; in `4.0.0` they are not — use `Effect.fromOption` and `Effect.fromResult`), [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than the pinned `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Installation](https://effect.website/docs/v4/getting-started/installation) (asks for Node.js 22.18+; the `4.0.2` README states Node.js 18+ as the general minimum), [Importing Effect](https://effect.website/docs/v4/getting-started/importing-effect), [The Effect Type](https://effect.website/docs/v4/getting-started/the-effect-type), [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; in `4.0.2` the type is `Fiber`), [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it calls `Option` and `Result` yieldable inside `Effect.gen`; in `4.0.2` they are not — use `Effect.fromOption` and `Effect.fromResult`), [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than the pinned `4.0.2` release, so where they differ, this page and the tagged source win.
 
 ## Install Effect 4
 
@@ -10,16 +10,16 @@ Effect 4 is the `latest` release line: a plain `pnpm add effect` installs it. Pi
 
 | npm dist-tag (checked 2026-10-01 with `npm view effect dist-tags`) | `effect` |
 | --- | --- |
-| `latest` | `4.0.0` |
+| `latest` | `4.0.2` |
 | `rc` | `4.0.0-rc.118` — a superseded release candidate; do not install it |
 | `beta` | `4.0.0-beta.107` — superseded; do not install it |
 
 ```sh
-pnpm add effect@4.0.0 @effect/platform-node@4.0.0
+pnpm add effect@4.0.2 @effect/platform-node@4.0.2
 pnpm add -D typescript@7 @types/node
 ```
 
-**Every `effect` and `@effect/*` package in one project shares one version.** Effect 4 packages are released together under a single version number, and each `@effect/*` package declares `effect` as a peer dependency (`^4.0.0`). Mixing numbers is unsupported: an `@effect/*` package is built and tested against the `effect` release with the same number, and the subsystem families under `effect/<area>` may change between minor releases. Check for a single copy with `pnpm why effect` (or `npm ls effect`) after every install; the Effect language service reports a second copy as `duplicatePackage`.
+**Every `effect` and `@effect/*` package in one project shares one version.** Effect 4 packages are released together under a single version number, and each `@effect/*` package declares `effect` as a peer dependency (`^4.0.2`). Mixing numbers is unsupported: an `@effect/*` package is built and tested against the `effect` release with the same number, and the subsystem families under `effect/<area>` may change between minor releases. Check for a single copy with `pnpm why effect` (or `npm ls effect`) after every install; the Effect language service reports a second copy as `duplicatePackage`.
 
 | Install when you need | Package |
 | --- | --- |
@@ -35,9 +35,9 @@ Do not install `@effect/platform`, `@effect/cli`, `@effect/rpc`, `@effect/sql`, 
 
 ## Runtime and compiler requirements
 
-The library's floor and this handbook's validation target are different things. The first column is what `4.0.0` asks of you; the second is what every example here is compiled and run with.
+The library's floor and this handbook's validation target are different things. The first column is what `4.0.2` asks of you; the second is what every example here is compiled and run with.
 
-| | Required by `effect@4.0.0` (repository README and package metadata) | Used to validate this handbook |
+| | Required by `effect@4.0.2` (repository README and package metadata) | Used to validate this handbook |
 | --- | --- | --- |
 | TypeScript | 5.9 or newer; TypeScript 7 recommended | 7.0.2 |
 | Node.js | 18 or newer in general (`@effect/platform-node` declares `engines.node >=18.0.0`); some packages need more, for example `@effect/sql-sqlite-node` needs 22.16+ and `@effect/platform-deno` needs Deno 2.8.3+ | 26, which runs `.ts` entrypoints directly |
@@ -158,19 +158,19 @@ import { TestClock } from "effect/testing"
 
 ## Stable and unstable modules
 
-Stability is a per-API contract declared with a JSDoc tag, not an import path. The handbook summarizes it as a badge on every module section.
+Stability is a per-API contract declared with a JSDoc tag, not an import path; since `4.0.2` every module and directly importable export is tagged explicitly. The handbook summarizes it as a badge on every module section.
 
-| Badge | Promise | What carries it in `4.0.0` |
+| Badge | Promise | What carries it in `4.0.2` |
 | --- | --- | --- |
-| stable | semantic versioning: breaking changes only in a major release | the root barrel — `Effect`, `Layer`, `Schema`, `Stream`, `Config`, the data structures, the `Tx*` transactional modules — plus `effect/testing` and the text codecs under `effect/encoding` (`Base64`, `Base64Url`, `Hex`, `EncodingError`) |
-| unstable (`@stability unstable`) | **may break in a minor release** | the subsystem families `effect/ai`, `cli`, `cluster`, `devtools`, `eventlog`, `http`, `http-api`, `net`, `observability`, `persistence`, `process`, `reactivity`, `rpc`, `schema`, `socket`, `sql`, `workers`, `workflow`, the remaining `effect/encoding` codecs, the `Arbitrary` module, some advanced `Schema` APIs, and every API that exposes a third-party dependency (driver options in `@effect/sql-*`, provider clients in `@effect/ai-*`, `@effect/opentelemetry`) |
-| experimental (`@stability experimental`) | may break in a **patch** release | a few APIs the maintainers are still shaping; the handbook names them where they appear |
+| stable (`@stability stable`) | semantic versioning: breaking changes only in a major release | most of the root barrel — `Effect`, `Layer`, `Schema`, `Stream`, `Config`, the data structures, most `Tx*` transactional modules — plus `TestClock` from `effect/testing` and the text codecs under `effect/encoding` (`Base64`, `Base64Url`, `Hex`, `EncodingError`) |
+| unstable (`@stability unstable`) | **may break in a minor release** | the subsystem families `effect/ai`, `cli`, `cluster`, `devtools`, `eventlog`, `http`, `http-api`, `net`, `observability`, `persistence`, `process`, `reactivity`, `rpc`, `schema`, `socket`, `sql`, `workers`, `workflow`; root-barrel modules such as `Arbitrary`, `FileSystem`, `Path`, `ExecutionPlan`, `LayerMap`, `Graph`, and `ByteSize` (each module section shows its badge); `TestConsole` and `TestSchema`; the remaining `effect/encoding` codecs; some advanced `Schema` APIs; and every API that exposes a third-party dependency (driver options in `@effect/sql-*`, provider clients in `@effect/ai-*`, `@effect/opentelemetry`) |
+| experimental (`@stability experimental`) | may break in a **patch** release | nothing in `4.0.2`; the handbook will name any such API where it appears |
 
 "Unstable" describes the API contract, not the quality: HTTP, SQL, and RPC are what production Effect applications are built on. It does change how you depend on them. **Pin exact versions, read the release notes before every upgrade, and keep leaf area imports behind a small service you own** so a rename touches one file. The maintainers' stated plan is to promote these families to stable as production feedback settles them.
 
 ## Effect diagnostics in the editor and in CI
 
-The Effect language service ships as `@effect/tsgo`, built on the native TypeScript compiler, and needs `typescript` 7 installed beside it. It adds Effect-aware diagnostics and quick fixes: an Effect that was never yielded or assigned, a bare `yield` without `*`, implementation services leaking through a service method, a second copy of an Effect package, and APIs that do not exist in the installed version. `npx @effect/tsgo setup` adds the dependency and the `@effect/language-service` entry under `compilerOptions.plugins`; `effect-tsgo patch` (run it from a `prepare` script, as the Effect repository does) patches the local TypeScript install so `tsc` emits the same diagnostics; and `npx @effect/tsgo diagnostics --project tsconfig.json --strict` is a standalone CI check in which warnings fail the build. This handbook compiles every example under exactly that pair: strict `tsc` and strict Effect diagnostics, with one rule turned off: `unstableApiUsage` warns on every API tagged `@stability unstable`, which in `4.0.0` means every call into `effect/http`, `effect/sql`, `effect/rpc`, `effect/ai`, and the other area families. A project that uses those modules sets `"diagnosticSeverity": { "unstableApiUsage": "off" }` in the plugin options (or downgrades it to a suggestion) rather than suppressing it line by line; a project that wants to be told when it strays outside the semver-covered surface leaves it on.
+The Effect language service ships as `@effect/tsgo`, built on the native TypeScript compiler, and needs `typescript` 7 installed beside it. It adds Effect-aware diagnostics and quick fixes: an Effect that was never yielded or assigned, a bare `yield` without `*`, implementation services leaking through a service method, a second copy of an Effect package, and APIs that do not exist in the installed version. `npx @effect/tsgo setup` adds the dependency and the `@effect/language-service` entry under `compilerOptions.plugins`; `effect-tsgo patch` (run it from a `prepare` script, as the Effect repository does) patches the local TypeScript install so `tsc` emits the same diagnostics; and `npx @effect/tsgo diagnostics --project tsconfig.json --strict` is a standalone CI check in which warnings fail the build. This handbook compiles every example under exactly that pair: strict `tsc` and strict Effect diagnostics, with one rule turned off: `unstableApiUsage` warns on every API tagged `@stability unstable`, which in `4.0.2` means every call into `effect/http`, `effect/sql`, `effect/rpc`, `effect/ai`, and the other area families. A project that uses those modules sets `"diagnosticSeverity": { "unstableApiUsage": "off" }` in the plugin options (or downgrades it to a suggestion) rather than suppressing it line by line; a project that wants to be told when it strays outside the semver-covered surface leaves it on.
 
 The official guidance for working with coding agents makes the same point from the other side: the tighter the feedback loop, the better the generated code, so install the language service first, and keep the installed `effect` source (and its bundled `AGENTS.md` and `ai-docs/`) within the agent's reach rather than relying on remembered API shapes. [Testing & Dev Tooling](../tooling/testing-dev-tooling) covers the tooling in depth.
 

@@ -4,9 +4,9 @@ Effect treats failure as a typed value, not an exception. `Option` models absenc
 
 `Option<A>`, `Result<A, E>`, and `Effect<A, E, R>`'s `E` channel are the same idea at increasing power levels. Learn to move between them fluently.
 
-> **Official examples:** Effect's release-matched [`ai-docs` error-handling examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/01_effect/04_errors) cover tagged errors, `catchTag`/`catchTags`, and reason-based errors.
+> **Official examples:** Effect's release-matched [`ai-docs` error-handling examples](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/01_effect/04_errors) cover tagged errors, `catchTag`/`catchTags`, and reason-based errors.
 
-> **Official guides:** [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors), [Two Types of Errors](https://effect.website/docs/v4/error-management/two-error-types). These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors), [Two Types of Errors](https://effect.website/docs/v4/error-management/two-error-types). These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
 ## Designing the error model
 
@@ -485,7 +485,7 @@ positiveRaise(4) // Option.some(4)
 
 `Option.makeEquivalence` and `Option.makeOrder` lift an `Equivalence` or `Order` for `A` to `Option<A>`, so optional fields can take part in sorting and de-duplication. `None` orders before every `Some`; `Order.flip` reverses the whole order, which puts missing values last and present values in descending order.
 
-Official guides: [Option](https://effect.website/docs/v4/data-types/option) (its statement that an `Option` can be yielded directly inside `Effect.gen` does not hold for the tagged `4.0.0` source; see [Moving between Option, Result, and Effect](#moving-between-option-result-and-effect)), [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types) (Schema) for nullable and optional wire shapes that decode to `Option`.
+Official guides: [Option](https://effect.website/docs/v4/data-types/option) (its statement that an `Option` can be yielded directly inside `Effect.gen` does not hold for the tagged `4.0.2` source; see [Moving between Option, Result, and Effect](#moving-between-option-result-and-effect)), [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types) (Schema) for nullable and optional wire shapes that decode to `Option`.
 
 ## Result
 
@@ -764,7 +764,7 @@ Official guides: [Data](https://effect.website/docs/v4/data-types/data), [Yielda
 
 ## ErrorReporter
 
-`effect/ErrorReporter` — stable
+`effect/ErrorReporter` — unstable
 
 A pluggable sink for reporting `Cause`s — controls how unhandled failures are surfaced. Register reporters via a `Context.Reference`; annotate error types with severity and attributes for structured rendering.
 
@@ -790,7 +790,7 @@ Use when you need centralized, structured error reporting (to a dashboard, Sentr
 
 ## PlatformError
 
-`effect/PlatformError` — stable
+`effect/PlatformError` — unstable
 
 The typed error family for platform operations (filesystem, paths, child processes). Two shapes: `BadArgument` (invalid input) and `SystemError` (OS-level failure: `ENOENT`, `EACCES`, etc.), unified under `PlatformError`.
 

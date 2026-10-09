@@ -5,7 +5,7 @@ Commit a domain change and the event that announces it in one SQL transaction, t
 ## Contract
 
 - **Classification:** Runnable example; complete `raise-outbox.ts`. It runs on an embedded PGlite database and a scripted in-memory broker, so no network, port, or Docker is required.
-- **Install:** `pnpm add effect@4.0.0 @effect/sql-pglite@4.0.0`
+- **Install:** `pnpm add effect@4.0.2 @effect/sql-pglite@4.0.2`
 - **Run:** Node 26+: `node raise-outbox.ts`
 - **Expected output:** six JSON lines, reproduced byte for byte under [Expected output](#expected-output).
 - **Before provision:** `program` is `Effect<Array<unknown>, EmployeeNotFound | MeritBudgetExceeded | RepositoryError, Raises | Outbox | Payroll | Publisher>`; one relay pass is `Effect<{ delivered: number; failed: number }, RepositoryError, Outbox | Publisher>`. No `SqlError`, `SchemaError`, or driver type appears in either signature.

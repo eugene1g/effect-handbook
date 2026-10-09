@@ -558,7 +558,7 @@ class EquityGrant extends Schema.Class<EquityGrant>("EquityGrant")({
 }) {}
 
 const grant = new EquityGrant({ employeeId: 1, shares: 4000, grantDate: new Date() })
-console.log(`${grant}`) // "EquityGrant({ employeeId: 1, shares: 4000, grantDate: ... })"
+console.log(`${grant}`) // EquityGrant({"employeeId":1,"shares":4000,"grantDate":2026-…})
 
 // The house error idiom: TaggedError + Schema.Defect() for the cause.
 class EmployeeNotFound extends Schema.TaggedError<EmployeeNotFound>()("EmployeeNotFound", {

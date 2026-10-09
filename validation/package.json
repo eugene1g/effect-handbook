@@ -25,6 +25,8 @@
     "@opentelemetry/exporter-prometheus": "0.205.0",
     "@opentelemetry/exporter-trace-otlp-http": "0.205.0",
     "@opentelemetry/sdk-trace-base": "2.2.0",
+    "@opentelemetry/sdk-trace-node": "2.2.0",
+    "@opentelemetry/sdk-trace-web": "2.2.0",
     "effect": "4.0.2",
     "fast-check": "4.9.0",
     "react": "19.2.8",

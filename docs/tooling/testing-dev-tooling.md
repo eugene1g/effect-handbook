@@ -409,7 +409,7 @@ const PerformanceRating = Schema.Literals(["exceeds", "meets", "below"])
 const dec = new TestSchema.Asserts(PerformanceRating).decoding()
 await dec.succeed("exceeds", "exceeds")
 await dec.succeed("meets")            // identity when expected equals input
-await dec.fail(42, 'Expected "exceeds" | "meets" | "below", got 42')
+await dec.fail(42, 'Expected "exceeds" | "meets" | "below"')
 
 // --- encoding a NumberFromString salary representation ---
 const SalaryFromString = Schema.FiniteFromString
@@ -417,8 +417,10 @@ const enc = new TestSchema.Asserts(SalaryFromString).encoding()
 await enc.succeed(95000, "95000")
 
 // --- round-trip property test: encode → decode is lossless ---
-const ta = new TestSchema.Asserts(SalaryFromString)
-await ta.verifyRoundTrip()
+// FiniteFromString alone is not: -0 encodes to "0" and decodes to 0, and the
+// property check finds it. Salaries are positive, so constrain the domain first.
+const PositiveSalaryFromString = SalaryFromString.check(Schema.isGreaterThan(0))
+await new TestSchema.Asserts(PositiveSalaryFromString).verifyRoundTrip()
 
 // --- arbitrary generation sanity check ---
 new TestSchema.Asserts(PerformanceRating).arbitrary().verifyGeneration()

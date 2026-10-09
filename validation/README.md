@@ -48,6 +48,19 @@ the canonical source path and full SHA-256, so body changes require an explicit
 review. It also rejects duplicate IDs, stale hashes, unused runtime definitions,
 unknown fixtures, and incomplete coverage.
 
+## Executing compile examples
+
+Type-checking proves an example compiles, not that it runs. After the diagnostics stages, `scripts/validation/execute-examples.ts` executes every `compile` fence:
+
+- fences that import `@effect/vitest` or `vitest` run together in one Vitest batch, and every test must pass;
+- every other fence runs under Node with outbound network blocked (loopback is allowed) and must exit 0, or be a long-running program (a server or launched Layer) that is still alive after 8 seconds or ends when its input closes;
+- a `console.log(...) // <value>` comment whose value is a JSON literal is asserted against the program's output whenever the fence runs a program;
+- recorded and skipped by design: a ReferenceError for an identifier the fence itself `declare`s as a placeholder, a blocked network call, and code that needs a browser, Deno, or Bun.
+
+Anything else fails validation with the fence's source page and output. The per-fence outcome is written to `results.json` under `execution`.
+
+Behavioral claims that no single example demonstrates are backed by tracked probes in `probes/` (for example `documented-behavior.ts`: caching under interruption, queue backpressure, finalizer order, Layer memoization, fork ownership, races, retries, stream grouping, and Config fallbacks). Each check names the page section it backs.
+
 ## Pinned evidence
 
 The root `pnpm-workspace.yaml` and `pnpm-lock.yaml` own one frozen dependency graph for both the site tooling and this private validation package. `target.json` records Effect `4.0.2`, its tag and source commit, the audit

@@ -43,7 +43,7 @@ pnpm docs:smoke       # exercise both HTTP and file:// builds in headless Chrome
 pnpm docs:diagrams    # re-render diagrams/*.mmd to public/diagrams/*.svg (needs Chrome; docs:check verifies they are current)
 pnpm docs:links       # check external links in docs, README, skills, theme, and the site navigation (also runs weekly in CI)
 pnpm docs:eval        # measure catalog retrieval against checked-in realistic intent cases
-pnpm docs:examples    # extract and validate every TypeScript/TSX fence
+pnpm docs:examples    # extract, type-check, and execute every TypeScript/TSX fence, plus the behavior probes
 pnpm docs:test        # build and verify everything
 ```
 

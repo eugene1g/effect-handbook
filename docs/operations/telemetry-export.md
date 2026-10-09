@@ -405,6 +405,7 @@ Layer.launch(Main.pipe(Layer.provide(OtelLayer))).pipe(
 > **Warning:** If using `@opentelemetry/auto-instrumentations-node`, register it *before* importing any modules to be patched. Node.js instrumentations hook module loading, so registration must come first in the entry point.
 
 - **Install the OpenTelemetry packages you import.** `@effect/opentelemetry` declares the OpenTelemetry API and SDK packages as optional peers, so a package manager will not add `@opentelemetry/sdk-trace-base`, an exporter, or the others for you.
+- **A root import loads every module.** `import { OtelTracer } from "@effect/opentelemetry"` also evaluates `NodeSdk`, `WebSdk`, `OtelLogger`, `OtelMetrics`, and `Resource`, so it fails at startup with `ERR_MODULE_NOT_FOUND` unless `@opentelemetry/api`, `api-logs`, `sdk-logs`, `sdk-metrics`, `sdk-trace-node`, `sdk-trace-web`, `resources`, and `semantic-conventions` are all installed — even though the code type-checks. Install them, or import only the module you use by path: `import * as OtelTracer from "@effect/opentelemetry/OtelTracer"`.
 - **For a first look without a collector**, swap the exporter for `new ConsoleSpanExporter()` from `@opentelemetry/sdk-trace-base`; finished spans print to stdout. Any OpenTelemetry `SpanProcessor`, including a vendor's, fits the same `spanProcessor` slot.
 - **Do not also install `OtlpTracer` for traces** once the bridge owns them (see [One export path per signal](#one-export-path-per-signal)); with the bridge, sampling belongs to the OpenTelemetry sampler.
 

@@ -10,6 +10,7 @@ import { checkPackageCoherence } from "./check-package-coherence.ts"
 import { extractExamples } from "./extract-examples.ts"
 import { materializeContextualProjects } from "./fixture-projects.ts"
 import { generatedRoot, repositoryRoot, validationRoot } from "./example-model.ts"
+import { executeCompileExamples, summarizeExecution } from "./execute-examples.ts"
 
 const binary = (name) => path.join(validationRoot, "node_modules", ".bin", name)
 const VALIDATION_COMMAND = "pnpm docs:examples"
@@ -229,6 +230,10 @@ async function main() {
   for (const project of contextualProjects) await diagnostics(project.config)
   console.log(`Strict TypeScript and Effect diagnostics passed for ${examples.filter((example) => example.disposition === "contextual").length} contextual examples in ${contextualProjects.length} named fixture projects.`)
 
+  const executionResults = await executeCompileExamples(examples)
+  const execution = summarizeExecution(executionResults)
+  console.log(`Executed compile examples: ${execution.executed} ran to completion (${execution.assertedOutputs} printed values asserted), ${execution.vitest} passed under Vitest, ${execution["long-running"]} long-running programs started; skipped by design: ${execution.placeholder} declared placeholders, ${execution["needs-network"]} needing network, ${execution.browser + execution["other-host"]} needing another host.`)
+
   const invalidResults = await validateInvalid(examples)
 
   const registry = JSON.parse(await readFile(path.join(validationRoot, "examples.json"), "utf8"))
@@ -322,6 +327,7 @@ async function main() {
       examples: doctestResults
     },
     probes,
+    execution: { summary: execution, examples: executionResults },
     invalid: invalidResults
   }
   await writeFile(path.join(generatedRoot, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`)

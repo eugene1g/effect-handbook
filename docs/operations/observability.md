@@ -719,7 +719,7 @@ Build the root so that telemetry exists before anything that logs, traces, or fo
 
 - **Every flush needs a deadline**, or a dead collector holds the process open. The OTLP layers bound their scope-close flush with `shutdownTimeout` (default 3 seconds per exporter); a hand-rolled exporter should wrap its release in `Effect.timeoutOption`, and so should a manual `Flusher.flush`.
 - **Only a host that awaits shutdown can promise a completed flush.** On `pagehide` in a browser or a serverless freeze, assert only that a best-effort flush *started*.
-- Before production, review: package stability (`unstable/*`), flush and shutdown behavior, sampling, redaction, and label limits.
+- Before production, review: package stability (`@stability unstable` modules such as `effect/observability`), flush and shutdown behavior, sampling, redaction, and label limits.
 
 ### Sampling has one owner per path
 

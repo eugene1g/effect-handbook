@@ -1,6 +1,6 @@
 # SQL
 
-> **Note:** The query API, schema adapters, resolvers, models, and migrator live in the stable-but-`unstable/`-namespaced core at `effect/sql/*`. They are database-agnostic. A driver package like `@effect/sql-pg` contributes one thing: a `Layer` producing the `SqlClient` service wired to a real connection pool and the correct dialect compiler. Write your service against `SqlClient`; swap the driver layer to change databases.
+> **Note:** The query API, schema adapters, resolvers, models, and migrator live in the `effect` package itself, under `effect/sql` (tagged `@stability unstable`). They are database-agnostic. A driver package like `@effect/sql-pg` contributes one thing: a `Layer` producing the `SqlClient` service wired to a real connection pool and the correct dialect compiler. Write your service against `SqlClient`; swap the driver layer to change databases.
 
 > **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
 

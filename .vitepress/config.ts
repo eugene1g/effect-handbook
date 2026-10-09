@@ -139,6 +139,7 @@ export default defineConfig({
       {
         text: "Downloads",
         items: [
+          { text: "Essentials .md", link: absoluteArtifactUrl("effect-4-essentials.md"), target: "_blank" },
           { text: "Concise handbook .md", link: absoluteArtifactUrl("effect-4-handbook.md"), target: "_blank" },
           { text: "llms.txt index", link: absoluteArtifactUrl("llms.txt"), target: "_blank" },
           { text: "Module index .md", link: absoluteArtifactUrl("effect-4-modules.md"), target: "_blank" },

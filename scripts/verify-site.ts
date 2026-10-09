@@ -44,7 +44,7 @@ const actualHtml = files
 assert(sameSet(new Set(actualHtml), expectedHtml), setDifferenceMessage("rendered page", expectedHtml, new Set(actualHtml)))
 assert(files.some(({ relative }) => relative === "effect-4-handbook.html"), "The standalone HTML handbook is missing")
 const pageMarkdown = await buildPageMarkdownArtifacts({ base, siteUrl })
-const expectedMarkdown = new Set(["effect-4-handbook.md", moduleIndexFilename, ...agentBundles.map((bundle) => bundle.filename), ...sitePages.map((page) => page.source)])
+const expectedMarkdown = new Set(["effect-4-handbook.md", "effect-4-essentials.md", moduleIndexFilename, ...agentBundles.map((bundle) => bundle.filename), ...sitePages.map((page) => page.source)])
 const markdownOutputs = files.map(({ relative }) => relative).filter((file) => file.endsWith(".md"))
 assert(sameSet(new Set(markdownOutputs), expectedMarkdown), setDifferenceMessage("generated Markdown", expectedMarkdown, new Set(markdownOutputs)))
 for (const name of ["llms.txt", llmsFullFilename, robotsFilename, moduleIndexJsonFilename]) {

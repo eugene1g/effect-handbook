@@ -60,6 +60,7 @@ Edition **4.0** (updated in place). Tag [`effect@4.0.2`](https://github.com/Effe
 - The recommended `tsconfig.json` targets `ES2025` (with a matching `lib`), and the validation project compiles every example with that target.
 - Split the five largest pages: Schema into [Schema](../data/schema), [Schema in Depth](../data/schema-in-depth), and [Schema Tooling & Internals](../data/schema-tooling); [Fibers, Scopes & Runtimes](../foundations/fibers-scopes-runtimes) out of Core Runtime; [Generated-Code Anti-Patterns](../troubleshooting/anti-patterns) out of Troubleshooting; [MCP Servers](../systems/mcp) out of AI; and [Telemetry Export](../operations/telemetry-export) out of Observability. Old deep links to moved sections redirect to their new pages.
 - Added six diagrams (fiber and Scope ownership, Layer build and teardown, Cause classification, stream demand and buffering, the durability ladder, and the HttpApi request lifecycle), each with alt text and a caption that carries its meaning in the Markdown twins.
+- Added `effect-4-essentials.md`: a generated digest of every concise page and section (about a sixth of the full aggregate), now the default broad read in `llms.txt` and the agent guide.
 - Added this Release History page; `pnpm docs:check` requires an entry for every audited release.
 - Validation: 714 fences, all passing strict TypeScript 7 and strict Effect diagnostics; new runtime probes for `Stream.scan` on empty streams, `Effect.retry` with defect causes, and pending interruption over a failed uninterruptible region.
 

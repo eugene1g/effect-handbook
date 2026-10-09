@@ -1458,7 +1458,7 @@ Official guide: [Error Formatters](https://effect.website/docs/v4/schema/error-f
 
 `effect/Schema` — stable
 
-The public error wrapper used by the high-level `Schema.decode*` and `Schema.encode*` adapters. `Schema.SchemaError` is tagged `"SchemaError"` and carries the raw `SchemaIssue.Issue` in `.issue`; its `.message` applies the default formatter. `Schema.isSchemaError` safely recognizes it, including across duplicated package copies. In RC 108 it lives in the `Schema` namespace; there is no standalone `effect/SchemaError` module.
+The public error wrapper used by the high-level `Schema.decode*` and `Schema.encode*` adapters. `Schema.SchemaError` is tagged `"SchemaError"` and carries the raw `SchemaIssue.Issue` in `.issue`; its `.message` applies the default formatter. `Schema.isSchemaError` safely recognizes it, including across duplicated package copies. It lives in the `Schema` namespace; there is no standalone `effect/SchemaError` module.
 
 ```ts
 import { Result, Schema, SchemaIssue, SchemaParser } from "effect"

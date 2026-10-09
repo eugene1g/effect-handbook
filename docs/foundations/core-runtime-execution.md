@@ -693,8 +693,12 @@ const program = Effect.withExecutionPlan(fetchEmployees, hrisPlan, {
     Effect.sync(() => events.push(`${event._tag}:${event.stepIndex}`))
 })
 
-const selectedEndpoint = Effect.runSync(program) // "https://backup.example"
+const selectedEndpoint = await Effect.runPromise(program)
+console.log(selectedEndpoint) // "https://backup.example"
+console.log(events) // ["AttemptStart:0", "AttemptFailure:0", "AttemptStart:0", "AttemptFailure:0", "AttemptStart:1", "AttemptSuccess:1"]
 ```
+
+The retry schedule sleeps between attempts, so the program is asynchronous: run it with `Effect.runPromise` (or inside a larger program). `Effect.runSync` would throw an `AsyncFiberError` instead of returning.
 
 `attempts` is per step; `ExecutionPlan.CurrentMetadata` exposes the cumulative 1-based attempt and 0-based step index inside the computation. The optional `onEvent` observer receives strictly ordered `AttemptStart` / `AttemptSuccess` / `AttemptFailure` events: `attempt` is cumulative, `stepAttempt` resets for each step, and failures carry the full `Cause`. Every start is paired with one terminal event, including interruption; observer failure cannot change the computation's outcome. `ExecutionPlan.merge` concatenates independently defined plans, while `plan.captureRequirements` captures services needed to build its layers and schedules.
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import {
   ByteSize,
   Cache,
+  Cause,
   Channel,
   Chunk,
   Context,
@@ -10,6 +11,7 @@ import {
   Duration,
   Effect,
   ExecutionPlan,
+  Fiber,
   Filter,
   Formatter,
   JsonPatch,
@@ -143,7 +145,7 @@ assert.equal(ByteSize.fromInput(-1)._tag, "None")
 assert.equal(ByteSize.divide(probeUpload, 0)._tag, "None")
 checked("ByteSize exact units, binary-default formatting, and partial parsing/arithmetic")
 
-// 4.0.0: Stream.partition yields [passes, fails]; Effect.orElseSucceed receives the error; Stream.scan seeds lazily.
+// 4.0.2: Stream.partition yields [passes, fails]; Effect.orElseSucceed receives the error; Stream.scan seeds lazily.
 const [evens, odds] = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
   const [passes, fails] = yield* Stream.partition(
     Stream.make(1, 2, 3, 4),
@@ -156,6 +158,35 @@ assert.deepEqual([evens, odds], [[2, 4], [1, 3]])
 assert.equal(await Effect.runPromise(Effect.fail("stale").pipe(Effect.orElseSucceed((error) => `fallback:${error}`))), "fallback:stale")
 assert.deepEqual(await Effect.runPromise(Stream.runCollect(Stream.make(1, 2, 3).pipe(Stream.scan(() => 0, (sum, n) => sum + n)))), [0, 1, 3, 6])
 checked("Stream.partition order, Effect.orElseSucceed error argument, and lazy Stream.scan seed")
+
+// 4.0.2: Stream.scan emits its seed for an empty stream; Effect.retry does not retry a cause that
+// contains a defect; a pending interruption wins when an uninterruptible region fails.
+assert.deepEqual(await Effect.runPromise(Stream.runCollect(Stream.empty.pipe(Stream.scan(() => 0, (sum: number, n: number) => sum + n)))), [0])
+let mixedCauseAttempts = 0
+await Effect.runPromiseExit(
+  Effect.suspend(() => {
+    mixedCauseAttempts++
+    return Effect.failCause(Cause.combine(Cause.fail("typed"), Cause.die("defect")))
+  }).pipe(Effect.retry({ times: 3 }))
+)
+assert.equal(mixedCauseAttempts, 1)
+const pendingInterrupt = await Effect.runPromise(Effect.gen(function*() {
+  const started = yield* Deferred.make<void>()
+  let recovered = false
+  const fiber = yield* Effect.forkChild(
+    Effect.uninterruptible(Effect.gen(function*() {
+      yield* Deferred.succeed(started, undefined)
+      yield* Effect.sleep("10 millis")
+      return yield* Effect.fail("typed")
+    })).pipe(Effect.catch(() => Effect.sync(() => { recovered = true })))
+  )
+  yield* Deferred.await(started)
+  yield* Fiber.interrupt(fiber)
+  const exit = yield* Fiber.await(fiber)
+  return { recovered, interruptedOnly: exit._tag === "Failure" && exit.cause.reasons.every((reason) => reason._tag === "Interrupt") }
+}))
+assert.deepEqual(pendingInterrupt, { recovered: false, interruptedOnly: true })
+checked("Stream.scan seed on empty streams, Effect.retry skipping defect causes, and pending interruption over a failed uninterruptible region")
 
 const BinaryFrame = Schema.Struct({ runId: Schema.String.pipe(SchemaBinary.fieldId(1)), netPay: Schema.Finite })
 const binaryCodec = SchemaBinary.toCodec(BinaryFrame)
@@ -438,7 +469,7 @@ assert.equal(rpcResult.failure.reason.message, "Received empty HTTP response fro
 checked("RpcClientError can occur after sending a request and receiving an HTTP response")
 
 console.log(JSON.stringify({
-  effect: "4.0.0",
+  effect: "4.0.2",
   nodeNativeTypeScript: true,
   checks
 }, null, 2))

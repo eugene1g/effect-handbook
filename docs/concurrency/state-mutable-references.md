@@ -2,7 +2,7 @@
 
 Effect provides fiber-safe shared-state types (`Ref`, `SynchronizedRef`, `SubscriptionRef`) and unsynchronised in-place data structures (`MutableRef`, `MutableList`, `MutableHashMap`, `MutableHashSet`) for hot paths where Effect overhead is undesirable.
 
-> **Official guides:** [Ref](https://effect.website/docs/v4/state-management/ref); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Ref](https://effect.website/docs/v4/state-management/ref); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
 ## Ref
 

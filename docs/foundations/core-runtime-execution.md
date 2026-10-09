@@ -2,9 +2,9 @@
 
 `Effect` is not a running program — it's a description. The runtime spins up **fibers** to execute descriptions, **scopes** bound resource lifetimes, and a finished computation returns an **Exit** carrying a full **Cause**. Build a value of type `Effect<A, E, R>` by composing combinators; nothing runs until you execute it. Running forks a root fiber that may fork children, await deferreds, race siblings, or open scopes. When it finishes it produces an `Exit<A, E>` — either `Success<A>` or `Failure` holding a `Cause<E>` recording everything that went wrong (typed errors, defects, interruptions).
 
-> **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/04_integration).
+> **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/04_integration).
 
-> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; `Effect.runFork` returns `Fiber`). These guides track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; `Effect.runFork` returns `Fiber`). These guides track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
 ## Effect
 
@@ -657,7 +657,7 @@ const throughLegacyHook = <A, E>(inner: Effect.Effect<A, E>): Effect.Effect<A, E
 
 ## ExecutionPlan
 
-`effect/ExecutionPlan` — stable
+`effect/ExecutionPlan` — unstable
 
 An ordered failover policy for an `Effect` or `Stream`. Each step provides the services needed by the same computation and may add an attempt count, a retry `Schedule`, or a `while` predicate. `Effect.withExecutionPlan` reruns the computation under each step until it succeeds or the plan is exhausted; `Stream.withExecutionPlan` does the same for an entire stream execution.
 
@@ -940,7 +940,7 @@ const program = Effect.gen(function*() {
 
 ### Requesting cancellation versus awaiting cleanup
 
-`Fiber.interrupt(fiber)` completes only after the target has finished — finalizers included — so it back-pressures the caller, and a slow finalizer makes a slow cancel. A fiber inside an uninterruptible region or a finalizer keeps running until that region ends. When the caller must not wait (inside a request handler, under its own deadline), signal and move on: `Effect.forkChild(Fiber.interrupt(fiber), { startImmediately: true })` sends the interruption before continuing while cleanup proceeds in the background, and `fiber.interruptUnsafe()` is the synchronous hook that platform `runMain` uses for `SIGINT`. A public "cancel" API should say which of the two it offers: *request cancellation* or *await cleanup*.
+`Fiber.interrupt(fiber)` completes only after the target has finished — finalizers included — so it back-pressures the caller, and a slow finalizer makes a slow cancel. A fiber inside an uninterruptible region or a finalizer keeps running until that region ends. If the region then fails, the pending interruption still wins: recovery handlers such as `Effect.catch` are skipped, the typed failure is dropped from the `Cause`, and the fiber exits interrupted (defects are kept). When the caller must not wait (inside a request handler, under its own deadline), signal and move on: `Effect.forkChild(Fiber.interrupt(fiber), { startImmediately: true })` sends the interruption before continuing while cleanup proceeds in the background, and `fiber.interruptUnsafe()` is the synchronous hook that platform `runMain` uses for `SIGINT`. A public "cancel" API should say which of the two it offers: *request cancellation* or *await cleanup*.
 
 ## FiberHandle
 
@@ -1398,5 +1398,27 @@ The user-facing entry point is `Stream.toPull(stream)`: a scoped effect (run it 
 > **Note:** This is plumbing. Work with `Stream`, `Channel`, and `Sink` day to day; drop to `Pull` only when writing a custom stream source or low-level operator and need direct control over the produce/fail/done protocol.
 
 **Reach for it when** implementing a custom `Stream` or `Channel` primitive and needing direct control over the element-by-element pull protocol, including the end-of-input signal. For everyday data flow, stay in `Stream`.
+
+## Version
+
+`effect/Version` — unstable
+
+The `effect` package version string reported in OTLP resources, telemetry headers, and span scopes. Added in 4.0.2.
+
+```ts twoslash
+import * as Version from "effect/Version"
+
+// Read the version Effect reports in telemetry.
+const v: string = Version.getCurrentVersion() // e.g. "4.0.2"
+
+// Override it — useful in a monorepo where the installed version
+// should differ from the one surfaced in traces and OTLP resources.
+Version.setCurrentVersion("4.0.2-internal.1")
+console.log(Version.getCurrentVersion()) // "4.0.2-internal.1"
+```
+
+> **Note:** `setCurrentVersion` mutates only this copy of the module. Telemetry layers built before the call retain the version they read at construction time.
+
+**Reach for it when** you need to read or pin the version that Effect reports in OTLP resources and span attributes.
 
 > **Tip:** Effects are descriptions; **fibers** run them; **scopes** decide how long resources live; **exits** and **causes** capture how things ended. Coordinate fibers with **Deferred** (one-time signal) and **Latch** (repeatable gate); supervise dynamic fibers with **FiberHandle/Map/Set**; read time through the **Clock**; bridge to the outside world with **ManagedRuntime**. Wrap foreign code with the constructor that matches its failure convention and forward the **AbortSignal**; give every fiber and resource a named **owner**; call runners only at **owned edges**. Everything else in this handbook builds on these pieces.

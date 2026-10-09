@@ -4,7 +4,7 @@ Describe the API once as data: groups of endpoints, each with Schema-typed path 
 
 > **Tip:** Keep the API *definition* (`HttpApi`, groups, endpoints, error schemas, middleware interfaces) in a module with **no server code**. The server implements handlers against it; clients derive from it. This lets a frontend import the exact same contract the backend serves, with zero server code crossing the boundary.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
+> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
 
 ## HttpApiEndpoint
 
@@ -246,11 +246,13 @@ An HTTP status is a claim about what happened. Map every member of the public er
 | The addressed resource does not exist | `404` | a declared error |
 | State or idempotency conflict: duplicate key, stale version, raise already approved | `409` | a declared error |
 | Well-formed input that current state rejects: salary outside the level's band | `422` | a declared error |
-| A defect — anything the endpoint did not declare | `500`, empty body | HttpApi |
+| A response encoding failure — the handler returned a value the declared success or error schema could not encode | `500`, empty body | HttpApi — reported to `ErrorReporter` |
+| A defect — anything the endpoint did not declare | `500`, empty body | HttpApi — reported to `ErrorReporter` |
 | The request fiber was interrupted: by a client disconnect / by the server itself | `499` / `503` | `HttpServerError.causeResponse` |
 
 - **Only a query that succeeded and returned nothing is "not found".** A timeout, an exhausted pool, a permission error, or a malformed row is an infrastructure fault; rendering it as `404` or `409` makes clients act on a lie. Translate storage failures at the repository ([SqlError](sql#sqlerror)) and let the rest become `500`.
 - **Do not `Effect.die` an expected failure to shrink a union.** Convert to a defect only what no caller could act on at this edge — as the [handler example](#httpapibuilder) does for a `BandViolation` that a read cannot produce. A `BandViolation` the UI must display belongs in the endpoint's `error` list.
+- **Request decoding failures are unreported; response encoding failures are not.** An invalid path param, query value, header, or payload body fails with `400` and the cause is *not* reported to `ErrorReporter` (it's a client mistake, not a server problem). A handler that returns a value the declared success or error schema cannot encode fails with `500` and *is* reported — it is a schema contract violation on the server side. The underlying `HttpApiSchemaError` is preserved as a defect so schema-error middleware (`HttpApiMiddleware.layerSchemaErrorTransform`) can still inspect it.
 - **Defects are sanitized for you.** A defect is answered with a content-free `500`; the `Cause` goes to the server log and any configured [`ErrorReporter`](../foundations/errors-option-result#errorreporter), never to the client. Do not add a catch-all that serializes `error.message` into the body.
 - **Interruption is not a failure response.** A disconnect interrupts the request fiber (`499` is for your access log only — nobody receives it); do not catch it, retry it, or count it as an error rate.
 - **The implicit `400` is not in the contract until you declare it.** `OpenApi.fromApi` lists only declared statuses, and a derived client sees an undeclared `400` as an `HttpClientError`. Add `HttpApiError.BadRequestNoContent` to `error` wherever inputs are validated; the client then fails with a typed `BadRequest` and the document lists `400`. To answer decode failures with your own body instead, implement a middleware with `HttpApiMiddleware.layerSchemaErrorTransform(service, (schemaError, { endpoint, group }) => ...)`.

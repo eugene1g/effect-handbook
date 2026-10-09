@@ -18,6 +18,9 @@ import {
   writePageMarkdownArtifacts
 } from "./build-page-markdown.ts"
 
+// The audited release, escaped for use inside a RegExp, so header assertions follow handbook.ts.
+const releaseVersionPattern = handbookRelease.version.replaceAll(".", String.raw`\.`)
+
 const root = path.resolve(import.meta.dirname, "..")
 
 test("writes Markdown twins that preserve the source and detects drift", async (context) => {
@@ -34,7 +37,7 @@ test("writes Markdown twins that preserve the source and detects drift", async (
       readFile(path.join(outputDirectory, page.source), "utf8")
     ])
     const [header, blank, ...rest] = twin.split("\n")
-    assert.match(header, /^<!-- Markdown twin of \/\S* · The Effect 4 Handbook \(effect@4\.0\.0, audited \d{4}-\d{2}-\d{2}\) · Index: \/llms\.txt · Modules: \/effect-4-modules\.md · Agent guide: \/reference\/agent-guide\.md -->$/, page.source)
+    assert.match(header, new RegExp(String.raw`^<!-- Markdown twin of \/\S* · The Effect 4 Handbook \(effect@${releaseVersionPattern}, audited \d{4}-\d{2}-\d{2}\) · Index: \/llms\.txt · Modules: \/effect-4-modules\.md · Agent guide: \/reference\/agent-guide\.md -->$`), page.source)
     assert.equal(blank, "", page.source)
     const body = rest.join("\n").replace(/^\*\*Contents:\*\* .*\n\n/m, "")
     // Apart from the header, the optional contents line, and `.md` link
@@ -137,9 +140,9 @@ test("builds grouped links for root, Pages base, and an absolute site URL", () =
   assert.match(index, /\[Capability catalog\]\(\/effect-handbook\/effect-4-catalog\.json\)/)
   assert.match(index, /\[Example inventory and validation plan\]\(\/effect-handbook\/effect-4-examples\.json\)/)
   assert.match(index, /\[llms-full\.txt\]\(\/effect-handbook\/llms-full\.txt\)/)
-  assert.match(index, /This is the \*\*4\.0 edition\*\* \(effect@4\.0\.0\)/)
+  assert.match(index, new RegExp(String.raw`This is the \*\*4\.0 edition\*\* \(effect@${releaseVersionPattern}\)`))
   assert.match(index, /## Editions\n/)
-  assert.match(index, /- \[4\.0 — effect@4\.0\.0\]\(\/effect-handbook\/4\.0\/llms\.txt\): audited \d{4}-\d{2}-\d{2} \(latest, this file\)\./)
+  assert.match(index, new RegExp(String.raw`- \[4\.0 — effect@${releaseVersionPattern}\]\(\/effect-handbook\/4\.0\/llms\.txt\): audited \d{4}-\d{2}-\d{2} \(latest, this file\)\.`))
   assert.match(index, /## Domain bundles/)
   assert.match(index, /\(~\d+(\.\d)?K words\)/)
   assert.match(index, /## Intent and primitive map/)
@@ -155,5 +158,5 @@ test("builds grouped links for root, Pages base, and an absolute site URL", () =
   assert.match(robots, /major\.minor\): \/effect-handbook\/versions\.json/)
   assert.doesNotMatch(robots, /Sitemap:/)
   assert.match(buildRobotsTxt({ siteUrl: "https://example.com/handbook" }), /\nSitemap: https:\/\/example\.com\/handbook\/sitemap\.xml\n$/)
-  assert.equal(handbookRelease.version, "4.0.0")
+  assert.equal(handbookRelease.version, "4.0.2")
 })

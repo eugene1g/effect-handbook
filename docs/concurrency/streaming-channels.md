@@ -2,9 +2,9 @@
 
 `Stream<A, E, R>` is a pull-based source: the consumer requests the next chunk, the stream computes it (possibly failing with `E`, needing services `R`), emits the chunk, and waits. This pull loop provides automatic back-pressure. `Sink<A, In, L, E, R>` folds chunks into a final answer. `Channel` is the bidirectional primitive both are built from. In practice: live in `Stream` 95% of the time; reach for `Channel` only when authoring a new operator.
 
-> **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
+> **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
 >
-> **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
 ## Stream
 
@@ -145,11 +145,11 @@ Official guide: [Creating Streams](https://effect.website/docs/v4/stream/creatin
 | Per element, pure | `map` / `as` / `filter` / `filterMap` | `as(value)` replaces every element with a constant. `filterMap` takes a `Filter` (returns a `Result`), not an `Option`-returning function. |
 | Per element, effectful | `mapEffect` / `tap` | `mapEffect` accepts `{ concurrency, unordered }`; ordered output is the default. |
 | Fan out per element | `flatMap` / `switchMap` / `flattenIterable` | `flatMap` runs every inner stream to completion. `switchMap` interrupts the previous inner stream when the outer emits again — stale work is cancelled, not queued. `flattenIterable` is the inverse of `grouped`. |
-| Carry state | `scan` / `mapAccum` (`scanEffect`, `mapAccumEffect`) | `scan(() => initial, f)` emits the seed and every intermediate value; its seed (and `scanEffect`'s) is a thunk, like `mapAccum`'s. `mapAccum(() => initial, (state, a) => [next, outputs])` returns an *array* of outputs, so one input can emit zero, one, or many; `{ onHalt }` flushes leftover state at the end. Both keep bounded state. |
+| Carry state | `scan` / `mapAccum` (`scanEffect`, `mapAccumEffect`) | `scan(() => initial, f)` emits the seed and every intermediate value — for an empty stream, just the seed is emitted. Its seed (and `scanEffect`'s) is a thunk, like `mapAccum`'s. `mapAccum(() => initial, (state, a) => [next, outputs])` returns an *array* of outputs, so one input can emit zero, one, or many; `{ onHalt }` flushes leftover state at the end. Both keep bounded state. |
 | Stop early | `take` / `takeWhile` / `takeUntil` / `takeRight` / `haltWhen` / `interruptWhen` | `takeWhile` stops *before* the first failing element; `takeUntil` *includes* the element that matched unless `{ excludeLast: true }`. `takeRight(n)` must see the end, so it buffers `n` and never emits on an infinite source. `haltWhen(effect)` stops before the next pull; `interruptWhen(effect)` also interrupts the pull in progress. |
-| Batch | `grouped(n)` / `groupedWithin(n, duration)` / `rechunk(n)` | `grouped` flushes only when `n` elements arrived or the stream ended. `groupedWithin` flushes on size **or** elapsed time, whichever is first — the right shape for live feeds. `rechunk` resizes the internal chunks without changing the element type. |
+| Batch | `grouped(n)` / `groupedWithin(n, duration)` / `rechunk(n)` | `grouped` flushes only when `n` elements arrived or the stream ended. `groupedWithin` flushes on size **or** elapsed time, whichever is first — the right shape for live feeds. The schedule is paused while the stream is idle (no incoming elements), so quiet periods do not consume the time budget; when the schedule's own limit is reached, it emits the current partial batch and stops without further upstream pulls. `rechunk` resizes the internal chunks without changing the element type. |
 | Rate control | `throttle` / `debounce(duration)` / `schedule(schedule)` | `throttle` is a token bucket charged per *chunk* via `cost(chunk)`: `"shape"` delays, `"enforce"` drops the whole over-budget chunk (`rechunk(1)` first for per-element dropping), `burst` raises the bucket to `units + burst`. `debounce` emits only the last value after a quiet period. `schedule` spaces every element by a `Schedule`. |
-| Keyed sub-streams | `groupByKey(f)` / `groupBy` | Emits `[key, Stream]` pairs; consume them with `flatMap(..., { concurrency: "unbounded" })` or a finite bound. Each key owns a queue (`bufferSize`, default 4096 elements); `idleTimeToLive` retires quiet keys, which matters when the key space is large. |
+| Keyed sub-streams | `groupByKey(f)` / `groupBy` | Emits `[key, Stream]` pairs; consume them with `flatMap(..., { concurrency: "unbounded" })` or a finite bound. Each key owns a queue (`bufferSize`, default 4096 elements); `idleTimeToLive` retires quiet keys, which matters when the key space is large. If a substream consumer stops early, the underlying queue is shut down so the source is not left hanging. |
 | Dedupe | `changes` | Drops consecutive elements that are `Equal.equals`. |
 | Text framing | `decodeText` / `splitLines` / `encodeText` | `decodeText` decodes incrementally, so a multi-byte character may straddle chunks. `splitLines` accepts `\n`, `\r\n`, and a lone `\r`, and carries an incomplete line to the next pull. |
 | Shape the output | `drain` / `intersperse` | `drain` keeps a stream's effects but emits nothing, so it can be `merge`d in as a background side-stream. `intersperse` inserts a separator between elements. |
@@ -312,7 +312,7 @@ Official guide: [Consuming Streams](https://effect.website/docs/v4/stream/consum
 | Pair with neighbors | `zipWithIndex` / `zipWithPrevious` / `zipWithNext` | The neighbor is an `Option`; no manual counter or `mapAccum` needed. |
 | Alternate deterministically | `interleave` | Unlike `merge`, the order does not depend on timing. |
 | Every combination | `cross` | Re-runs the right stream once per left element — expensive if the right side does I/O. |
-| Two branches by a rule | `partition(filter)` / `partitionEffect(filter)` | Returns a scoped `Effect` of two queue-backed streams. Both yield `[passes, fails]` (the passing branch first) and take a `capacity` option: default 16 for `partition`, 4096 for `partitionEffect`. Swapped names still type-check when both branches share a type, so double-check the destructuring order against the tuple position, not the variable name. |
+| Two branches by a rule | `partition(filter)` / `partitionEffect(filter)` | Returns a scoped `Effect` of two queue-backed streams. Both yield `[passes, fails]` (the passing branch first) and take a `capacity` option: default 16 for `partition`, 4096 for `partitionEffect`. Swapped names still type-check when both branches share a type, so double-check the destructuring order against the tuple position, not the variable name. A consumer that stops early shuts down its queue so the other branch and the source are not left hanging. |
 | Same elements to several consumers | `broadcastN({ n, capacity })` / `broadcast` / `share` | Running one `Stream` value twice runs its source twice. These run it once behind a `PubSub`: with the default `"suspend"` strategy the source advances at most `capacity` chunks ahead of the **slowest** consumer. `share` is the ref-counted variant: upstream starts with the first subscriber and is finalized after the last. |
 
 ```ts
@@ -662,7 +662,7 @@ The Web Streams interop set is complete at this level: `fromReadableStream`, `fr
 
 ## ChannelSchema
 
-`effect/ChannelSchema` — stable
+`effect/ChannelSchema` — unstable
 
 Adapter layer that attaches a `Schema` to a channel boundary. `ChannelSchema.encode(schema)()` converts typed values to the schema's encoded form; `ChannelSchema.decode(schema, parseOptions?)()` validates the inverse, and takes optional `SchemaAST.ParseOptions` such as `{ onExcessProperty: "error" }` (as does `decodeUnknown`). `duplex` wraps a bidirectional channel so callers see typed I/O while the inner channel speaks the wire format.
 

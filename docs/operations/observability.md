@@ -2,7 +2,7 @@
 
 _Effect ships structured logging, spans, and metrics as first-class runtime citizens. The export layer is separate — use a local collector for development, an OTLP endpoint for production, or skip export in tests._
 
-> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/08_observability) cover production logging and OTLP tracing.
+> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/08_observability) cover production logging and OTLP tracing.
 
 ## Designing signals
 
@@ -386,6 +386,8 @@ Low-level tracing model. A `Tracer` service creates `Span` objects when the runt
 
 **The span tree is not the fiber tree.** Forking a fiber does not create a span; only `Effect.withSpan`, `Effect.fn("name")`, `Layer.withSpan`, and instrumented libraries do. A forked child inherits the current parent span, so its spans nest correctly, but spans should mirror the operations an operator cares about (load band → fetch rating → compute raise), not the concurrency structure. Use [FiberSet and friends](../foundations/core-runtime-execution#fiberset) when the question is "which fibers are alive".
 
+**With the `@effect/opentelemetry` tracer, spans without an Effect parent inherit the active OpenTelemetry span.** When an Effect span has no Effect parent but the calling code already has an active OTel span (for example, an auto-instrumented HTTP framework), that OTel span becomes the Effect span's parent, so the tree connects across the OTel/Effect boundary without manual bridging. An Effect parent always takes precedence over the active OTel span. The native `OtlpTracer` does not read the OTel context API; with it, bridge explicitly with `Tracer.externalSpan` / `Effect.withParentSpan`.
+
 ### Core tracing APIs — wrapping a merit-calculation run
 
 ```ts
@@ -445,7 +447,7 @@ The runtime and the exporters record several things without any code from you, s
 | The span ends with the wrapped effect's `Exit` (`SpanStatus` = `Ended` with `exit`) on success, failure, **and interruption** | `Effect.withSpan` / `Effect.fn` |
 | Success → status OK | `OtlpTracer` and `@effect/opentelemetry` |
 | Failure or defect → status ERROR with the first error's message, plus one `exception` event per error (type, message, stack trace) | `OtlpTracer` and `@effect/opentelemetry` |
-| Interruption only → status OK with attribute `status.interrupted = true` | `OtlpTracer` and `@effect/opentelemetry` |
+| Interruption only → status `Unset` with attribute `effect.fiber.interrupted: true` (no error event) | `OtlpTracer` and `@effect/opentelemetry` |
 
 A failing child marks every enclosing span as failed too unless something in between recovers, because each span ends with the `Exit` of the effect it wraps. A span proves that an effect ran and how it exited; it proves neither that a transaction committed nor that cleanup finished.
 
@@ -870,6 +872,8 @@ Use `OtlpLogger.layerFromConfig()` to read endpoint URL and headers from `OTEL_E
 `effect/observability/OtlpMetrics` — unstable
 
 Periodically reads the Effect metric registry and posts snapshots to an OTLP metrics endpoint. Supports `"cumulative"` and `"delta"` aggregation temporality.
+
+A `Metric.summary` is exported as one OTLP `Summary` metric named by its id (quantiles, count, and sum together), always cumulative regardless of `temporality`; common unit names such as `milliseconds` are mapped to UCUM units. Dashboards that matched separate `<id>_quantiles`, `<id>_count`, or `<id>_sum` series need updating.
 
 ```ts
 import { Layer } from "effect"

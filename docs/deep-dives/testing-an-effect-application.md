@@ -1,6 +1,6 @@
 # Testing an Effect Application
 
-> Audited **2026-09-19** against `effect@4.0.0`. This guide uses `@effect/vitest@4.0.0`, Vitest 5, TypeScript 7 strict mode, and the test services shipped by the same Effect release.
+> Audited **2026-10-09** against `effect@4.0.2`. This guide uses `@effect/vitest@4.0.2`, Vitest 5, TypeScript 7 strict mode, and the test services shipped by the same Effect release.
 
 An Effect test should exercise the same program description as production while replacing only its boundary Layers. That means testing values, typed failures, required services, time, interruption, and resource lifetime without putting `runPromise`, global mocks, or real sleeps inside application code.
 

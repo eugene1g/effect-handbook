@@ -67,4 +67,4 @@ const maximum = await Effect.runPromise(Effect.gen(function*() {
 assert.equal(maximum, 2)
 checks.push("Semaphore bounds unbounded child concurrency")
 
-console.log(JSON.stringify({ target: "effect@4.0.0", probes: checks.length, checks }))
+console.log(JSON.stringify({ target: "effect@4.0.2", probes: checks.length, checks }))

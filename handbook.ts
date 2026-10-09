@@ -30,6 +30,7 @@ const pageDescriptions = {
   "tooling/persistence.md": "Persistence services, backing stores, serialization, primary keys, and durable application state.",
   "tooling/testing-dev-tooling.md": "Effect testing, Vitest integration, generators, doctests, language tooling, and repository tools.",
   "reference/cheat-sheet-index.md": "A task-oriented Effect 4 cheat sheet and linked index into the concise handbook.",
+  "reference/release-history.md": "What changed between audited Effect releases: behavior, stability, renamed options and telemetry names, new modules, and handbook corrections, one entry per release.",
   "reference/agent-guide.md": "How a coding agent should read this handbook: which Markdown artifact to fetch for which task, the .md URL rule, catalog and example-inventory fields, citing sections, and a drop-in instructions block.",
   "reference/choosing-effect-primitives.md": "Contrastive decision tables for selecting Effect primitives by errors, services, lifetime, backpressure, durability, and distribution.",
   "troubleshooting/troubleshooting-and-anti-patterns.md": "Searchable symptoms, causes, fixes, and common Effect code-generation anti-patterns.",
@@ -76,18 +77,37 @@ const pageRelated = Object.freeze({
   "reference/review-checklists.md": ["reference/choosing-effect-primitives.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
   "reference/agent-guide.md": ["index.md", "reference/cheat-sheet-index.md", "reference/choosing-effect-primitives.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
   "reference/cheat-sheet-index.md": ["reference/agent-guide.md", "reference/choosing-effect-primitives.md"],
+  "reference/release-history.md": ["index.md", "foundations/getting-started.md", "troubleshooting/troubleshooting-and-anti-patterns.md"],
   "recipes/request-cancellation-through-a-host.md": ["recipes/managed-runtime-integration.md", "foundations/core-runtime-execution.md", "deep-dives/owning-lifetimes-startup-readiness-and-shutdown.md"],
   "recipes/transactional-write-with-outbox.md": ["interfaces/sql.md", "recipes/schema-httpapi-sql-boundary.md", "deep-dives/durability-and-distribution-ladder.md"]
 })
 
 export const handbookRelease = Object.freeze({
   package: "effect",
-  version: "4.0.0",
-  tag: "effect@4.0.0",
-  commit: "67ba4e46a11ccda0b6761578bfd22c04ae00167d",
-  publishedAt: "2026-10-01T03:11:28.537Z",
-  auditedAt: "2026-10-01"
+  version: "4.0.2",
+  tag: "effect@4.0.2",
+  commit: "269a7c864351231d42e6e95b7fa8f32050df3691",
+  publishedAt: "2026-10-07T18:21:31.965Z",
+  auditedAt: "2026-10-09"
 })
+
+function upstreamUrl(kind: "blob" | "tree", pathname: string): string {
+  return `https://github.com/Effect-TS/effect/${kind}/${encodeURIComponent(handbookRelease.tag)}/${pathname}`
+}
+
+// The "Official Effect" navigation menu. It lives here rather than in the
+// VitePress config so `pnpm docs:links` can check these URLs without
+// installing the site's dependencies. Release-pinned links must name a path
+// that exists at `handbookRelease.tag`; the official site's guides track `main`.
+export const officialEffectLinks: ReadonlyArray<{ readonly text: string; readonly link: string }> = Object.freeze([
+  // The upstream cookbook (formerly a `cookbooks/` folder on the pre-release
+  // repository, absent from the tagged source) is published as the official
+  // site's v4 Schedule cookbook.
+  { text: "Schedule cookbook", link: "https://effect.website/docs/v4/scheduling/cookbook" },
+  { text: "Schema guide", link: upstreamUrl("blob", "packages/effect/SCHEMA.md") },
+  { text: "AI documentation source", link: upstreamUrl("tree", "ai-docs/src") },
+  { text: "LLMS.md", link: upstreamUrl("blob", "LLMS.md") }
+])
 
 export const handbookGroups = [
   {
@@ -183,7 +203,8 @@ export const handbookGroups = [
       page("Persistence", "tooling/persistence.md"),
       page("Testing & Dev Tooling", "tooling/testing-dev-tooling.md"),
       page("Cheat Sheet & Index", "reference/cheat-sheet-index.md"),
-      page("Using the Handbook from an Agent", "reference/agent-guide.md")
+      page("Using the Handbook from an Agent", "reference/agent-guide.md"),
+      page("Release History", "reference/release-history.md")
     ]
   }
 ]
@@ -252,7 +273,8 @@ export const agentBundles = [
     "recipes/request-cancellation-through-a-host.md",
     "tooling/testing-dev-tooling.md",
     "reference/cheat-sheet-index.md",
-    "reference/agent-guide.md"
+    "reference/agent-guide.md",
+    "reference/release-history.md"
   ]),
   bundle("web", "Effect 4 Web & Service Boundaries", "effect-4-web.md", [
     "data/schema.md",

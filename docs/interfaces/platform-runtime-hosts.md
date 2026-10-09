@@ -8,7 +8,7 @@ Who owns each of these runtimes, and when it is disposed, is a separate question
 
 ## FileSystem
 
-`effect/FileSystem` — stable
+`effect/FileSystem` — unstable
 
 Service interface for filesystem operations: read, write, stat, copy, move, delete, make directories, create temp paths, stream bytes, watch for changes. Discrete operations return an `Effect` failing with `PlatformError` (`BadArgument` or `SystemError` carrying the OS reason); `stream` and `watch` expose that failure through a `Stream`. `PlatformError.isPlatformError(error)` is a type guard for narrowing an `unknown` caught value — useful at a boundary that re-throws or logs errors from several sources.
 
@@ -104,7 +104,7 @@ const firstBand = Effect.gen(function*() {
 
 ## Path
 
-`effect/Path` — stable
+`effect/Path` — unstable
 
 Service interface wrapping platform path utilities: `join`, `resolve`, `dirname`, `basename`, `extname`, `normalize`, `relative`, `isAbsolute`, `parse`, `format`, plus effectful `fromFileUrl` and `toFileUrl` helpers. The `sep` property gives the platform separator.
 
@@ -141,7 +141,7 @@ Official guide: [Path](https://effect.website/docs/v4/platform/path).
 
 ## Terminal
 
-`effect/Terminal` — stable
+`effect/Terminal` — unstable
 
 Interactive terminal I/O: query dimensions (`columns`, `rows`), read a line (`readLine`), receive a stream of key events (`readInput`), display text (`display`). Input reading fails with `QuitError` on Ctrl+C or Ctrl+D.
 
@@ -200,7 +200,7 @@ Official guide: [Terminal](https://effect.website/docs/v4/platform/terminal).
 
 ## Stdio
 
-`effect/Stdio` — stable
+`effect/Stdio` — unstable
 
 Lower-level counterpart to `Terminal`: `process.argv` via `args`, write `Sink`s for stdout and stderr (accepting `string | Uint8Array`), raw byte `Stream` for stdin, and `stdinIsTerminal` / `stdoutIsTerminal` effects for adapting output to pipes versus TTYs. I/O can fail with `PlatformError`. `Stdio.layerTest` lets you stub any field for unit testing.
 
@@ -233,7 +233,7 @@ When to use: streaming CLI tools, stdin byte processing, or typed argv access wi
 
 ## Crypto
 
-`effect/Crypto` — stable
+`effect/Crypto` — unstable
 
 Platform-agnostic cryptographic primitives backed by the host's secure RNG: `randomBytes`, `digest` (SHA-1/256/384/512), `randomUUIDv4`, `randomUUIDv7`, `randomULID`, `randomInt`, `randomBetween`, `randomIntBetween`, `randomBoolean`, `randomShuffle`. Sync-named variants are still `Effect`s — call with `yield*`.
 

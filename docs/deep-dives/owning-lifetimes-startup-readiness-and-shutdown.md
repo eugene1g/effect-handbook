@@ -1,6 +1,6 @@
 # Owning Lifetimes — Startup, Readiness, and Shutdown
 
-Audited against `effect@4.0.0` and the matching Effect repository source on 2026-09-19. Every behavioral claim marked *probed* was run against the published packages.
+Audited against `effect@4.0.2` and the matching Effect repository source on 2026-10-09. Every behavioral claim marked *probed* was run against the published packages.
 
 Every service is three programs: the one that starts it, the one that serves, and the one that stops it. Only the middle one is usually written on purpose. This guide follows one HR-platform service — a raise-approval worker with a payroll database pool, a telemetry exporter, and an intake loop — and makes the other two explicit: who owns each thing, in what order it comes up, what "ready" means, and what a single shutdown looks like on every host.
 
@@ -346,7 +346,7 @@ Before choosing a serverless or edge row, get five answers from the platform: ar
 
 A lifetime claim is testable, and the oracle is always the same: **live state before close, terminal state after.** Build the graph in a scope the test owns, assert what is up, close the scope, then assert the order and that every acquisition has its release. Use a handshake (`Deferred`) wherever the test must know work is in flight, and `TestClock` wherever it must know a bound — a sleep proves neither.
 
-> **Example status — Runnable in Vitest:** all three pass on `effect@4.0.0` with `@effect/vitest`.
+> **Example status — Runnable in Vitest:** all three pass on `effect@4.0.2` with `@effect/vitest`.
 
 ```ts
 import { assert, it } from "@effect/vitest"

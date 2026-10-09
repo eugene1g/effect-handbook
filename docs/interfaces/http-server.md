@@ -409,7 +409,7 @@ const headers = Headers.set(
 const safeForLogs = Headers.redact(headers, ["authorization"])
 ```
 
-`Headers.CurrentRedactedNames` defaults to `authorization`, `cookie`, `set-cookie`, and `x-api-key`. String patterns match header names case-insensitively and regular expressions (including global or sticky ones) are tested against the name, and the same list governs the `http.request.header.*` / `http.response.header.*` attributes on **server** spans as well as client spans. Add your own secrets-bearing names (`x-hris-signature`, a session header) once, at the server edge:
+`Headers.CurrentRedactedNames` defaults to `authorization`, `cookie`, `set-cookie`, and `x-api-key`. String patterns match header names case-insensitively and regular expressions (including global or sticky ones) are tested against the name. The list governs what `HttpMiddleware.logger` redacts in log output. Header capture on **server spans** is opt-in: `HttpMiddleware.TracerHeaderFilter` controls which header names are added as `http.request.header.*` / `http.response.header.*` span attributes — the default records no headers. When you do enable capture, `CurrentRedactedNames` still applies and redacted headers are recorded as `"<redacted>"`. Add your own secrets-bearing names (`x-hris-signature`, a session header) once, at the server edge:
 
 ```ts
 import { Layer } from "effect"

@@ -125,7 +125,7 @@ The API is deliberately small — `make`, `makeUnsafe`, `get`, `set`, `update`, 
 
 ## TxChunk
 
-`effect/TxChunk` — stable
+`effect/TxChunk` — unstable
 
 A transactional growable sequence — a `Chunk` wrapped in a `TxRef` — with `append`, `prepend`, `take`, `drop`, `slice`, `map`, `filter`, `isEmpty`/`isNonEmpty`, all transactional. `TxChunk.isTxChunk` narrows an unknown value.
 
@@ -276,7 +276,7 @@ const program = Effect.gen(function*() {
 
 Counting semaphore whose permit acquisition is transactional. `acquire`/`acquireN` block (retry) until enough permits are free; `tryAcquire` never blocks; `withPermit`/`withPermits` bracket an effect with auto-release.
 
-**Mental model.** Transactional analog of `Semaphore`. Use scoped helpers — they acquire before the effect and release on success, failure, *or* interruption, so permits are never leaked.
+**Mental model.** Transactional analog of `Semaphore`. Use scoped helpers — they acquire before the effect and release on success, failure, *or* interruption, so permits are never leaked. The wait for a permit is itself interruptible: a fiber interrupted while blocked on `acquire` leaves no partially-acquired permits behind.
 
 ```ts
 import { Console, Effect, TxSemaphore } from "effect"
@@ -311,7 +311,7 @@ const program = Effect.gen(function*() {
 
 Transactional reader-writer lock that is *reentrant*: the same fiber can re-acquire a lock it already holds. Multiple readers may share the read lock; a writer gets exclusive access. Helpers: `withReadLock`, `withWriteLock`, `withLock`, plus scoped `readLock`/`writeLock`.
 
-**Mental model.** Transactional analog of a classic RW-lock. Use when optimistic retry is not the right shape — e.g., read-mostly state that many fibers read but only one rewrites, with reentrancy to prevent self-deadlock in nested calls.
+**Mental model.** Transactional analog of a classic RW-lock. Use when optimistic retry is not the right shape — e.g., read-mostly state that many fibers read but only one rewrites, with reentrancy to prevent self-deadlock in nested calls. Waiting for a read or write lock is interruptible, so a fiber interrupted before it acquires the lock leaves no partial hold.
 
 ```ts
 import { Effect, TxReentrantLock } from "effect"
@@ -364,7 +364,7 @@ const program = Effect.gen(function*() {
 
 Transactional priority queue ordered by an `Order`. `take` returns the smallest element by that order. Constructors (`empty`, `make`, `fromIterable`) take the `Order` up front. `offer`/`offerAll` insert in priority order (`offerAll` merges the batch in rather than re-sorting the whole queue). Also `peek`, `takeUpTo`, `removeIf`, `retainIf`, `isEmpty`/`isNonEmpty`.
 
-**Mental model.** Transactional analog of a priority queue/heap. Use for scheduling where the next item to process is the highest-priority one and atomic offer/take across coordinated state is required.
+**Mental model.** Transactional analog of a priority queue/heap. Use for scheduling where the next item to process is the highest-priority one and atomic offer/take across coordinated state is required. `offerAll` (and `TxHashMap.fromIterable`/`setMany`/`removeMany`, `TxHashSet.fromIterable`) preserve one-shot iterables across transaction retries, so passing a generator or iterator is safe even when the transaction is retried.
 
 ```ts
 import { Effect, Order, TxPriorityQueue } from "effect"

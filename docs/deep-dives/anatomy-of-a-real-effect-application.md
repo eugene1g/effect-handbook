@@ -1,6 +1,6 @@
 # Anatomy of a Real Effect Application
 
-This guide turns Effect's core primitives into one application shape. It targets `effect@4.0.0`: domain values are Schemas, expected failures are tagged errors, behavior lives behind services, Layers own construction and cleanup, and the runtime is called only at an application edge.
+This guide turns Effect's core primitives into one application shape. It targets `effect@4.0.2`: domain values are Schemas, expected failures are tagged errors, behavior lives behind services, Layers own construction and cleanup, and the runtime is called only at an application edge.
 
 Use the concise references when you need the complete API surface: [Core Runtime & Execution](../foundations/core-runtime-execution), [Services, Context & Layers](../foundations/services-context-layers), [Configuration & Secrets](../foundations/configuration-secrets), [Errors, Option & Result](../foundations/errors-option-result), [Schema](../data/schema), [Observability](../operations/observability), and [Testing & Dev Tooling](../tooling/testing-dev-tooling).
 

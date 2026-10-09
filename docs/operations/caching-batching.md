@@ -2,9 +2,9 @@
 
 Caching avoids repeating the same lookup result; batching combines many logically independent requests into fewer physical calls. `Cache` stores both successful and failed lookup `Exit` values, while `ScopedCache` owns resource lifetimes. `Request` and `RequestResolver` describe data fetching so Effect can deduplicate and batch it safely.
 
-> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/05_batching) builds a batched `RequestResolver`.
+> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/05_batching) builds a batched `RequestResolver`.
 
-> **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option `Effect.forEach` does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These guides track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option `Effect.forEach` does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These guides track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
 ## Which problem do you have?
 
@@ -63,11 +63,11 @@ export const makeCompBandsHandle = Effect.cachedWithTTL(
 | --- | --- | --- |
 | `Effect.cached(e)` | For as long as the handle lives | None |
 | `Effect.cachedWithTTL(e, ttl)` | For `ttl`, a `Duration.Input` **or** `(exit) => Duration.Input` | Expiry, read from the `Clock` — `TestClock.adjust` controls it in tests |
-| `Effect.cachedInvalidateWithTTL(e, ttl)` | For a fixed `Duration.Input` (no `Exit`-based overload) | Expiry, or the returned `invalidate` effect |
+| `Effect.cachedInvalidateWithTTL(e, ttl)` | For `ttl`, a `Duration.Input` **or** `(exit) => Duration.Input` | Expiry, or the returned `invalidate` effect |
 
 - **Yield the outer effect once and share the handle.** `yield* Effect.cached(load)` at every call site builds a fresh, empty cell each time and caches nothing.
-- **The whole `Exit` is stored — failures included.** With `Effect.cached` or a fixed TTL, a transient `HrisUnavailable` is replayed to every caller until expiry, which for `cached` is never. Branch on the `Exit` and return `0` for non-success so the next caller retries.
-- **The work runs on the first caller's fiber, so that caller's interruption is an outcome too.** If the first caller is interrupted mid-load, `Effect.cached` and a fixed-TTL `cachedWithTTL` hand that interruption to every later caller; the Exit-based TTL above avoids it. `Cache` differs here: it runs each lookup in its own fiber and never retains an interrupted lookup.
+- **Failures are stored — interruptions are not.** With `Effect.cached` or a fixed-TTL `cachedWithTTL`, a transient `HrisUnavailable` is replayed to every caller until expiry, which for `cached` is never. Branch on the `Exit` and return `0` for non-success so the next caller retries. Interrupted computations are never cached: the pending work is interrupted only after every waiting caller has been interrupted (abandonment), and the next caller then starts a fresh computation.
+- **`Cache` applies the same abandonment rule**: an interrupted `Cache.get` lookup is never retained; the next caller starts fresh.
 - **Reach for [`Cache`](#cache) as soon as there is a key**, and for [`Resource`](../foundations/services-context-layers#resource) when the value needs scheduled refresh or owns a resource.
 
 Official guide: [Caching Effects](https://effect.website/docs/v4/caching/caching-effects) (its "once" heading is not an API name; the code under it uses `Effect.cached`).
@@ -84,7 +84,7 @@ Effectful memoization table with bounded capacity and optional TTL. A lookup eff
 | --- | --- | --- |
 | Success | Yes, until its TTL passes or it is evicted | Later `get` calls are hits |
 | Typed failure or defect | **Yes, for the same TTL** | Every caller receives the stored failure without a new lookup — protection against a stampede on a failing backend, and a recovery delay if the TTL is long (see [Failure and freshness policy](#failure-and-freshness-policy)) |
-| Interruption | No — an interrupted lookup is removed | The next `get` starts a fresh lookup. A pending lookup can also be interrupted once no caller is waiting for it, so keep lookups safe to interrupt and to repeat |
+| Interruption | No — interrupted results are never cached | Concurrent callers share the lookup; the lookup is interrupted only once every waiting caller has been interrupted (abandonment). A call made while the abandoned computation is still finalizing starts a fresh lookup. Keep lookups safe to interrupt and to repeat |
 
 The TTL is measured from the moment the lookup completes and is read from the `Clock`; a hit moves the entry to the fresh end of the eviction order but does not extend its TTL.
 

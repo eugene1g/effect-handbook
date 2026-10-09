@@ -2,12 +2,12 @@
 
 Build the service graph once, call it from Promise-based callbacks many times, and dispose it when the host application stops.
 
-> **Official guides:** [Runtime](https://effect.website/docs/v4/runtime). Where that guide and the tagged `effect@4.0.0` source disagree, this page and the source win.
+> **Official guides:** [Runtime](https://effect.website/docs/v4/runtime). Where that guide and the tagged `effect@4.0.2` source disagree, this page and the source win.
 
 ## Contract
 
 - **Classification:** Runnable example; complete `managed-runtime.ts`.
-- **Install:** `pnpm add effect@4.0.0`
+- **Install:** `pnpm add effect@4.0.2`
 - **Run:** Node 26+: `node managed-runtime.ts`
 - **Expected output:** `Hello, Ada`, `Hello, Grace`, then `runtime disposed`.
 - **Before the bridge:** `greet(name)` is `Effect<string, never, GreetingService>`.

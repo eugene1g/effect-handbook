@@ -4,7 +4,7 @@ Effect Cluster provides *entities*: stateful, addressable actors keyed by id, di
 
 > **Note:** The spine: **Entity** defines an addressable actor and its RPC protocol. **Sharding** routes every message. **Runner**/**Runners** host shards and talk to each other. **MessageStorage** makes delivery durable. **Singleton**, **Snowflake**, **EntityProxy**, **ClusterCron**, **ShardingConfig** hang off those four. Define entities, merge their layers, provide a cluster layer.
 
-> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/80_cluster) defines and runs a distributed entity.
+> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/80_cluster) defines and runs a distributed entity.
 
 > **Warning:** The entire cluster surface lives under `effect/cluster`. APIs may shift between minor versions. Pin your version and re-check signatures when you upgrade. Transport entrypoints (`NodeClusterSocket`, `NodeClusterHttp`) come from `@effect/platform-node`; `@effect/platform-bun` and `@effect/platform-deno` ship the matching `BunCluster*` / `DenoCluster*` modules.
 

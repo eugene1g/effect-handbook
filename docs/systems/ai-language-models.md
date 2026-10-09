@@ -2,7 +2,7 @@
 
 `effect/ai` provides a provider-agnostic AI toolkit. Business logic depends on `LanguageModel.LanguageModel` from context; a concrete provider (OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint) is injected as a `Layer`. Schemas validate structured outputs and tool parameters, streaming is a `Stream`, errors are typed, and all calls are traced. Swapping providers requires changing a Layer, not application code. For fixed-answer judgments (a label, a rating on a scale, or a probability) there is a second, narrower service, [`DecisionModel`](#decisionmodel), with its own providers.
 
-> **Official companions:** The release-matched [AI examples](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src/71_ai) cover language-model calls, tools, and stateful chat. The broader [AI documentation source tree](https://github.com/Effect-TS/effect/tree/effect%404.0.0/ai-docs/src) and [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.0/LLMS.md) are the official executable corpus and coding-agent entry point.
+> **Official companions:** The release-matched [AI examples](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/71_ai) cover language-model calls, tools, and stateful chat. The broader [AI documentation source tree](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src) and [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.2/LLMS.md) are the official executable corpus and coding-agent entry point.
 
 > **Note:** Every example below assumes a provider client Layer built from `Config`. Providers need an `HttpClient` — you choose which one (here `FetchHttpClient`):
 
@@ -545,6 +545,8 @@ export const RaiseRequestTriage = Decision.make({
 
 The provider-neutral service that answers a `Decision` definition. `DecisionModel.decide(definition, { input })` encodes the input with `Schema.toCodecJson` (an explicit `undefined` field becomes `null`; an absent one stays absent), sends that state and every decision to the provider in one request, validates the reply, and returns `{ answers, usage }`. It requires `DecisionModel.DecisionModel` plus the input schema's encoding services, and fails only with `AiError`.
 
+Pass an `images` array alongside `input` to send image context: `DecisionModel.decide(def, { input, images: [{ data: base64Bytes, mimeType: "image/jpeg" }] })`. Providers that support images declare `supportsImages: true`; those that do not reject a non-empty `images` array with `InvalidUserInputError` before any network call.
+
 The reply is validated before your code sees it; the provider is not trusted to follow the contract:
 
 - every decision is answered with its own kind, and a classify label must be one of its criteria keys;
@@ -741,9 +743,9 @@ const program = useIds.pipe(
 
 `effect/ai/Telemetry` — unstable
 
-Helpers that write standardized GenAI attributes onto OpenTelemetry spans, following OTel semantic conventions for LLMs (system, model, temperature, token usage, etc.). AI calls are already traced; this enriches those spans.
+Helpers that write standardized GenAI attributes onto OpenTelemetry spans, following the current OTel GenAI semantic conventions (provider name, model, temperature, token usage, etc.). AI calls are already traced; this enriches those spans.
 
-`addGenAIAnnotations(span, { system, request, response, usage })` stamps the correct attribute keys (it mutates the span). Provide a `CurrentSpanTransformer` to automatically annotate every AI span with custom logic. Pairs with `@effect/opentelemetry` for export.
+`addGenAIAnnotations(span, { provider, operation, request, response, usage })` stamps the correct attribute keys (it mutates the span). The provider is written as `gen_ai.provider.name` from `provider: { name }`; the older `system` option, `gen_ai.system`, and `gen_ai.token.type` were removed in 4.0.2. Provide a `CurrentSpanTransformer` to automatically annotate every AI span with custom logic. Pairs with `@effect/opentelemetry` for export.
 
 ```ts
 import { Effect } from "effect"
@@ -754,7 +756,7 @@ import { Telemetry } from "effect/ai"
 const annotated = Effect.gen(function*() {
   const span = yield* Effect.currentSpan
   Telemetry.addGenAIAnnotations(span, {
-    system: "openai",
+    provider: { name: "openai" },
     request: { model: "gpt-5.2", temperature: 0.7 },
     usage: { inputTokens: 100, outputTokens: 50 }
   })
@@ -900,7 +902,7 @@ Streamable HTTP is strict at the boundary. If a request carries `Origin`, `layer
 
 A batteries-included framework for building MCP servers — the protocol that lets editors and AI clients (Claude Desktop, IDEs) discover tools, resources, and prompts. Handles JSON-RPC plumbing; capabilities are registered as Layers and a transport is chosen.
 
-`McpServer.toolkit(toolkit)` exposes a `Toolkit` as MCP tools; `McpServer.resource\`uri/${param}\`({...})` exposes resources/templates (with auto-completion); `McpServer.prompt({...})` exposes parameterized prompts, with an optional human-readable `title` beside the `name` (also accepted by `registerPrompt`). Transports: `layerStdio` (desktop clients), `layerHttp` (mount on an `HttpRouter`). Every server constructor (`layer`, `layerStdio`, `layerHttp`, `run`) accepts an optional `instructions` string, returned in the initialization and discovery responses to tell a client how to use the server. Launch with `Layer.launch` + `NodeRuntime.runMain`.
+`McpServer.toolkit(toolkit)` exposes a `Toolkit` as MCP tools; `McpServer.resource\`uri/${param}\`({...})` exposes resources/templates (with auto-completion); `McpServer.prompt({...})` exposes parameterized prompts, with an optional human-readable `title` beside the `name` (also accepted by `registerPrompt`). Transports: `layerStdio` (desktop clients), `layerHttp` (mount on an `HttpRouter`; pass `allowSessionTermination: true` to enable DELETE on the session path, which ends the session and interrupts its active requests — later requests on that session id return `404`). Every server constructor (`layer`, `layerStdio`, `layerHttp`, `run`) accepts an optional `instructions` string, returned in the initialization and discovery responses to tell a client how to use the server. Launch with `Layer.launch` + `NodeRuntime.runMain`.
 
 ```ts
 import { Effect, Layer, Logger, Schema } from "effect"
@@ -964,7 +966,7 @@ Tool input schemas follow `Tool.Strict`: a strict tool advertises `additionalPro
 - **Server identity can carry icons.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `icons: ReadonlyArray<McpSchema.Icon>` (`src`, optional `mimeType`, `sizes`, `theme`). The `McpSchema.Resource`, `ResourceTemplate`, `Prompt`, and `Tool` schemas have the same optional field for entries registered through the lower-level `McpServer` registry service.
 - **Prompt and resource callbacks receive decoded values.** `McpServer.prompt` / `registerPrompt` pass `content` the *decoded* type of each `parameters` schema, and resource templates resolve over both stdio and Streamable HTTP.
 - **Tool annotation titles survive `tools/list`.** On the `2025-06-18` and `2025-11-25` protocol revisions, a tool's annotation `title` is reported in `tools/list` responses alongside its top-level `title` and behavioral hints.
-- **Server `extensions` are advertised, not implemented.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `extensions`, a record keyed `vendor/name` with JSON settings, reported in the server capabilities of `initialize` and `server/discover`. `2026-07-28` discovery lists only object-valued settings. Behavior behind an extension is your code; 4.0.0 ships no extension helpers and no MCP client.
+- **Server `extensions` are advertised, not implemented.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `extensions`, a record keyed `vendor/name` with JSON settings, reported in the server capabilities of `initialize` and `server/discover`. `2026-07-28` discovery lists only object-valued settings. Behavior behind an extension is your code; 4.0.2 ships no extension helpers and no MCP client.
 
 ### Request context, client gating, and human input
 
@@ -1084,13 +1086,15 @@ Primitives live in `effect/ai`; concrete providers ship as satellite packages. E
 
 - **pkg @effect/ai-openai** — OpenAI Responses API. `OpenAiClient.layerConfig`, `OpenAiLanguageModel.model("gpt-5.2")`, `OpenAiEmbeddingModel.model(name, { dimensions })`, provider-defined tools via `OpenAiTool` (e.g. `OpenAiTool.WebSearch`), and `OpenAiTelemetry`. A web search `search` action's `sources` can be URL sources (`{ type: "url", url }`) or API sources (`{ type: "api", name }`, such as `oai-weather`), so narrow each source on `type` before reading `url` or `name`; `action` itself is optional on a web-search call or result, and an incomplete call decodes as a failed tool result instead of failing to decode. A dynamic tool backed by raw JSON Schema keeps its tool-call parameters intact. Prompt caching can be steered explicitly: set `options: { openai: { promptCacheBreakpoint: { mode: "explicit" } } }` on a system message or a text part to mark the end of a reusable prefix (the provider documents this for GPT-5.6 or later and may reject it on earlier models). In websocket mode, a turn that gets back `previous_response_not_found` is retried once with the full prompt, keeping the socket open if it is still open.
 
-- **pkg @effect/ai-anthropic** — Anthropic Messages API. `AnthropicClient.layerConfig`, `AnthropicLanguageModel.model("claude-opus-4-6")`, `AnthropicTool`, and `AnthropicTelemetry`. Structured output bridged automatically through `AnthropicStructuredOutput`. A malformed 4xx response from an Anthropic-compatible gateway is mapped to the matching `AiError` reason by HTTP status (including a 429's retry delay) instead of failing as `InvalidOutputError`; a direct `AnthropicClient.client.betaMessagesPost` call fails with `HttpClientError` rather than `SchemaError` for these responses. A message response that omits `usage.inference_geo` — as some Anthropic-compatible gateways do — still decodes.
+- **pkg @effect/ai-anthropic** — Anthropic Messages API. `AnthropicClient.layerConfig`, `AnthropicLanguageModel.model("claude-opus-4-6")`, `AnthropicTool`, and `AnthropicTelemetry`. Structured output bridged automatically through `AnthropicStructuredOutput`. Multiple system instructions are preserved across a conversation; the optional `LanguageModel.supportsSystemMessagesInHistory` flag on the provider controls whether mid-conversation system messages are forwarded (Anthropic sets this to `true`). Cached tokens are included in `gen_ai.usage.input_tokens` and reported separately as `gen_ai.usage.cache_read.input_tokens` and `gen_ai.usage.cache_write.input_tokens`; the former per-response `cacheCreationInputTokens` and `cacheReadInputTokens` options were removed in 4.0.2. A malformed 4xx response from an Anthropic-compatible gateway is mapped to the matching `AiError` reason by HTTP status (including a 429's retry delay) instead of failing as `InvalidOutputError`; a direct `AnthropicClient.client.betaMessagesPost` call fails with `HttpClientError` rather than `SchemaError` for these responses. A message response that omits `usage.inference_geo` — as some Anthropic-compatible gateways do — still decodes.
 
 - **pkg @effect/ai-openrouter** — OpenRouter's unified gateway to many models. `OpenRouterClient.layerConfig` (supports `siteReferrer`/`siteTitle` for attribution) and `OpenRouterLanguageModel.model(name)` — one key, hundreds of models. It also offers `OpenRouterDecisionModel.model(name)`, a [`DecisionModel`](#decisionmodel) over OpenRouter's alpha Decisions API; it requires full label and level distributions, and accepts only a string, object, or array as the encoded input (other JSON values fail with `InvalidUserInputError`).
 
 - **pkg @effect/ai-typesafe** — A `DecisionModel`-only provider for TypeSafe's System One API; it has no `LanguageModel`. `TypeSafeClient.layerConfig()` reads `TYPESAFE_API_KEY` by default (pass `apiKey` / `apiUrl` Configs to override), and `TypeSafeDecisionModel.model("jev-latest")` provides the service; versioned identifiers such as `"jev-1.13.0"` also work. The client does not retry, and a rate-limit error carries the provider's retry delay when one is sent, so apply the [retry rules](#classifying-a-failure-before-retrying) yourself.
 
 - **pkg @effect/ai-openai-compat** — Any OpenAI-compatible endpoint (local LLMs, Together, Groq, vLLM…). Same `OpenAiClient`/`OpenAiLanguageModel`/`OpenAiEmbeddingModel` API — point `apiUrl` at your server.
+
+- **pkg @effect/ai-cloudflare** — Cloudflare Workers AI decision provider. `CloudflareClient.layerConfig()` reads `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`; `CloudflareDecisionModel.layer({ model: "clef-flash" })` (or `"clef"` for the larger model) provides `DecisionModel`. No `LanguageModel` — decisions only. Limits: 64 questions per request, 2–255 classification choices, 2–10 rating levels. Rate-limit errors carry `Retry-After` when provided; the client validates answers and rescales small probability drift from four-decimal rounding.
 
 ```ts
 // Swapping providers is a one-line change at the edge — comp logic is untouched.

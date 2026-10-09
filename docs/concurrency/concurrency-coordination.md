@@ -2,7 +2,7 @@
 
 Effect's coordination primitives let fibers share permits, queues, broadcasts, pooled resources, and replaceable scoped values without abandoning typed errors or structured concurrency. Start with `Semaphore`, `Queue`, or `PubSub`; use the partitioned, reference-counted, and scoped variants when ownership or lifecycle becomes the harder part.
 
-> **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than the tagged `4.0.0` release, so where they differ, this page and the tagged source win.
+> **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
 
 Fork variants and fiber ownership live in [Core Runtime & Execution](../foundations/core-runtime-execution#fiber); stream-level buffering and backpressure live in [Streaming & Channels](./streaming-channels#stream). This page owns what happens *between* fibers: who waits, who is told "no", and what is lost.
 
@@ -71,7 +71,7 @@ Official guide: [Semaphore](https://effect.website/docs/v4/concurrency/semaphore
 
 ## PartitionedSemaphore
 
-`effect/PartitionedSemaphore` — stable
+`effect/PartitionedSemaphore` — unstable
 
 A semaphore with a shared permit pool where waiters are grouped by a partition key. Released permits are distributed to waiting partitions in round-robin order (not global FIFO), preventing any one busy partition from starving others.
 
@@ -313,7 +313,7 @@ Smells worth a second look in review: `Queue.unbounded` chosen because a test hu
 
 Use for producer-consumer decoupling with back-pressure inside a single process: batch pipelines, worker pools, actor-style mailboxes, rate-limited ingestion.
 
-Official guides: [Queue](https://effect.website/docs/v4/concurrency/queue) (its `takeAll` description and `takeUpTo` heading do not match the tagged `4.0.0` source — use the table above — and it predates the `Queue<A, E>` completion protocol); the callback constructor in [Creating Streams](https://effect.website/docs/v4/stream/creating) drives the same `offerUnsafe` / `endUnsafe` / `failCauseUnsafe` API.
+Official guides: [Queue](https://effect.website/docs/v4/concurrency/queue) (its `takeAll` description and `takeUpTo` heading do not match the tagged `4.0.2` source — use the table above — and it predates the `Queue<A, E>` completion protocol); the callback constructor in [Creating Streams](https://effect.website/docs/v4/stream/creating) drives the same `offerUnsafe` / `endUnsafe` / `failCauseUnsafe` API.
 
 ## PubSub
 
@@ -420,7 +420,7 @@ const program = Effect.scoped(Effect.gen(function*() {
 }))
 ```
 
-`PubSub.publishAll(bus, events)` publishes a batch. `PubSub.capacity(bus)` is a plain number, while `PubSub.size(bus)` is an effect that reports messages still held for at least one subscriber. `PubSub.shutdown` interrupts every pending `take`; observe it with `PubSub.isShutdown` or `PubSub.awaitShutdown`. `PubSub.isPubSub(u)` narrows an unknown value. A `capacity` of `Infinity` on `bounded`/`dropping`/`sliding` behaves like `PubSub.unbounded` — it never pushes back.
+`PubSub.publishAll(bus, events)` publishes a batch. `PubSub.capacity(bus)` is a plain number, while `PubSub.size(bus)` is an effect that reports messages still held for at least one subscriber. `PubSub.shutdown` interrupts every pending `take`; observe it with `PubSub.isShutdown` or `PubSub.awaitShutdown`. `PubSub.isPubSub(u)` narrows an unknown value. A `capacity` of `Infinity` on `bounded`/`dropping`/`sliding` behaves like `PubSub.unbounded` — it never pushes back. Passing `NaN` or a fractional capacity (e.g. `1.5`) is rejected to prevent nonterminating batch publication; use a positive integer or `Infinity`.
 
 ### Proving a subscription did not leak
 
@@ -447,7 +447,7 @@ it.effect("a closed subscription retains nothing", () =>
 
 Use for one-to-many event fan-out within a process where multiple independent consumers should each see every message.
 
-Official guide: [PubSub](https://effect.website/docs/v4/concurrency/pubsub) (its prose calls the subscription a `Dequeue`; the tagged `4.0.0` source returns a `PubSub.Subscription` read with `PubSub.take`, and the guide omits the `{ capacity, replay }` constructor form).
+Official guide: [PubSub](https://effect.website/docs/v4/concurrency/pubsub) (its prose calls the subscription a `Dequeue`; the tagged `4.0.2` source returns a `PubSub.Subscription` read with `PubSub.take`, and the guide omits the `{ capacity, replay }` constructor form).
 
 ## Pool
 

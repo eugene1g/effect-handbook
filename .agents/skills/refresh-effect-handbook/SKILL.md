@@ -171,7 +171,7 @@ Do not copy an old ignored `.validation/<version>` project into the tracked harn
 
 Apply source-grounded corrections to `docs/**`, `handbook.ts`, and validation/build code when necessary.
 
-1. Update the version/commit scope and release-evolution ledger in `docs/index.md`.
+1. Update the version/commit scope in `docs/index.md`, and add a new entry at the top of `docs/reference/release-history.md` headed exactly ``## `effect@<version>` — audited <YYYY-MM-DD>`` (matching `handbookRelease`). Give it the release identity line, a "Changes in Effect that matter to readers" list (behavior, types, stability, renamed options, span/metric names, new public surfaces — each with its upstream PR link and a link to the handbook section that now owns it), and a "Changes in the handbook" list. Leave out fixes that only made the implementation match what the handbook already said. `pnpm docs:check` fails until the entry exists.
 2. Add or reorganize topic-sized concise sections for new subsystems.
 3. Update every affected deep dive independently.
 4. Keep deep dives in the human site and the concise reference in the agent bundle unless the content policy intentionally changes.

@@ -3,7 +3,8 @@ import path from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
-import { deepDivePages, handbookGroups, handbookPages, siteGroups, sitePages } from "../handbook.ts"
+import { deepDivePages, handbookGroups, handbookPages, handbookRelease, siteGroups, sitePages } from "../handbook.ts"
+import { releaseHistoryProblems, releaseHistorySource } from "./release-history.ts"
 import { assertVersionsMatchRelease } from "./versions.ts"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
@@ -57,6 +58,10 @@ try {
   assertVersionsMatchRelease()
 } catch (error) {
   assert(false, `versions.json disagrees with handbook.ts: ${error.message}`)
+}
+assert(sitePages.some((page) => page.source === releaseHistorySource), `${releaseHistorySource} must be registered in handbook.ts`)
+for (const problem of releaseHistoryProblems(await readFile(path.join(docsRoot, releaseHistorySource), "utf8"), handbookRelease)) {
+  assert(false, `docs/${releaseHistorySource} ${problem}`)
 }
 console.log(`Canonical Markdown verified: ${handbookPages.length} concise pages + ${deepDivePages.length} deep-dive pages, ${headingCount} headings, ${codeBlockCount} code blocks.`)
 

@@ -27,6 +27,7 @@ Before reading anything else:
 2. Take its `major.minor` and fetch that edition's `llms.txt`, for example `/4.0/llms.txt` for `effect@4.0.3`.
 3. If that path is missing, fetch `/versions.json` at the site root. It lists every published edition with its `effectVersion`, audit date, status (`latest` or `frozen`), and the URLs of its `llms.txt`, module index, and catalog. Use the highest listed edition below yours **within the same major**; editions of different majors describe different libraries and are never interchangeable.
 4. State the edition and audited release you used when you answer.
+5. Upgrading, or reading code written against an older pin? Read the [Release History](release-history) entries above that version: each one lists what changed in Effect and links the section that now owns it.
 
 Every edition's `llms.txt` opens with its own edition and release and has an **Editions** section linking to the others, so you can correct course from any entry point. A frozen edition is rebuilt from its git tag, never edited, so what you read there will not change under you; the HTML pages of a frozen edition show a banner pointing at the newest handbook, but the Markdown twins do not.
 

@@ -473,7 +473,7 @@ Typical outer-edge choices include:
 | Node HTTP server | `NodeHttpServer.layer(createServer, options)` |
 | terminal/worker/platform services | the corresponding `@effect/platform-*` Layer |
 
-Keep platform imports at composition roots. Domain services should depend on the capability interface, so tests can provide deterministic Layers without importing Node globals. The host decides more than the package: who owns the runtime, what cancels work, and whether cleanup is awaited differ between a process, a Web handler, a foreign framework callback, a browser page, and a test ([Choosing a host](../interfaces/platform-runtime-hosts#choosing-a-host)). Quarantine platform and `effect/unstable/*` imports behind an app-owned capability so a release that reshapes one becomes a one-file change ([Keep platform and unstable imports behind a capability](../interfaces/platform-runtime-hosts#keep-platform-and-unstable-imports-behind-a-capability)).
+Keep platform imports at composition roots. Domain services should depend on the capability interface, so tests can provide deterministic Layers without importing Node globals. The host decides more than the package: who owns the runtime, what cancels work, and whether cleanup is awaited differ between a process, a Web handler, a foreign framework callback, a browser page, and a test ([Choosing a host](../interfaces/platform-runtime-hosts#choosing-a-host)). Quarantine platform imports and `@stability unstable` `effect/<area>` imports behind an app-owned capability so a release that reshapes one becomes a one-file change ([Keep platform and unstable imports behind a capability](../interfaces/platform-runtime-hosts#keep-platform-and-unstable-imports-behind-a-capability)).
 
 ## Incompatible unstable package versions
 

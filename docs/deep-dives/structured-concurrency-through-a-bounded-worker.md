@@ -1,10 +1,10 @@
 # Structured Concurrency Through a Bounded Worker
 
-A worker pool is not merely “start N promises.” It has ownership, capacity, failure, completion, cancellation, and cleanup semantics. This guide builds those semantics from Effect's structured fibers, bounded `Queue`, `Stream`, `Semaphore`, and test services against `effect@4.0.2`.
+A worker pool is not merely “start N promises.” It has ownership, capacity, failure, completion, cancellation, and cleanup semantics. This guide builds those semantics from Effect's structured fibers, bounded `Queue`, `Stream`, `Semaphore`, and test services.
 
 Use [Core Runtime & Execution](../foundations/core-runtime-execution) for fibers and scopes, [Concurrency & Coordination](../concurrency/concurrency-coordination) for queues and semaphores, [State & Mutable References](../concurrency/state-mutable-references) for counters, [Software Transactional Memory](../concurrency/software-transactional-memory) for multi-value atomic coordination, [Streaming & Channels](../concurrency/streaming-channels) for pipeline operators, and [Testing & Dev Tooling](../tooling/testing-dev-tooling) for deterministic tests.
 
-> **Official guides:** the Fibers, Queue, and Error Accumulation guides are linked from the sections they illustrate. These track Effect's `main` branch rather than a specific tagged release, so where they differ, this page and the tagged `effect@4.0.2` source win.
+> **Official guides:** the Fibers, Queue, and Error Accumulation guides are linked from the sections they illustrate. These track Effect's `main` branch rather than a specific tagged release, so where they differ, this page and the edition's tagged source win.
 
 ## Write the execution policy first
 
@@ -343,7 +343,7 @@ Queue termination APIs encode different operational policies:
 | `Queue.end` | rejected | drained | normal `Cause.Done` completion |
 | `Queue.fail(error)` | rejected | drained | typed failure after drain |
 | `Queue.interrupt` | rejected | drained | interruption after drain |
-| `Queue.shutdown` | rejected | discarded immediately | interruption immediately |
+| `Queue.shutdown` | rejected | discarded immediately | interruption immediately if open; preserves an existing closing cause |
 
 `Queue.end` signals that no more work will arrive; it does not wait for buffered work to finish. Consumers drain it, and `Queue.await` waits until the queue reaches its final Done state. Use `shutdown` for emergency cancellation where abandoning buffered work is intentional.
 
@@ -351,7 +351,7 @@ Treat termination as a protocol with named roles, decided when the queue is crea
 
 - **One owner creates the queue and the worker fibers, and the same owner's scope ends them.** A queue created in one Layer and drained by fibers forked somewhere else has no one responsible for its last message.
 - **One party signals the end** — normally the producer, through `Queue.end`, `Queue.fail`, or `Queue.into`. A producer that can fail without telling the queue leaves consumers blocked in `take` until something interrupts them.
-- **Shutdown is observed as interruption, not as a value.** `Queue.shutdown` interrupts every fiber parked on `offer`, `take`, or `Queue.await`. Code chained after those calls with `Effect.andThen` never runs, and `Fiber.join` on such a fiber re-raises the interruption into the joiner. Attach reactions with `Effect.onExit`, and observe the fibers with `Fiber.await`.
+- **Shutdown distinguishes producers from consumers.** On an open queue, `Queue.shutdown` interrupts pending `take` and `Queue.await` callers. Their `andThen` steps do not run, and joining them re-raises interruption; use `Effect.onExit` and `Fiber.await` to observe it. Pending single offers instead succeed with `false`; batch offers return their unaccepted suffix. A queue already closing via `end`/`fail` retains that terminal cause.
 
 > **Example status — Runnable:** the watcher's follow-up step is skipped, its `onExit` hook runs, and `Fiber.await` reports the interruption as data.
 

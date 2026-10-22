@@ -1,8 +1,8 @@
 # Configuration & Secrets
 
-`Config` is an `Effect`, validated by `Schema`, read from a swappable provider. Three-part model: **Config** describes what you need and its shape. **ConfigProvider** decides where values come from. **Redacted**/**Redactable** prevent sensitive values from appearing in logs.
+`Config` is an `Effect`, validated by `Schema`, read from a swappable provider. Three-part model: **Config** describes what you need and its shape. **ConfigProvider** decides where values come from. **Redacted** masks secret values; **Redactable** customizes rendering for consumers that honor Effect's redaction protocol.
 
-> **Official guides:** [Configuration](https://effect.website/docs/v4/configuration). These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Configuration](https://effect.website/docs/v4/configuration). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ## Config
 
@@ -10,7 +10,7 @@
 
 `Config<T>` extends `Effect<T, ConfigError>` — read config by `yield*`-ing inside `Effect.gen`; missing/invalid values become a typed `ConfigError`. Convenience constructors (`Config.String`, `Config.Number`, `Config.Finite`, `Config.NonEmptyString`, `Config.Boolean`, `Config.Redacted`, `Config.LogLevel`, and the rest of the [built-in table](#built-in-constructors)) read a single key. Combinators (`Config.all`, `Config.nested`, `Config.withDefault`, `Config.map`, `Config.mapEffect`, `Config.flatMap`, `Config.option`) build structured config. `Config.schema(schema, path)` derives loading from the schema's encoded `StringTree`; opaque `Any`, `Unknown`, or JSON-shaped schemas must first be given a concrete string-tree boundary such as `Schema.fromJsonString(Schema.Json)`.
 
-Absence is structural, not merely falsy. A missing representation is decoded as `undefined` before `withDefault` or `option` decides what to do; a successfully decoded `undefined` or explicit empty structure is still a present value. A completely absent `Config.all` group may use an outer default/option, but a partially supplied group is an error. For schema unions, `Config.schema` materializes each encoded `StringTree` member independently rather than guessing one mixed shape.
+Absence is structural, not merely falsy. A missing representation is decoded as `undefined` before `withDefault` or `option` decides what to do; a successfully decoded `undefined` or explicit empty structure is still a present value. In `Config.all`, any absent child makes the group absent unless another child fails validation or source loading. An outer default therefore replaces the whole group, even when some fields were supplied; an outer `option` returns `None`. Put defaults on individual fields to retain supplied values. Use a schema-level struct and explicit completeness checks when partially supplied groups must fail. For schema unions, `Config.schema` materializes each encoded `StringTree` member independently rather than guessing one mixed shape.
 
 ```ts
 import { Config, Effect } from "effect"
@@ -130,7 +130,7 @@ The three fallback tools differ in exactly this respect:
 
 | Tool | Falls back when | `PORT=eighty` |
 | --- | --- | --- |
-| `Config.withDefault(value)`, `Config.option` | The value is absent. Validation errors and partially supplied groups still fail. | `ConfigError` |
+| `Config.withDefault(value)`, `Config.option` | The value is absent, including a `Config.all` group with an absent required child. Validation/source errors still fail. | `ConfigError` |
 | `ConfigProvider.orElse(primary, fallback)` | The primary provider has no value at that path. A `SourceError` from the primary propagates, and a decoding error is never rescued. | `ConfigError` |
 | `Config.orElse(() => other)` | **Any pure `ConfigError`**, including a malformed value or an unreadable source. A cause that mixes a `ConfigError` with a defect or interruption is not recovered — the mixed cause propagates. | the fallback |
 
@@ -190,6 +190,8 @@ Note: `ConfigProvider.fromDotEnv()` returns an `Effect<ConfigProvider, PlatformE
 Use when config must come from somewhere other than env vars, or to inject a fixed in-memory provider in tests.
 
 Also available: `ConfigProvider.fromDotEnvContents(text, { expandVariables? })` parses `.env` text that is already in memory (no `FileSystem`; `${VAR}` expansion is off unless requested, and expansion preserves replacement-pattern tokens such as `$&` inside expanded values rather than re-interpreting them). Without an `{ env }` option, `fromEnv()` merges `process.env` with `import.meta.env` when the bundler defines it.
+
+When `expandVariables` is enabled, expanded replacements are not rescanned: self and circular references terminate instead of overflowing the stack, escaped `\$NAME` stays literal, and a default is used when a reference expands to an empty value. Do not treat dotenv expansion as recursive shell evaluation.
 
 ### Resolving one Config against an explicit provider
 
@@ -332,7 +334,7 @@ Order the startup: providers, then precedence and key mapping, then the typed ap
 - **A configuration failure must cause zero resource acquisitions**, a non-zero exit, no readiness signal, and a diagnostic that names the path and the expected form. Layers merged side by side build concurrently, so a pool that does *not* depend on the typed config can open before a sibling's config error arrives (probed). Make resource Layers depend on the typed config service, as `HrisConnections` does above, and the ordering is structural.
 - **Keep validation lazy.** Decode inside the Layer that builds the app and validate options inside Effect-returning constructors; throwing at module load runs before any provider is installed and cannot be tested through a provider.
 - **Do not re-read static config per request, and do not wrap individual consumers in their own provider Layers** — that repeats decoding and blurs precedence. Decode once; hand each adapter the typed subset it owns rather than one giant object.
-- **`ConfigError` text is safe to print.** `Config` parses without `reportInput`, so the rendered error carries the path and the expectation (`Expected a value between 1 and 64 at ["COMP"]["WORKERS"]`), not the offending input.
+- **Sanitize custom diagnostics before logging `ConfigError`.** `Config` parses without `reportInput`, so ordinary schema diagnostics omit rejected input. Custom schema messages and provider `SourceError` messages can still embed secrets. Test rendered errors with secret canaries rather than treating this default as a blanket log-safety guarantee.
 - **Reloadable settings are a stateful service, not a second read.** They need an owner (a watcher or poller with a scope), validate-then-atomically-publish, an explicit last-known-good or fail-closed choice, and tests. [`Resource`](services-context-layers#resource) and [`LayerRef`](services-context-layers#layerref) are the building blocks.
 
 ### Testing the contract
@@ -436,34 +438,35 @@ Official guides: [Redacted](https://effect.website/docs/v4/data-types/redacted) 
 
 `effect/Redactable` — stable
 
-The protocol behind `Redacted`. Implement `Redactable` on your own types to control how they appear when logged, traced, or inspected. The implementing method receives the current fiber's `Context` and returns the replacement value used for logging and inspection. `Redacted` is the built-in implementer.
+The protocol behind `Redacted`. Implement `Redactable` on your own types to customize their representation for consumers that invoke Effect's redaction protocol. The implementing method receives the current fiber's `Context` and returns a replacement value. This symbol alone is not a native `JSON.stringify`, `String`, or console-inspection hook. `Redacted` is the built-in implementer and also supplies safe serialization/inspection hooks.
 
 The symbol to implement is `Redactable.symbolRedactable` (exported as a named constant, not as `Redactable.symbol`). The method receives a `Context.Context<never>`.
 
 ```ts
 import { Context, Redactable, Redacted } from "effect"
 
-// A domain type that hides its token whenever it is rendered.
+// Keep the stored token redacted, including during native JSON serialization.
 // Use Redactable.symbolRedactable (not Redactable.symbol) as the method key.
 class PayrollCredential {
   readonly serviceId: string
-  private readonly token: string
+  private readonly token: Redacted.Redacted<string>
 
   constructor(serviceId: string, token: string) {
     this.serviceId = serviceId
-    this.token = token
+    this.token = Redacted.make(token)
   }
 
   [Redactable.symbolRedactable](_ctx: Context.Context<never>) {
     // Safe representation: keep the service identifier, mask the secret.
-    return { serviceId: this.serviceId, token: Redacted.make(this.token) }
+    return { serviceId: this.serviceId, token: this.token }
   }
 }
 
-// Logging a PayrollCredential shows serviceId but "<redacted>" for the token.
+// Apply the protocol explicitly for a consumer that does not invoke it.
 const cred = new PayrollCredential("payroll-svc", "sk-live-abc...")
+const safeRepresentation = Redactable.redact(cred)
 ```
 
-Use when your own domain types carry secrets and you want them inherently log-safe, rather than relying on call-site discipline.
+Use when domain types need a custom redacted representation. TypeScript `private` does not hide a property at runtime; storing a raw string there would expose it through native JSON serialization, regardless of the redaction symbol. Keep secret fields `Redacted`, and test every serializer/logger you actually use.
 
 > **Tip:** The combo to internalize: read secrets with `Config.Redacted("PAYROLL_API_KEY")` → they arrive as `Redacted<string>` → they stay sealed through your whole program → you only `Redacted.value` them at the exact moment you hand them to `PayrollClient`. The key never touches a log line by accident.

@@ -4,9 +4,9 @@
 
 **This page covers building and combining Effects.** How they run — `Exit` and `Cause`, fibers and their handles, `Scope`, the scheduler and clock, `Deferred`, `Latch`, and `ManagedRuntime` — is on [Fibers, Scopes & Runtimes](fibers-scopes-runtimes).
 
-> **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/04_integration).
+> **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/04_integration).
 
-> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; `Effect.runFork` returns `Fiber`). These guides track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; `Effect.runFork` returns `Fiber`). These guides track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ## Effect
 
@@ -636,7 +636,7 @@ Every runner except `runSync` / `runSyncExit` accepts `RunOptions`: `signal` (ab
 The fix is almost always to return the effect and let the caller compose it. If a nested runner is genuinely unavoidable (a third-party callback insists on a Promise), forward the adapter's signal so interruption still crosses the gap, and carry the `Exit` across so the failure keeps its type. A second variant of the same mistake is calling a runner while *building* a description (`Effect.runSync(parse(x)); return workflow`), which makes construction non-inert.
 
 ```ts
-import { Effect, Exit } from "effect"
+import { Cause, Effect, Exit } from "effect"
 
 declare const recomputeBudget: Effect.Effect<number, "LedgerDown">
 
@@ -646,7 +646,7 @@ const onRecomputeRequest = async (signal: AbortSignal): Promise<string> => {
   if (signal.aborted) return "client went away"
   const exit = await Effect.runPromiseExit(recomputeBudget, { signal })
   if (Exit.isSuccess(exit)) return `budget ${exit.value}`
-  return Exit.hasInterrupts(exit) ? "cancelled" : "failed"
+  return Cause.hasInterruptsOnly(exit.cause) ? "cancelled" : "failed"
 }
 
 // Unavoidable nested runner: `{ signal }` restores interruption, and re-raising the

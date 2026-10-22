@@ -1,6 +1,6 @@
 # Exposing an Effect Application over MCP
 
-Written against `effect@4.0.2`. `McpServer`, `McpProtocol`, `McpSchema`, `Tool`, and `Toolkit` are all tagged `@stability unstable`: pin Effect, and re-check this guide when you upgrade.
+`McpServer`, `McpProtocol`, `McpSchema`, `Tool`, and `Toolkit` are all tagged `@stability unstable`: pin Effect, and re-check this guide when you upgrade.
 
 The Model Context Protocol (MCP) lets an agent host discover what your application can do and call it: tools to act, resources to read, prompts to start a task. `effect/ai/McpServer` turns a `Toolkit` and a few Layers into a server. It handles JSON-RPC framing, protocol negotiation, JSON Schema generation, argument decoding, and result encoding. Everything that makes the server safe to expose is still yours: who the caller is, which tenant they act for, what they are allowed to change, and what happens when a call arrives twice.
 
@@ -24,7 +24,7 @@ The same `Toolkit` value serves both surfaces. Define each tool once with `Tool.
 
 **What you own.** Authentication, tenant binding, per-tool authorization, confirmation of consequential actions, idempotency, rate limits, request-size limits, and audit records. Protocol negotiation is not authorization.
 
-**What Effect 4.0.2 does not ship.** Say this plainly in design reviews so nobody waits for it:
+**What Effect does not ship.** Say this plainly in design reviews so nobody waits for it:
 
 - **No MCP client.** There is no module for connecting to a remote MCP server and calling its tools. If your agent consumes remote tools, fetch and snapshot their schemas yourself and wrap them with `Tool.dynamic`, following the rules for [dynamic and MCP-sourced tools](building-a-production-ai-capability#adjacent-capabilities-same-discipline).
 - **No OAuth helpers.** Nothing verifies tokens, serves protected-resource metadata, or issues challenges. You write a middleware and a route; this guide shows both.
@@ -40,7 +40,7 @@ Pick the transport by who launches the process.
 - **stdio** (`McpServer.layerStdio`) — the client starts your server as a subprocess and speaks newline-delimited JSON-RPC over stdin/stdout. Use it for desktop assistants and IDEs on the user's machine. The process runs as the user, so authentication is the operating system's job. Stdout carries protocol frames only: route logs to stderr, or the first log line corrupts the stream.
 - **Streamable HTTP** (`McpServer.layerHttp`) — your server listens and remote clients POST JSON-RPC to one path. Use it for shared, multi-tenant deployments. You must authenticate every request.
 
-`layerHttp` returns `Layer<McpServer | McpServerClient, Cause.IllegalArgumentError, HttpRouter.HttpRouter>`: it registers a POST route at `path` on whatever router is in context, and answers GET, PUT, PATCH, DELETE, and OPTIONS on that path with `405`. Its boundary checks are strict:
+`layerHttp` returns `Layer<McpServer | McpServerClient, Cause.IllegalArgumentError, HttpRouter.HttpRouter>`: it registers a POST route at `path` on whatever router is in context, and answers GET, PUT, PATCH, and OPTIONS on that path with `405`. DELETE also returns `405` unless session termination is explicitly enabled. Its boundary checks are strict:
 
 - a request that carries an `Origin` header gets `403` unless that exact origin is in `allowedOrigins`; requests without `Origin` (command-line agents, server-to-server calls) pass;
 - POST requires `Content-Type: application/json` (`415` otherwise) and an `Accept` header listing both `application/json` and `text/event-stream` (`406` otherwise);
@@ -48,9 +48,11 @@ Pick the transport by who launches the process.
 
 Because OPTIONS returns `405`, the endpoint does not answer browser CORS preflights. Most MCP clients are not browsers; if one is, make that decision deliberately in front of the route.
 
+For a serverless host such as Cloudflare Workers, choose `McpServer.layerHttpRequestScoped` instead: every POST owns its server until its response body completes, so no server fiber, timer, or queue consumer survives the request. It only accepts stateless adapters (use `[McpProtocol.v2026_07_28]`), retains tools/resources/prompts/completions and sealed `InputRequired` round trips, and forwards request-local progress/logs. It has no sessions, legacy `elicit`, subscriptions, broadcast list changes, or DELETE termination. Discovery reports `listChanged: false`; `subscriptions/listen` is method-not-found. The dual-era example below deliberately stays on long-lived `layerHttp`; do not swap its transport while retaining the session adapter. A long-lived endpoint may independently opt out of stateless subscriptions with `allowSubscriptions: false`.
+
 ### One server, two eras
 
-`protocols` is a non-empty list of adapters. Effect 4.0.2 ships five: `McpProtocol.v2024_11_05`, `v2025_03_26`, `v2025_06_18`, and `v2025_11_25`, which are session-based (the client sends `initialize`, the server issues a session), and `v2026_07_28`, which is stateless. One endpoint can serve several eras at once, so old and new clients share a deployment. Two rules apply:
+`protocols` is a non-empty list of adapters. Effect ships five: `McpProtocol.v2024_11_05`, `v2025_03_26`, `v2025_06_18`, and `v2025_11_25`, which are session-based (the client sends `initialize`, the server issues a session), and `v2026_07_28`, which is stateless. One endpoint can serve several eras at once, so old and new clients share a deployment. Two rules apply:
 
 - **At most one stateless adapter.** Listing two fails the server layer with `IllegalArgumentError` when it builds.
 - **The list is the contract.** A session client that offers an unlisted version on `initialize` is answered with the first session adapter in your list, and the client decides whether to continue. Do not list revisions you have not tested.
@@ -344,6 +346,8 @@ export const CompContent = Layer.mergeAll(BandResource, ReviewPrompt)
 ```
 
 Resource and prompt content is data the model will read, so it is untrusted on the way back in: a manager's free-text justification inside a resource can carry instructions aimed at the model. Label such fields as user-authored text in descriptions and keep them out of anything your server interprets.
+
+Serviceful schemas stay serviceful here: resource-template registration requires its parameter decoding **and encoding** services, plus completion callback requirements (including context-taking callbacks). Prompts require parameter decoding services, plus encoding services for parameters with completions. Supply these when composing capability Layers; only `McpRequestContext` is automatically excluded. Compilation catching a missing codec service is a real wiring failure, not a reason to cast away the Layer's requirements.
 
 Merge all capabilities into one Layer — `Layer.mergeAll(CompTools, CompContent, WriteTools, SubmitProposals)`, built in the sections below — and that is the `CompCapabilities` the bootstrap provides with a transport. Registration across separate capability Layers follows Layer build order, so if the order of `tools/list` matters to you, put the tools of one surface in one toolkit (`Toolkit.merge` combines toolkits).
 

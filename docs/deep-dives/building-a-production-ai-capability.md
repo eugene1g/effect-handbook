@@ -1,7 +1,5 @@
 # Building a Production AI Capability
 
-Audited against `effect@4.0.2`, the matching `ai-docs` examples, and the implementation of `effect/ai` on 2026-10-09.
-
 A production AI feature is not a prompt wrapped in an HTTP handler. It is a normal application capability with a typed input boundary, an injectable model, narrowly authorized tools, validated output, explicit limits, observable cost, and a deterministic test seam.
 
 This guide builds a policy assistant that answers an HR partner's question from an authorized policy catalog. It keeps the model behind a service so the rest of the application never depends on a provider SDK.
@@ -244,6 +242,8 @@ Once a human decision exists, the application appends a `tool-approval-response`
 ### Keep the framework from executing a mutation before your gates run
 
 `setNeedsApproval` covers "a human must say yes". It does not cover "authenticate, authorize at execution time, claim an idempotency record, and only then invoke". For that, stop the framework from resolving tool calls at all: pass `disableToolCallResolution: true`, inspect the proposed calls, run your own protocol, and dispatch through the toolkit's `handle`.
+
+The default is still strict tool-call validation: disabled resolution leaves encoded parameters checked against the schema. If the application must receive malformed arguments or undeclared names to run its own repair loop, also set `toolCallValidation: "deferred"`. Those model-generated calls have `unknown` parameters, including when no toolkit is supplied; allow-list the name and decode/normalize parameters **before** applying the gates below. Provider-executed calls remain validated. Do not add deferred mode to the example below without adding that explicit validation boundary.
 
 **Contextual.** `ActionLedger` is the application's tenant-scoped idempotency store and `Authorizer` its policy port; both are bound to the authenticated actor before this code runs.
 

@@ -73,11 +73,13 @@ const auditLine = Schema.toFormatter(Employee, {
 auditLine({ id: 1, displayName: "Ada" }) // { "id": 1, "displayName": <masked> }
 ```
 
-Official guides: [Schema Annotations](https://effect.website/docs/v4/schema/annotations) (its `parseOptions` annotation row and its claim that `concurrency` reaches union members are obsolete in 4.0.2), [Schema to Equivalence](https://effect.website/docs/v4/schema/equivalence), [Schema to Formatter](https://effect.website/docs/v4/schema/formatter).
+Official guides: [Schema Annotations](https://effect.website/docs/v4/schema/annotations) (its `parseOptions` annotation row and its claim that `concurrency` reaches union members are obsolete), [Schema to Equivalence](https://effect.website/docs/v4/schema/equivalence), [Schema to Formatter](https://effect.website/docs/v4/schema/formatter).
 
 ## 2. Serialization codecs
 
 Boundary formats are codecs, not ad-hoc `JSON.stringify` calls. `fromJsonString(schema)` parses JSON text and then validates the parsed value; `fromFormData(schema)` and `fromURLSearchParams(schema)` do the same for browser form and query-string containers. In the other direction, derive a canonical representation with `toCodecJson`, `toCodecStringTree`, or `toCodecIso`.
+
+Form/query bracket paths are built by `SchemaGetter.makeTreeRecord`. Numeric indexed containers become arrays only when there are at most **20 holes** below the highest index; sparser input becomes an object keyed by index strings instead of a huge sparse array. A payload such as `items[4294967294]=x` is therefore not a request to allocate a giant array. Model and validate the expected shape rather than relying on numeric brackets always producing arrays.
 
 `toCodecJson` recursively makes non-JSON-native values—such as `Date`, `BigInt`, `Uint8Array`, maps, sets, classes, and `Option`—reversible through JSON-safe data. A declaration or class can provide a custom `toCodecJson` annotation; JSON Schema generation reuses that representation, so runtime serialization and the published contract stay aligned. `toCodecStringTree` converts leaves to strings for form/query/XML-shaped data, while `toCodecIso` exposes a schema's isomorphic representation for transformations and optics.
 
@@ -221,7 +223,7 @@ Level.make(42, { disableChecks: true }) // 42 — a deliberate hole
 
 **Deliberate fallbacks.** `SchemaParser.makeOption(schema)` is the standalone form of `.makeOption(...)`. `Schema.catchDecoding` can replace a decoding failure with an effectful `Option` fallback; `catchDecodingWithContext` may additionally require services. These middlewares intentionally weaken a boundary, so reserve them for an explicit compatibility/defaulting policy rather than hiding malformed input.
 
-Official guide: [Default Constructors](https://effect.website/docs/v4/schema/default-constructors) (it types `makeEffect` as failing with `SchemaError` and prints formatted text for a throwing `make`; 4.0.2 behaves as the table above says).
+Official guide: [Default Constructors](https://effect.website/docs/v4/schema/default-constructors) (it types `makeEffect` as failing with `SchemaError` and prints formatted text for a throwing `make`; use the behavior in the table above).
 
 ## 5. Parse options are boundary policy
 

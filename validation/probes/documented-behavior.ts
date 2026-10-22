@@ -1,7 +1,9 @@
 // Runtime evidence for behavioral claims the handbook makes in prose, where a
 // compiling example proves nothing. Each check names the page section it backs.
 import assert from "node:assert/strict"
-import { Cache, Config, ConfigProvider, Context, Deferred, Effect, Exit, Fiber, Layer, PubSub, Queue, Ref, Schedule, Scope, Stream } from "effect"
+import { Cache, Cause, Clock, Config, ConfigProvider, Context, Deferred, Effect, Exit, Fiber, Layer, Option, Path, PubSub, Queue, Redactable, Redacted, Ref, Schedule, Scope, Stream, TxQueue } from "effect"
+import { UrlParams } from "effect/http"
+import { TestClock } from "effect/testing"
 
 const checks: Array<string> = []
 const checked = (claim: string) => checks.push(claim)
@@ -192,4 +194,118 @@ const checked = (claim: string) => checks.push(claim)
   checked("fibers-scopes-runtimes: closing a Scope runs the finalizers registered in it")
 }
 
-console.log(JSON.stringify({ target: "effect@4.0.2", probes: checks.length, checks }))
+// testing-dev-tooling — one adjustment must include sleeps registered by a woken
+// fiber after multiple scheduler hops, not only its first sleep.
+{
+  const ticks = await Effect.runPromise(Effect.gen(function*() {
+    const times: Array<number> = []
+    const fiber = yield* Effect.gen(function*() {
+      yield* Effect.sleep("1 second")
+      times.push(yield* Clock.currentTimeMillis)
+      yield* Effect.yieldNow
+      yield* Fiber.join(yield* Effect.forkChild(Effect.yieldNow))
+    }).pipe(Effect.forever, Effect.forkChild)
+    yield* TestClock.adjust("3500 millis")
+    yield* Fiber.interrupt(fiber)
+    return times
+  }).pipe(Effect.provide(TestClock.layer()), Effect.timeout("5 seconds")))
+  assert.deepEqual(ticks, [1000, 2000, 3000])
+  checked("testing-dev-tooling: TestClock.adjust follows woken fibers through yields and child joins before advancing")
+}
+
+// platform-runtime-hosts — containment is lexical, with segment boundaries;
+// rooted inputs are rejected even when they name something beneath the root.
+{
+  const resolved = await Effect.runPromise(Effect.gen(function*() {
+    const path = yield* Path.Path
+    return ["docs/a.md", "../app-other/a.md", "/srv/app/docs/a.md", "..notes"].map((input) =>
+      path.resolveWithin("/srv/app", input)
+    )
+  }).pipe(Effect.provide(Path.layer)))
+  assert.deepEqual(resolved, [Option.some("/srv/app/docs/a.md"), Option.none(), Option.none(), Option.some("/srv/app/..notes")])
+  checked("platform-runtime-hosts: Path.resolveWithin rejects traversal and rooted input without rejecting a legal .. prefix")
+}
+
+// http-client — custom redaction names replace defaults; URL credentials are
+// redacted regardless, while the original wire URL remains unchanged.
+{
+  const url = "https://user:pass@api.test/items?sig=signed&token=secret&page=2"
+  assert.equal(UrlParams.redactUrl(url), "https://REDACTED:REDACTED@api.test/items?sig=REDACTED&token=secret&page=2")
+  assert.equal(UrlParams.redactUrl(url, ["token"]), "https://REDACTED:REDACTED@api.test/items?sig=signed&token=REDACTED&page=2")
+  assert.equal(url, "https://user:pass@api.test/items?sig=signed&token=secret&page=2")
+  checked("http-client: URL credentials and selected query values redact independently; custom names replace defaults")
+}
+
+// configuration-secrets — an outer group default can discard supplied fields.
+{
+  const fields = { host: Config.String("HOST"), port: Config.Number("PORT") }
+  const fallback = { host: "fallback", port: 3000 }
+  const partial = ConfigProvider.fromUnknown({ HOST: "supplied" })
+  assert.deepEqual(await Effect.runPromise(Config.all(fields).pipe(Config.withDefault(fallback)).parse(partial)), fallback)
+  assert.deepEqual(await Effect.runPromise(Config.all(fields).pipe(Config.option).parse(partial)), Option.none())
+  assert.deepEqual(await Effect.runPromise(Config.all({ ...fields, port: fields.port.pipe(Config.withDefault(3000)) }).parse(partial)), { host: "supplied", port: 3000 })
+  const malformed = ConfigProvider.fromUnknown({ HOST: "supplied", PORT: "not-a-number" })
+  assert(Exit.isFailure(await Effect.runPromiseExit(Config.all(fields).pipe(Config.withDefault(fallback)).parse(malformed))))
+  checked("configuration-secrets: group defaults replace partially supplied Config.all groups; field defaults preserve supplied values and reject malformed input")
+}
+
+// Redactable is opt-in rendering, not a native serialization hook.
+{
+  const canary = "redaction-probe-canary"
+  const raw = { token: canary, [Redactable.symbolRedactable]: () => ({ token: "masked" }) }
+  assert(JSON.stringify(raw).includes(canary))
+  assert(!JSON.stringify(Redactable.redact(raw)).includes(canary))
+  assert(!JSON.stringify({ token: Redacted.make(canary) }).includes(canary))
+  const mixed = Cause.combine(Cause.interrupt(1), Cause.die("cleanup failed"))
+  assert(Cause.hasInterrupts(mixed))
+  assert(!Cause.hasInterruptsOnly(mixed))
+  checked("configuration-secrets and managedruntime: native serialization needs Redacted fields; mixed cleanup defects are not ordinary cancellation")
+}
+
+// Shutdown rejects blocked producers through values, not interruption.
+{
+  const results = await Effect.runPromise(Effect.gen(function*() {
+    const queue = yield* Queue.bounded<number>(1)
+    yield* Queue.offer(queue, 1)
+    const single = yield* Effect.forkChild(Queue.offer(queue, 2), { startImmediately: true })
+    const batch = yield* Effect.forkChild(Queue.offerAll(queue, [3, 4]), { startImmediately: true })
+    yield* Queue.shutdown(queue)
+    return [yield* Fiber.join(single), yield* Fiber.join(batch)]
+  }))
+  assert.deepEqual(results, [false, [3, 4]])
+  checked("concurrency-coordination: shutdown returns false to a blocked single offer and the unaccepted suffix to a batch offer")
+}
+
+// TxQueue.take owns the wait/drain/end decision; no separate openness snapshot.
+{
+  const result = await Effect.runPromise(Effect.gen(function*() {
+    const queue = yield* TxQueue.bounded<number, Cause.Done>(1)
+    const consumer = yield* Effect.forkChild(Effect.gen(function*() {
+      const seen: Array<number> = []
+      while (true) {
+        const next = yield* TxQueue.take(queue).pipe(
+          Effect.map(Option.some),
+          Effect.catchIf(Cause.isDone, () => Effect.succeed(Option.none<number>()))
+        )
+        if (Option.isNone(next)) return seen
+        seen.push(next.value)
+      }
+    }), { startImmediately: true })
+    yield* TxQueue.offer(queue, 7)
+    yield* TxQueue.offer(queue, 19)
+    yield* TxQueue.end(queue)
+    const seen = yield* Fiber.join(consumer)
+    const open = yield* TxQueue.unbounded<number, Cause.Done>()
+    const waiting = yield* Effect.forkChild(TxQueue.take(open).pipe(
+      Effect.catchIf(Cause.isDone, () => Effect.succeed(-1))
+    ), { startImmediately: true })
+    yield* Fiber.interrupt(waiting)
+    const interrupted = yield* Fiber.await(waiting)
+    return { seen, interrupted }
+  }).pipe(Effect.timeout("5 seconds")))
+  assert.deepEqual(result.seen, [7, 19])
+  assert(Exit.isFailure(result.interrupted) && Cause.hasInterruptsOnly(result.interrupted.cause))
+  checked("software-transactional-memory: take drains final work before Done and Done-only recovery preserves external cancellation")
+}
+
+console.log(JSON.stringify({ target: "effect@4.0.5", probes: checks.length, checks }))

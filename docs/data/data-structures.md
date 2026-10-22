@@ -1,18 +1,18 @@
 # Data Structures
 
-Effect's data structure modules share a common design: immutable, `pipe`-first dual APIs, and structural `Equal`/`Hash` throughout. Once familiar with one module, the rest follow the same pattern.
+Most collections here use immutable transformations, `pipe`-friendly dual APIs, and structural `Equal`/`Hash`. Exceptions are explicit: `HashRing` and low-level helpers such as `Record.assignProperty` mutate their targets. Check each operation's result and ownership contract.
 
-> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is a stale name; 4.0.2 spells it `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than the pinned 4.0.2 release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is a stale name; use `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ## Array
 
 `effect/Array` — stable
 
-Operates on plain JavaScript `ReadonlyArray` values — no wrapper type. Every function is pure and returns a new array. Results are native arrays, compatible with any third-party code without conversion.
+Operates on plain JavaScript arrays — no wrapper type. Collection transformations do not mutate the input; results are native arrays, compatible with third-party code without conversion. Observers and branching helpers return their declared result rather than necessarily allocating an array.
 
 **Mental model.** Fully typed `lodash/fp`, integrated with Effect's `Order`/`Equal`/`Option`/`Result` types. Every function taking a self-argument first also has a curried overload for `pipe`.
 
-Many functions produce `NonEmptyArray<A>` (alias: `readonly [A, ...A[]]`) when the output is guaranteed non-empty — `Array.make(1, 2, 3)`, `Array.sortBy(...)` on a non-empty input, and `Array.groupBy` values all yield the tighter type.
+Many functions produce `NonEmptyArray<A>` (alias: `[A, ...A[]]`) when the output is guaranteed non-empty — `Array.make(1, 2, 3)`, `Array.sortBy(...)` on a non-empty input, and `Array.groupBy` values all yield the tighter type. The readonly counterpart is `NonEmptyReadonlyArray<A>`. `Array.match` passes a mutable non-empty array to `onNonEmpty` for a mutable input and a readonly one otherwise; an inferred data-last callback defaults to readonly so it can accept either input.
 
 ```ts
 import { Array, Order, Result, Option, pipe } from "effect"
@@ -161,7 +161,7 @@ const program = pipe(
 
 Use when accumulating many small pieces and avoiding repeated array copies — especially in stream processing, recursive algorithms, or custom collectors.
 
-Official guide: [Chunk](https://effect.website/docs/v4/data-types/chunk) (it says `fromIterable` copies its input; in 4.0.2 that is only true for non-array iterables).
+Official guide: [Chunk](https://effect.website/docs/v4/data-types/chunk) (it says `fromIterable` copies its input; that is only true for non-array iterables).
 
 ## HashMap
 
@@ -238,7 +238,7 @@ Use when you need an immutable key-value store, especially with value-object key
 
 Immutable set backed by the same HAMT internals as `HashMap`. Membership tests and set-algebraic ops (`union`, `intersection`, `difference`, `isSubset`) use structural `Equal`/`Hash`. Two structurally equal items (same fields, different references) count as one member.
 
-**Structural membership needs no wrapper.** Plain object literals — and therefore values decoded from a `Schema.Struct` — dedupe on their own; a native `Set` does not, because it ignores `Equal` and compares references. The flip side: *every* enumerable field participates, so an incidental field (a request id, a fetched-at timestamp) makes two records of the same entity distinct. When identity is narrower than the shape, project to the identifying fields first or give the class a custom `Equal`/`Hash`.
+**Structural membership needs no wrapper.** Plain object literals — and therefore values decoded from a `Schema.Struct` — dedupe on their own; a native `Set` does not, because it ignores `Equal` and compares references. The flip side: own string and symbol keys participate, including non-enumerable ones, so an incidental field (a request id, a fetched-at timestamp) makes two records of the same entity distinct. When identity is narrower than the shape, project to the identifying fields first or give the class a custom `Equal`/`Hash`.
 
 ```ts
 import { HashSet } from "effect"
@@ -247,7 +247,7 @@ import { HashSet } from "effect"
 const nativeSize = new Set([{ id: "e1" }, { id: "e1" }]).size             // 2
 const hashSetSize = HashSet.size(HashSet.make({ id: "e1" }, { id: "e1" })) // 1
 
-// An incidental field defeats dedupe — every enumerable field counts
+// An incidental field defeats dedupe — hidden own fields also count
 const withNoise = HashSet.make(
   { id: "e1", requestId: "r-1" },
   { id: "e1", requestId: "r-2" }
@@ -569,7 +569,7 @@ HashRing.remove(ring, w3)
 > Membership and mutation operations (`add`, `addMany`, `has`, and `remove`)
 > compare that key, so an equivalent node value targets the same ring member.
 
-`get` and `getShards` answer different questions. `get(ring, key)` is a pure nearest-point lookup. `getShards(ring, count)` builds a *balanced* table: each node is capped at its weight's share of `count` (at least one shard), and shards whose nearest node is already full spill to the next eligible node — so a shard's owner is not always the node `get` would pick for the same hash. Both return `undefined` for an empty ring. `count` is normalised like other Effect counts: fractions are floored, and `NaN` or a non-positive value yields an empty array. `getShards` is deterministic: the same nodes and weights always produce the same shard table regardless of the order in which nodes were added or removed (weights are summed in node-key order; hash ties are broken by node key).
+`get` and `getShards` answer different questions. `get(ring, key)` is a pure nearest-point lookup. `getShards(ring, count)` builds a *balanced* table: it first limits each node to its floored weight share of `count` (at least one shard), spilling to eligible nodes. Once all nodes reach those soft caps, remaining shards are assigned without exclusions; the share is not a hard maximum. A shard's owner is therefore not always the node `get` would pick for the same hash. Both return `undefined` for an empty ring. `count` is normalised like other Effect counts: fractions are floored, and `NaN` or a non-positive value yields an empty array. `getShards` is deterministic: the same nodes and weights always produce the same shard table regardless of the order in which nodes were added or removed (weights are summed in node-key order; hash ties are broken by node key).
 
 Use when distributing work across a dynamic set of nodes where stable key-to-node assignments with minimal remapping are needed.
 
@@ -577,7 +577,7 @@ Use when distributing work across a dynamic set of nodes where stable key-to-nod
 
 `effect/Record` — stable
 
-Pure helpers operating on plain JavaScript objects (`Record<K, V>` / `ReadonlyRecord<K, V>`). Every operation is immutable and returns a new plain object. Provides `map`, `filter`, `filterMap`, `reduce`, `partition`, `collect` (map + collect values into an array), and set operations (`union`, `intersection`, `difference`) over record values.
+Helpers operating on plain JavaScript objects (`Record<K, V>` / `ReadonlyRecord<K, V>`). Collection transformations return new records; observers, `collect`, and `partition` have their declared result shapes. The low-level `assignProperty` intentionally mutates its target and returns `void`. Provides `map`, `filter`, `filterMap`, `reduce`, `partition`, `collect` (map + collect values into an array), and set operations (`union`, `intersection`, `difference`) over record values.
 
 ```ts
 import { Record, Result, pipe } from "effect"
@@ -642,7 +642,7 @@ import { Tuple, Order } from "effect"
 
 // A comp-band snapshot as a tuple: [level, minSalary, maxSalary]
 const band = Tuple.make(4, 130_000, 160_000)
-// type: readonly [number, number, number]
+// inferred type: [4, 130000, 160000]; annotate explicitly to widen the literals
 
 // Pick or omit positions — extract just the salary range (positions 1 & 2)
 const range     = Tuple.pick(band, [1, 2])   // [130000, 160000]

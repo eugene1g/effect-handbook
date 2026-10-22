@@ -1,10 +1,10 @@
 # Generated-Code Anti-Patterns
 
-This is the list to check generated or pasted code against. Each row names the shape to search for, why it is wrong on `4.0.2`, the preferred shape, and the section that owns the explanation. For a reviewer's yes/no version of the same material, use the [Review Checklists](../reference/review-checklists).
+This is the list to check generated or pasted code against. Each row names the shape to search for, why it is wrong, the preferred shape, and the section that owns the explanation. For a reviewer's yes/no version of the same material, use the [Review Checklists](../reference/review-checklists).
 
 ## Effect 3 names that do not exist in Effect 4
 
-Generated code most often breaks on a name carried over from Effect 3. Each of these fails to compile against `effect@4.0.2`; use the Effect 4 spelling instead.
+Generated code most often breaks on a name carried over from Effect 3. Each of these fails to compile against this edition's audited release; use the Effect 4 spelling instead.
 
 | Effect 3 name | Effect 4 |
 | --- | --- |
@@ -35,7 +35,7 @@ Generated code most often breaks on a name carried over from Effect 3. Each of t
 | `Effect.runSync(parse(x))` while building a description | Construction is no longer inert, and `runSync` throws at the first asynchronous boundary. | Compose the effect; run once at the edge. | [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge) |
 | `Effect.map(() => someEffect)`; an Effect built in a callback and discarded | Produces a nested or dropped Effect that never runs. | `Effect.flatMap`, `Effect.andThen`, or `yield*`. | [“My Effect never ran”](troubleshooting-and-anti-patterns#my-effect-never-ran) |
 | Point-free callbacks: `Effect.forEach(ids, loadBand)`, `Effect.map(f)` with an overloaded `f`, `flow(...)` | `forEach` calls `f(element, index)`, so an optional second parameter silently receives the index; overloads and generics can be erased. | Write the lambda: `(id) => loadBand(id)`. | Official guide: [Guidelines](https://effect.website/docs/v4/code-style/guidelines) |
-| `Effect.if`, `Effect.unless`, `Effect.whenEffect`, `Effect.loop`, `Effect.iterate`, `Effect.zipLeft`, `Effect.zipRight` | Not exported in `4.0.2`. | Plain `if` / `for` in `Effect.gen`; `Effect.when(conditionEffect)`; `Effect.andThen` / `Effect.tap`. | [Branching and looping](../foundations/core-runtime-execution#9-branching-and-looping) |
+| `Effect.if`, `Effect.unless`, `Effect.whenEffect`, `Effect.loop`, `Effect.iterate`, `Effect.zipLeft`, `Effect.zipRight` | Not exported. | Plain `if` / `for` in `Effect.gen`; `Effect.when(conditionEffect)`; `Effect.andThen` / `Effect.tap`. | [Branching and looping](../foundations/core-runtime-execution#9-branching-and-looping) |
 | `Date.now()`, `new Date()`, `Math.random()` in domain work | Bypasses Clock/Random services and deterministic tests; direct workflow use also breaks replay determinism. | Effect Clock/DateTime/Random APIs; TestClock and seeded services. Put nondeterminism in a Workflow Activity. | [Clock](../foundations/fibers-scopes-runtimes#clock), [Random](../concurrency/scheduling-time#random) |
 | `process.exit()` in application code | Skips finalizers and the drain. | Let the platform `runMain` translate the `Exit` into an exit code. | [Signals, exit codes, and the time budget](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#signals-exit-codes-and-the-time-budget) |
 
@@ -91,7 +91,7 @@ Generated code most often breaks on a name carried over from Effect 3. Each of t
 | Reading a `MutableRef`, suspending, then writing from the stale value | Another fiber can update it during the suspension; replacing it with separate `Ref.get` / `Ref.set` calls has the same race. | One synchronous `MutableRef.update`, one `Ref.update`, or `SynchronizedRef` for an effectful transition. | [MutableRef](../concurrency/state-mutable-references#mutableref) |
 | Non-idempotent I/O inside `Effect.tx` | A transaction body can rerun on conflict. | Keep external effects outside the transaction. | [The mental model](../concurrency/software-transactional-memory#the-mental-model) |
 | Reusing a completed `Deferred` for the next generation | The next generation is "ready" instantly. | A fresh `Deferred` per generation; complete it on every outcome. | [Deferred](../foundations/fibers-scopes-runtimes#deferred) |
-| `Queue.shutdown` as end-of-input | Discards the buffer and interrupts parked fibers. | `Queue.end`, then join the workers. | [Queue lifecycle](../concurrency/concurrency-coordination#queue-lifecycle-who-ends-it-and-what-a-failure-does) |
+| `Queue.shutdown` as end-of-input | Discards the buffer; on an open queue, interrupts takers/awaiters and rejects pending offers through their result values. | `Queue.end`, then join the workers. | [Queue lifecycle](../concurrency/concurrency-coordination#queue-lifecycle-who-ends-it-and-what-a-failure-does) |
 | Readiness published before acquisition, or left true while draining | Traffic is routed to a process that cannot serve. | Readiness is a Layer acquired last and released first. | [Liveness, readiness, and draining](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#liveness-readiness-and-draining-are-different-questions) |
 
 ## Anti-patterns: concurrency, streams, and caching

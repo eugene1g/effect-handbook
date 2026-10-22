@@ -2,7 +2,7 @@
 
 Effect's coordination primitives let fibers share permits, queues, broadcasts, pooled resources, and replaceable scoped values without abandoning typed errors or structured concurrency. Start with `Semaphore`, `Queue`, or `PubSub`; use the partitioned, reference-counted, and scoped variants when ownership or lifecycle becomes the harder part.
 
-> **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
+> **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 Fork variants and fiber ownership live in [Core Runtime & Execution](../foundations/fibers-scopes-runtimes#fiber); stream-level buffering and backpressure live in [Streaming & Channels](./streaming-channels#stream). This page owns what happens *between* fibers: who waits, who is told "no", and what is lost.
 
@@ -10,7 +10,7 @@ Fork variants and fiber ownership live in [Core Runtime & Execution](../foundati
 
 `effect/Semaphore` — stable
 
-A counting semaphore with a fixed permit pool. Fibers that need to do work acquire one or more permits; if none are free they suspend in FIFO order until permits are released.
+A counting semaphore with a fixed permit pool. Fibers that need to do work acquire one or more permits; if insufficient permits are free they suspend until permits are released. Waiters are scanned in registration order, but a smaller later request can overtake a larger request whose permit count is unavailable. Do not assume strict FIFO fairness with mixed permit counts.
 
 `withPermits(n)(effect)` acquires n permits, runs the effect, and releases them on success, failure, or interruption. `withPermit` is the single-permit mutual-exclusion alias. `withPermitsIfAvailable` is the non-blocking variant that runs only if permits are currently free.
 
@@ -280,7 +280,7 @@ const offerOrCount = <A>(queue: Queue.Enqueue<A>, value: A) =>
 Decide three things when you create a queue: who owns it and its worker fibers, who signals the end, and whether shutdown drains or discards.
 
 - **A producer failure must not strand consumers.** A consumer blocked in `take` learns nothing from a producer fiber that died. Propagate a terminal signal: `Queue.end` for normal completion, `Queue.fail(q, error)` for a typed failure (both let buffered values drain first), or wrap the producer with `Queue.into(q)`, which ends the queue on success and fails it with the producer's cause otherwise.
-- **`Queue.shutdown` discards the buffer and interrupts every fiber parked on `offer`, `take`, or `Queue.await`.** Reserve it for abandoning work. It returns `true` if this call did the shutting down, `false` if the queue was already shut down or had already completed via `end`/`fail` — useful for "am I the one who closed it?" cleanup races. `Queue.shutdownUnsafe` is the synchronous variant for callback contexts that cannot run an Effect. The full termination table is in [Structured Concurrency Through a Bounded Worker](../deep-dives/structured-concurrency-through-a-bounded-worker).
+- **`Queue.shutdown` discards the buffer.** On an open queue it interrupts pending takers and `Queue.await` callers, but pending single offers succeed with `false` and batch offers return their unaccepted suffix. If the queue was already closing via `end`/`fail`, shutdown preserves that terminal cause instead of replacing it with interruption. Reserve it for abandoning work. It returns `true` if this call did the shutting down, `false` if the queue had already completed — useful for "am I the one who closed it?" cleanup races. `Queue.shutdownUnsafe` is the synchronous variant for callback contexts that cannot run an Effect. The full termination table is in [Structured Concurrency Through a Bounded Worker](../deep-dives/structured-concurrency-through-a-bounded-worker).
 - **Test with capacity `1`.** Large buffers hide deadlocks and ordering bugs that a one-slot queue exposes immediately. Also interrupt a blocked `offer` and a blocked `take` and assert the next value still reaches a live consumer.
 - **An in-memory queue is lost with the process.** Work that must survive a restart belongs in [PersistedQueue](../tooling/persistence#persistedqueue) or an outbox table.
 
@@ -313,7 +313,7 @@ Smells worth a second look in review: `Queue.unbounded` chosen because a test hu
 
 Use for producer-consumer decoupling with back-pressure inside a single process: batch pipelines, worker pools, actor-style mailboxes, rate-limited ingestion.
 
-Official guides: [Queue](https://effect.website/docs/v4/concurrency/queue) (its `takeAll` description and `takeUpTo` heading do not match the tagged `4.0.2` source — use the table above — and it predates the `Queue<A, E>` completion protocol); the callback constructor in [Creating Streams](https://effect.website/docs/v4/stream/creating) drives the same `offerUnsafe` / `endUnsafe` / `failCauseUnsafe` API.
+Official guides: [Queue](https://effect.website/docs/v4/concurrency/queue) (its `takeAll` description and `takeUpTo` heading do not match this edition's tagged source — use the table above — and it predates the `Queue<A, E>` completion protocol); the callback constructor in [Creating Streams](https://effect.website/docs/v4/stream/creating) drives the same `offerUnsafe` / `endUnsafe` / `failCauseUnsafe` API.
 
 ## PubSub
 
@@ -447,7 +447,7 @@ it.effect("a closed subscription retains nothing", () =>
 
 Use for one-to-many event fan-out within a process where multiple independent consumers should each see every message.
 
-Official guide: [PubSub](https://effect.website/docs/v4/concurrency/pubsub) (its prose calls the subscription a `Dequeue`; the tagged `4.0.2` source returns a `PubSub.Subscription` read with `PubSub.take`, and the guide omits the `{ capacity, replay }` constructor form).
+Official guide: [PubSub](https://effect.website/docs/v4/concurrency/pubsub) (its prose calls the subscription a `Dequeue`; this edition's tagged source returns a `PubSub.Subscription` read with `PubSub.take`, and the guide omits the `{ capacity, replay }` constructor form).
 
 ## Pool
 

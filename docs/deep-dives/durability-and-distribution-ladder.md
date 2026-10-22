@@ -1,7 +1,5 @@
 # The Durability and Distribution Ladder
 
-Audited against `effect@4.0.2` and the matching Effect repository source on 2026-10-09.
-
 An Effect application does not become durable by moving a fiber to another machine. It also does not become distributed merely because a value is in a database. Durability and distribution are separate axes:
 
 - **durability** decides which facts, results, messages, and waits survive a crash;
@@ -170,6 +168,10 @@ export const MemoryQueueLayer = PersistedQueue.layer.pipe(
 
 The custom offer id makes producer retries idempotent: de-duplication survives completion until `PersistedQueue.layerCleanup` removes the finished element (30 days by default). An element that exhausts `maxAttempts` — or no longer decodes with the queue schema — is dead-lettered and kept until you drain it or set `failedTimeToLive`. None of this makes the external payroll operation atomic. Pass a stable domain key to payroll as well.
 
+`take` processes **one** claim, not an infinite worker loop. It returns the handler's value or propagates the handler error after the scoped store records the outcome; retrying the *item* is storage scheduling, not an automatic rerun inside that same call. Repeat `take` under an explicit worker lifetime and failure policy. Attempts are counted at claim time and the handler sees a 1-based count; process death consumes an attempt too. Undecodable entries are marked failed and skipped internally, so schema decode failures do not surface from `take`.
+
+`offer(value, { id, delay: "30 seconds" })` postpones only the first delivery; retries still use the queue's `retrySchedule`. A duplicate id does not change its existing delay. SQL uses the database clock and rounds delays up to seconds; Redis relies on agreement between producer and polling-worker clocks. Zero, negative, or omitted delays enqueue immediately. An infinite delay returns the id **without storing anything**, including no deduplication record: it is not a parked job. With delayed and retried work, FIFO is not a promise of global completion order.
+
 Use this rung for email delivery, document rendering, imports, and other retryable jobs whose lifecycle is essentially “pending, processing, done, or exhausted and awaiting operator recovery.” When the process must pause, branch, compensate, and remember multiple completed steps, move up one rung.
 
 ### A lease is not a fence
@@ -180,9 +182,11 @@ Every durable consumer on this ladder — a queue taker, a workflow owner, a sha
 - or make duplicate ownership harmless, so that both owners converging on the same idempotent write is acceptable;
 - size lease durations for the pauses you actually observe, not for the happy path.
 
-**Process death skips finalizers.** `Effect.acquireRelease`, `Layer` teardown, and `Workflow.addFinalizer` run on graceful exit only. Restart behavior must therefore never depend on cleanup having run, and graceful shutdown should acknowledge only work whose outcome is already committed.
+**Process death skips that process's finalizers.** `Effect.acquireRelease` and `Layer` teardown cannot clean up after a killed owner. `Workflow.addFinalizer` instead belongs to terminal execution: an abandoned attempt skips it, but replay can register it on a new owner and run it when the workflow eventually completes. It is neither a crash hook nor an exactly-once cleanup guarantee. Restart behavior must never depend on old-owner cleanup having run, and graceful shutdown should acknowledge only work whose outcome is already committed.
 
 ## Rung three: orchestrate a durable business process
+
+Discarding a child result does not detach the child: `{ discard: true }` still links completion wakes and parent interruption. Use `{ discard: true, detached: true }` only when the child must outlive parent cancellation, and never later wait on that detached execution from a workflow. Its completion will not wake that waiter. Failure suspension is a different policy: an execution's own `SuspendOnFailure` waits for explicit `resume` or `interrupt` rather than retrying the failed activity in the background. See [detached children and recovery](../systems/workflows-durable-execution#detached-children-and-failure-suspended-recovery).
 
 `Workflow` describes deterministic orchestration. `Activity` contains every side effect and source of nondeterminism. The workflow engine journals completed activity `Exit` values; replay returns a recorded result instead of deliberately executing that activity again.
 

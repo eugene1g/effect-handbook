@@ -2,9 +2,9 @@
 
 Effect's test services make time, console output, randomness, and dependencies deterministic; `@effect/vitest` integrates those services with a test runner. The repository's documentation tools then compile and validate examples so docs can be treated like code rather than inert prose.
 
-> **Official companions:** Browse the release-matched authored [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src) for executable examples across Effect. [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.2/LLMS.md) is its generated single-file aggregate and begins with Effect's coding conventions.
+> **Official companions:** Browse the release-matched authored [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src) for executable examples across Effect. [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.5/LLMS.md) is its generated single-file aggregate and begins with Effect's coding conventions.
 
-> **Official guides:** [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than this handbook's pinned `4.0.2` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 **Pick the tool by the claim you need to prove.** Each row is evidence for one kind of statement and for nothing beyond it; [Testing an Effect Application](../deep-dives/testing-an-effect-application) turns the table into a full strategy.
 
@@ -38,7 +38,7 @@ Semantics worth knowing before a test hangs:
 | Fact | Consequence |
 | --- | --- |
 | **Virtual time starts at `0`**, the Unix epoch. | `Clock.currentTimeMillis` and `DateTime.now` read 1970 until you call `setTime`; pin the date whenever a calendar rule is under test. |
-| **`adjust` and `setTime` give already-forked fibers one scheduling turn, then move time**, waking sleepers in timestamp order and yielding once after each. | A fiber that needs several turns to reach its `sleep` registers it *after* the adjustment and then waits forever. Synchronize on a signal from the fiber instead of counting turns — see [Drive time instead of waiting](../deep-dives/testing-an-effect-application#drive-time-instead-of-waiting). |
+| **With `TestClock.layer`, `adjust` and `setTime` track a woken fiber's scheduled continuations and child work until it suspends**, then inspect the next sleep. Standalone `make` does not install this tracking scheduler. | Multi-hop sleeps are included in the same advance, but tracking stops after live `warningDelay` with a busy warning; later sleeps can then register relative to the advanced time. This is not an external-callback or initial-readiness barrier: synchronize on a signal instead of counting turns — see [Drive time instead of waiting](../deep-dives/testing-an-effect-application#drive-time-instead-of-waiting). |
 | **A zero or negative sleep returns immediately.** | It never becomes a scheduled wake-up, so there is nothing to adjust past. |
 | **A sleep that nobody advances logs a warning** after `warningDelay` of *live* time (default `"1 second"`). | The message "A test is using time, but is not advancing the test clock" means a missing `adjust`, not a slow test. Tune it with `TestClock.layer({ warningDelay })`. |
 | **Adjustments keep nanosecond precision**, including after very large jumps. | `Clock.currentTimeNanos` is exact: a `"365 days"` adjust followed by `1.5` ms reads `31536000001500000n`. |
@@ -161,6 +161,32 @@ Retry policies have their own home: [Recipe: Typed Retry with TestClock](../reci
 Use when code under test touches `Effect.sleep`, `Effect.timeout`, schedules, retry delays, or rate limiters.
 
 Official guide: [TestClock](https://effect.website/docs/v4/testing/testclock).
+
+## TestCrypto
+
+`effect/testing/TestCrypto` — unstable
+
+`TestCrypto.layer(seed)` replaces `Crypto.Crypto` random operations with a seeded generator while delegating digests to an existing platform crypto service. The layer **requires** `Crypto.Crypto`; it does not replace the platform digest implementation. Each layer build starts a new sequence. Random bytes, numbers, shuffles, UUIDs, and ULIDs consume that sequence in evaluation order, so concurrent operation ordering can change results. Never use seeded values for production secrets.
+
+```ts
+import { NodeCrypto } from "@effect/platform-node"
+import { Crypto, Effect, Layer } from "effect"
+import { TestCrypto } from "effect/testing"
+
+const TestCryptoLive = TestCrypto.layer("payroll-test").pipe(
+  Layer.provide(NodeCrypto.layer)
+)
+
+const program = Effect.gen(function*() {
+  const crypto = yield* Crypto.Crypto
+  const id = yield* crypto.randomUUIDv4()
+  const bytes = yield* crypto.randomUUIDv7({ format: "bytes" })
+  const digest = yield* crypto.digest("SHA-256", bytes)
+  return { id, bytes, digest }
+}).pipe(Effect.provide(TestCryptoLive))
+```
+
+`Crypto.randomUUIDv4` and `randomUUIDv7` are now **functions**: call them with `()` for the default lowercase, hyphenated string, or `{ format: "bytes" }` for 16 UUID bytes. `"hex"` means the same hyphenated string, not bare hex. UUIDv7 and ULID also depend on `Clock`, so provide `TestClock` or use `it.effect` and pin virtual time for fully reproducible output. `@effect/vitest` does not automatically install `TestCrypto`; provide this layer explicitly. For non-cryptographic application randomness use [`Random.withSeed`](../concurrency/scheduling-time#deterministic-testing).
 
 ## TestConsole
 
@@ -307,7 +333,7 @@ const validPayloads = Arbitrary.sampleEffect(Arbitrary.schema(SalaryWire), { cou
 const _ = [grantShares, bandAndSalary, fuzzInputs, validPayloads]
 ```
 
-- **Reach for a custom `shrink` only when the derived counterexample is not meaningful in the domain.** The callback returns the immediate simplifications of a failing value; every candidate is re-validated against the schema, invalid ones are skipped and still count against `maxShrinks`, and the function must be synchronous, deterministic, terminating, and free of mutation. It replaces derived shrinking rather than refining it: for the property `shares < 1_000` over this schema, the derived shrinker reports the exact boundary `1000`, while the halving shrinker above stops at `1953`.
+- **Reach for a custom `shrink` only when the derived counterexample is not meaningful in the domain.** The callback returns the immediate simplifications of a failing value; every candidate is re-validated against the schema, invalid ones are skipped and still count against `maxShrinks`, and the function must be synchronous, deterministic, terminating, and free of mutation. It replaces derived shrinking rather than refining it: for the property `shares < 1_000` over this schema, the derived shrinker reports the exact boundary `1000`, while the halving shrinker above can stop above that boundary; its final value depends on the generated starting value.
 - **Derivation is eager; discards are lazy.** `Arbitrary.schema` throws at the call site when it cannot build a generator — a bare `Schema.Never`, contradictory bounds such as `isBetween({ minimum: 10, maximum: 5 })`, a declaration without a generatable representation, or a recursive schema with no finite path. A `Never` nested where another finite path exists is treated as an uninhabited branch instead of an error: `Schema.optionalKey(Schema.Never)` leaves the key out, `Schema.Union([Schema.Never, S])` generates `S`, and `Schema.Array(Schema.Never)` generates `[]`. A generator that *can* be built but rejects too many candidates fails later, as `Exhausted` from `checkEffect` or `SampleError` from `sampleEffect`. The first is a schema problem; the second is a filter problem.
 - **`size` is local, not global.** Every unconstrained string, collection, and object property observes the same size independently, so a wide struct still produces a large value at a small size; recursive branches share one recursion allowance.
 
@@ -379,7 +405,7 @@ it.effect.prop(
 
 `prop` accepts either an array of schemas/arbitraries (positional) or an object record (named destructuring). Prefer a constructive check such as `Schema.isBetween` over an opaque `Schema.makeFilter` predicate for generated domains: an opaque filter works, but only as a bounded residual filter that can exhaust its discard budget.
 
-> **Migrating from the fast-check bridge:** replace `Schema.toArbitrary(schema)(FastCheck)` with `Arbitrary.schema(schema)`; `FastCheck.sample` with `Arbitrary.sampleEffect` (`numRuns` → `count`); `FastCheck.assert(FastCheck.property(...))` with `Arbitrary.checkEffect` and handle the result (`numRuns` → `runs`, `path` → `replay`, `maxSkipsPerRun` → `maxDiscards`, `endOnFailure` → `maxShrinks: 0`); and `{ fastCheck: { numRuns } }` with `{ arbitrary: { runs } }`. Raw fast-check arbitraries are no longer accepted by `@effect/vitest`. Seeds, distributions, and shrink results are not compatible, so re-record any saved failure. If a test truly needs fast-check, install it yourself and use it directly with Vitest. Effect's release-matched [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.2/packages/effect/ARBITRARY.md) goes deeper.
+> **Migrating from the fast-check bridge:** replace `Schema.toArbitrary(schema)(FastCheck)` with `Arbitrary.schema(schema)`; `FastCheck.sample` with `Arbitrary.sampleEffect` (`numRuns` → `count`); `FastCheck.assert(FastCheck.property(...))` with `Arbitrary.checkEffect` and handle the result (`numRuns` → `runs`, `path` → `replay`, `maxSkipsPerRun` → `maxDiscards`, `endOnFailure` → `maxShrinks: 0`); and `{ fastCheck: { numRuns } }` with `{ arbitrary: { runs } }`. Raw fast-check arbitraries are no longer accepted by `@effect/vitest`. Seeds, distributions, and shrink results are not compatible, so re-record any saved failure. If a test truly needs fast-check, install it yourself and use it directly with Vitest. Effect's release-matched [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/ARBITRARY.md) goes deeper.
 
 Use when testing pure transformations, codecs, data-structure invariants, or any function where the claim is "this holds for all valid inputs."
 
@@ -774,7 +800,7 @@ Several modules ship their own test harness. Each removes one piece of infrastru
 
 ## Effect language service (@effect/tsgo)
 
-`@effect/tsgo` — external package ([Effect-TS/tsgo](https://github.com/Effect-TS/tsgo)), versioned separately from `effect`; this handbook validates with `0.47.2`
+`@effect/tsgo` — external package ([Effect-TS/tsgo](https://github.com/Effect-TS/tsgo)), versioned separately from `effect`; this handbook validates with `0.56.0`
 
 A build of TypeScript-Go with the Effect language service embedded. It reports Effect-specific mistakes — a floating Effect, an unprovided requirement, error handling on an Effect that cannot fail, two copies of `effect` in one program — as diagnostics, and offers quick fixes and refactors for them. The same rules run in the editor, in `tsc`, and in a dedicated CLI, which is what makes them usable in CI and by coding agents: the feedback arrives before any test runs.
 
@@ -809,10 +835,10 @@ npx @effect/tsgo setup --help
 | --- | --- | --- |
 | Editor | make the editor use `effect-tsgo` as its TypeScript language server | **Use it instead of plain `tsgo`, not beside it** — two servers duplicate diagnostics and slow the editor. Adds quick fixes, hovers, and refactors such as `asyncAwaitToGen` and `layerMagic`. |
 | `tsc` | `effect-tsgo patch`, usually from a `prepare` script | Patches the installed native TypeScript so ordinary `tsc` runs emit Effect diagnostics as TypeScript diagnostics. An **unpatched** `tsc` stays silent about them. Exit-code impact is set by `ignoreEffectSuggestionsInTscExitCode` (default `true`), `ignoreEffectWarningsInTscExitCode` (`false`), and `ignoreEffectErrorsInTscExitCode` (`false`). |
-| Dedicated CLI | `effect-tsgo diagnostics --project tsconfig.json --strict --format text` | Needs no patch. `--strict` treats warnings as errors; `--format` is `json`, `pretty`, `text`, or `github-actions`; `--file` checks one file. This is the command that validates every example in this handbook. |
-| Oxlint | `effect-tsgo patch --oxlint` | Experimental type-aware lint integration; presets ship under `@effect/tsgo/oxlint-presets` (`recommended`, `correctness`, `antipattern`, `effect-native`, `style`). The official Devtools guide covers this and the VS Code / Cursor extension. |
+| Dedicated CLI | `effect-tsgo diagnostics --project tsconfig.json --strict --format text` | Needs no patch. `--strict` makes emitted warnings fail the command; it does not enable disabled rules or change severities. `--format` is `json`, `pretty`, `text`, or `github-actions`; `--file` checks one file. This is the command that validates every example in this handbook. |
+| Oxlint | `effect-tsgo patch --oxlint` | Experimental type-aware lint integration; this also patches TypeScript by default (`--no-typescript` opts out). Presets ship under `@effect/tsgo/oxlint-presets`: `recommended`, `strict`, `correctness`, `antipattern`, `effect-native`, `style`, and opt-in `maintainers`. Use compatible Oxlint/tsgolint versions from the release README. |
 
-The rules fall into four groups (`0.47.2` ships 118: 23 correctness, 20 anti-pattern, 22 Effect-native, 53 style), and **many are not errors until you raise them** — most style and Effect-native rules default to `suggestion` or `off`, and `effect-tsgo config` shows every rule's current level. The ones below map directly onto failures described elsewhere in this handbook:
+The application-facing groups below cover correctness, anti-pattern, Effect-native, and style; maintainer rules are separately opt-in. **Many rules are not errors until you raise them** — most style and Effect-native rules default to `suggestion` or `off`, and `effect-tsgo config` opens an interactive configuration editor. The ones below map directly onto failures described elsewhere in this handbook:
 
 | Group | Examples (default severity) | What it catches |
 | --- | --- | --- |
@@ -821,7 +847,7 @@ The rules fall into four groups (`0.47.2` ships 118: 23 correctness, 20 anti-pat
 | Effect-native | `globalDateInEffect`, `globalTimersInEffect`, `globalRandomInEffect`, `globalFetchInEffect`, `processEnvInEffect`, `globalConsoleInEffect` (all `off`) | ambient `Date.now()`, `setTimeout`, `Math.random()`, `fetch`, `process.env`, and `console` inside Effect code — exactly the dependencies `TestClock`, `Random`, `HttpClient`, `Config`, and `TestConsole` exist to control. Turn these on for application code that must be deterministic under test. |
 | Style | `unnecessaryEffectGen`, `catchAllToMapError`, `effectFnOpportunity`, `schemaStructWithTag` (`suggestion`) | simplifications with a mechanical fix |
 
-Severity is per rule: `diagnosticSeverity` maps a rule name to `"off"`, `"suggestion"`, `"message"`, `"warning"`, or `"error"`; `overrides` applies different levels to file globs; and an `@effect-diagnostics` or `@effect-diagnostics-next-line` comment adjusts one file or one line. `effect-tsgo config` opens an interactive rule picker for an existing `tsconfig.json`. One rule deserves a project-level decision up front: `unstableApiUsage` warns on every API tagged `@stability unstable`, which in `4.0.2` is every call into `effect/http`, `effect/sql`, `effect/rpc`, `effect/ai`, and the other area families. A project that builds on those modules sets `"diagnosticSeverity": { "unstableApiUsage": "off" }` (this handbook's validation does exactly that); a library that wants to stay inside the semver-covered surface leaves it on.
+Severity is per rule: `diagnosticSeverity` maps a rule name to `"off"`, `"suggestion"`, `"message"`, `"warning"`, or `"error"`; `overrides` applies different levels to file globs; and an `@effect-diagnostics` or `@effect-diagnostics-next-line` comment adjusts one file or one line. `effect-tsgo config` opens an interactive rule picker for an existing `tsconfig.json`. One rule deserves a project-level decision up front: `unstableApiUsage` warns on every API tagged `@stability unstable`, including `effect/http`, `effect/sql`, `effect/rpc`, `effect/ai`, and the other unstable area families. A project that builds on those modules sets `"diagnosticSeverity": { "unstableApiUsage": "off" }` (this handbook's validation does exactly that); a library that wants to stay inside the semver-covered surface leaves it on.
 
 - **Run the diagnostics on test code too.** `floatingEffectInVitest` is the static counterpart of the false green described under [`@effect/vitest`](#effect-vitest): `it("…", () => Effect.fail("boom"))` passes at runtime and fails this check.
 - **Pin it like any other toolchain dependency.** Each release is built against specific TypeScript (and Oxlint) versions listed in its README; upgrade it together with TypeScript rather than independently.
@@ -829,7 +855,7 @@ Severity is per rule: `diagnosticSeverity` maps a rule name to `"off"`, `"sugges
 
 Use when you want the mistakes in [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns) reported by the compiler instead of discovered in review.
 
-**Development tooling.** The `packages/tools/` directory mixes public documentation/code-generation packages with private utilities used to maintain the Effect monorepo. The public tools in the audited release are `@effect/openapi-generator`, `@effect/docgen`, and `@effect/doctest`; the rest of the list below is repository-internal.
+**Development tooling.** The `packages/tools/` directory mixes public documentation/code-generation packages with private utilities used to maintain the Effect monorepo. The public tools in the audited release are `@effect/openapi-generator`, [`@effect/graphql-generator`](../interfaces/graphql#graphql-generator), `@effect/docgen`, and `@effect/doctest`; the rest of the list below is repository-internal.
 
 ## @effect/docgen
 

@@ -145,7 +145,7 @@ assert.equal(ByteSize.fromInput(-1)._tag, "None")
 assert.equal(ByteSize.divide(probeUpload, 0)._tag, "None")
 checked("ByteSize exact units, binary-default formatting, and partial parsing/arithmetic")
 
-// 4.0.2: Stream.partition yields [passes, fails]; Effect.orElseSucceed receives the error; Stream.scan seeds lazily.
+// Release regressions: Stream.partition yields [passes, fails]; Effect.orElseSucceed receives the error; Stream.scan seeds lazily.
 const [evens, odds] = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
   const [passes, fails] = yield* Stream.partition(
     Stream.make(1, 2, 3, 4),
@@ -159,7 +159,7 @@ assert.equal(await Effect.runPromise(Effect.fail("stale").pipe(Effect.orElseSucc
 assert.deepEqual(await Effect.runPromise(Stream.runCollect(Stream.make(1, 2, 3).pipe(Stream.scan(() => 0, (sum, n) => sum + n)))), [0, 1, 3, 6])
 checked("Stream.partition order, Effect.orElseSucceed error argument, and lazy Stream.scan seed")
 
-// 4.0.2: Stream.scan emits its seed for an empty stream; Effect.retry does not retry a cause that
+// Release regressions: Stream.scan emits its seed for an empty stream; Effect.retry does not retry a cause that
 // contains a defect; a pending interruption wins when an uninterruptible region fails.
 assert.deepEqual(await Effect.runPromise(Stream.runCollect(Stream.empty.pipe(Stream.scan(() => 0, (sum: number, n: number) => sum + n)))), [0])
 let mixedCauseAttempts = 0
@@ -218,7 +218,12 @@ const jsonSchemaDocument = Schema.toJsonSchemaDocument(JsonSchemaCompBand)
 assert.equal(jsonSchemaDocument.dialect, "draft-2020-12")
 assert.deepEqual(
   (jsonSchemaDocument.schema as any).properties.level,
-  { type: "integer", description: "Job level" }
+  {
+    type: "integer",
+    minimum: Number.MIN_SAFE_INTEGER,
+    maximum: Number.MAX_SAFE_INTEGER,
+    description: "Job level"
+  }
 )
 assert.equal((jsonSchemaDocument.schema as any).additionalProperties, true)
 assert.equal(
@@ -469,7 +474,7 @@ assert.equal(rpcResult.failure.reason.message, "Received empty HTTP response fro
 checked("RpcClientError can occur after sending a request and receiving an HTTP response")
 
 console.log(JSON.stringify({
-  effect: "4.0.2",
+  effect: "4.0.5",
   nodeNativeTypeScript: true,
   checks
 }, null, 2))

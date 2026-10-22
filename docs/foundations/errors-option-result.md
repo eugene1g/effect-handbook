@@ -4,9 +4,9 @@ Effect treats failure as a typed value, not an exception. `Option` models absenc
 
 `Option<A>`, `Result<A, E>`, and `Effect<A, E, R>`'s `E` channel are the same idea at increasing power levels. Learn to move between them fluently.
 
-> **Official examples:** Effect's release-matched [`ai-docs` error-handling examples](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/01_effect/04_errors) cover tagged errors, `catchTag`/`catchTags`, and reason-based errors.
+> **Official examples:** Effect's release-matched [`ai-docs` error-handling examples](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/04_errors) cover tagged errors, `catchTag`/`catchTags`, and reason-based errors.
 
-> **Official guides:** [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors), [Two Types of Errors](https://effect.website/docs/v4/error-management/two-error-types). These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors), [Two Types of Errors](https://effect.website/docs/v4/error-management/two-error-types). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ![Diagram: an Exit is a Success or a Failure carrying a Cause; a Cause holds Fail, Die, and Interrupt reasons, and each is handled by different combinators](/diagrams/cause-classification.svg)
 
@@ -286,7 +286,7 @@ const bandMidpoint = Effect.firstSuccessOf([fromHris, fromReplica, fromSnapshot]
 
 A [`Cause`](fibers-scopes-runtimes#cause) is a flat list of reasons and may hold a typed failure *and* a defect or interruption at once: a failing operation whose finalizer dies, a concurrent sibling whose cleanup dies while being interrupted, or a `race` in which every contender fails.
 
-**Every typed-channel operator looks for the first `Fail` reason; when it finds one, the handler's result becomes the entire outcome and the other reasons are dropped.** That covers `catch`, `catchTag(s)`, `catchIf`, `catchFilter`, `catchReason(s)`, `mapError`, `orDie`, `orElseSucceed`, `firstSuccessOf`, `match`, `matchEffect`, `result`, `option`, `ignore`, and `retry`. With no `Fail` reason, or when the selector does not match, the original `Cause` passes through untouched. `tapError` and `tapCause` re-raise the original `Cause`, so they lose nothing.
+**Typed recovery operators look for the first `Fail` reason; when it is handled, the handler's result becomes the entire outcome and the other reasons are dropped.** That covers `catch`, `catchTag(s)`, `catchIf`, `catchFilter`, `catchReason(s)`, `mapError`, `orDie`, `orElseSucceed`, `firstSuccessOf`, `match`, `matchEffect`, `result`, `option`, and `ignore`. With no `Fail` reason, or when the selector does not match, the original `Cause` passes through untouched. `tapError` and `tapCause` re-raise the original `Cause`, so they lose nothing. **Retry is different:** `Effect.retry` and `retryOrElse` only retry causes consisting entirely of `Fail` reasons; any `Die` or `Interrupt` makes the cause propagate unchanged.
 
 ```ts
 import { Cause, Effect, Schema } from "effect"
@@ -489,7 +489,7 @@ positiveRaise(4) // Option.some(4)
 
 `Option.makeEquivalence` and `Option.makeOrder` lift an `Equivalence` or `Order` for `A` to `Option<A>`, so optional fields can take part in sorting and de-duplication. `None` orders before every `Some`; `Order.flip` reverses the whole order, which puts missing values last and present values in descending order.
 
-Official guides: [Option](https://effect.website/docs/v4/data-types/option) (its statement that an `Option` can be yielded directly inside `Effect.gen` does not hold for the tagged `4.0.2` source; see [Moving between Option, Result, and Effect](#moving-between-option-result-and-effect)), [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types) (Schema) for nullable and optional wire shapes that decode to `Option`.
+Official guides: [Option](https://effect.website/docs/v4/data-types/option) (its statement that an `Option` can be yielded directly inside `Effect.gen` does not hold for this edition's tagged source; see [Moving between Option, Result, and Effect](#moving-between-option-result-and-effect)), [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types) (Schema) for nullable and optional wire shapes that decode to `Option`.
 
 ## Result
 

@@ -2,7 +2,7 @@
 
 A source-grounded tour of Effect 4's reactive state layer — the same primitives that power TanStack-Query-style data fetching, SSR hydration, and fine-grained UI state, but built natively on Effects, Streams, Layers, scopes, and typed errors.
 
-This guide shares the handbook's **2026-10-09** audit target, `effect@4.0.2`. The reactivity APIs are tagged `@stability unstable`, so pin compatible package versions and re-audit before upgrading.
+The reactivity APIs are tagged `@stability unstable`, so pin compatible package versions and re-audit before upgrading.
 
 For a compact module-by-module API reference, use the [Reactivity & Atom handbook topic](../systems/reactivity-atom). This deep dive repeats only the details needed to connect those modules into an application-level mental model.
 
@@ -434,6 +434,8 @@ const rendered = AsyncResult.builder(result)
 
 ### Combining several results
 
+When the first non-success input is a failure, `AsyncResult.all` rebuilds its `previousSuccess` in the **combined** tuple or record shape, using every input's current or previous value. If any input has no value, there is no combined previous success. This matters when rendering stale combined screens after one request fails: the stale value must still contain all fields, not only the failing request's value.
+
 **AsyncResult.all**
 
 ```ts
@@ -794,7 +796,7 @@ Hydration.hydrate(clientRegistry, window.__ATOMS__)
 
 For an async atom, the serialization schema must cover the whole `AsyncResult`, not only its success value. Construct it with `AsyncResult.Schema({ success: UserSchema, error: UserErrorSchema })`.
 
-For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.2/packages/effect/SCHEMA.md) for the long-form treatment.
+For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/SCHEMA.md) for the long-form treatment.
 
 `withReactivity` preserves the underlying initial-value target, so a preloaded serializable atom still refreshes the correct source atom.
 

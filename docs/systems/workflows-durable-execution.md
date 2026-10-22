@@ -149,6 +149,14 @@ declare const openAuditSocket: (
 - **An `Effect.onExit` in the body cannot observe a workflow interrupt.** Interruption is deposited through the engine; use `addFinalizer` when terminal-state logic must see it.
 - **Cancellation is not rollback.** Distinguish five events and decide the state and side effects of each: the *caller stops waiting* (the run continues); the run *receives an interrupt* via `workflow.interrupt(id)` (terminal, finalizers and compensation run); the run *suspends* on a clock, deferred, queue, or child (nothing is lost, no cleanup runs); the *owner is lost* and the attempt is abandoned (replay elsewhere); and *cancel races completion* (whichever is recorded first wins, so the canceller must read the final status rather than assume).
 
+### Detached children and failure-suspended recovery
+
+`child.execute(payload, { discard: true })` returns the execution id without waiting, but the child remains linked: its completion wakes the parent and parent interruption interrupts it. Opt into `{ discard: true, detached: true }` only for deliberately independent work. A detached child neither wakes its parent on completion nor gets interrupted with it; the cluster engine still records the parent for observability. **Do not later await that detached execution from a workflow**: executing the same payload joins it, but its completion will not wake the awaiting parent. Detachment is available only with `discard: true`, not as a generic background-fiber switch.
+
+`Workflow.SuspendOnFailure` is an operator-recovery boundary, not a retry schedule. An execution's own failure suspension carries `Workflow.Suspended.failed: true` and does not retry the failed activity until explicitly resumed. Interrupting that execution completes it as interrupted without re-running the failed activity; inherited child failures do not set the parent's `failed` marker. Ordinary durable waits still resume automatically when their dependency completes.
+
+`WorkflowEngine.execute` wakes waiting callers promptly when a final result is available; another suspension does not spend a `suspendedRetrySchedule` step. In `ClusterWorkflowEngine`, early wakes apply only to callers on the execution's owning runner; remote callers still depend on that schedule. Losing `DurableDeferred.raceAll` branches release their durable waits, so a late losing clock/deferred completion does not replay the continuing workflow. Include parallel activity suspension plus deferred completion in recovery tests: callbacks must not lose their wake while another activity is running.
+
 ### Abandoned run attempts
 
 With `ClusterWorkflowEngine`, a run can be interrupted for a purely transient reason: its runner is shutting down, or the shard moved. The engine classifies that interrupt as an **abandoned attempt**:

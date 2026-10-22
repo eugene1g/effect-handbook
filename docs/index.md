@@ -1,6 +1,6 @@
 # The Effect 4 Handbook — A Guided Tour of Effect v4
 
-> Source-grounded guide for humans and coding agents. Audited **2026-10-09** against published `effect@4.0.2`, tag [`effect@4.0.2`](https://github.com/Effect-TS/effect/tree/effect%404.0.2), commit [`269a7c86`](https://github.com/Effect-TS/effect/commit/269a7c864351231d42e6e95b7fa8f32050df3691) (released 2026-10-07). Each module is labelled with its public import path and a stable/unstable marker.
+> Source-grounded guide for humans and coding agents. Audited **2026-10-22** against published `effect@4.0.5`, tag [`effect@4.0.5`](https://github.com/Effect-TS/effect/tree/effect%404.0.5), commit [`7f524e25`](https://github.com/Effect-TS/effect/commit/7f524e25cfb49a71ac39b0f44278d08d40dda5de) (released 2026-10-15). Each module is labelled with its public import path and stability marker.
 
 ---
 
@@ -8,13 +8,15 @@
 
 ### Version and validation scope
 
-This edition describes the published `effect@4.0.2` API — not unreleased `main`. The source audit covered all 139 modules exported from the `effect` root barrel, all 20 public `effect/<area>` families (213 modules), the platform/SQL/AI/Atom/OpenTelemetry/Vitest packages, their tests and examples, and every canonical Markdown page in this site. Examples were checked with pnpm, Node's native TypeScript execution, TypeScript 7.0.2 in strict mode, and the Effect `@effect/tsgo` diagnostics. Short fragments may declare application-specific boundaries, but every Effect API shown is present in the audited release.
+This edition describes the published `effect@4.0.5` API — not unreleased `main`. The source audit covered all 139 modules exported from the `effect` root barrel, all 21 public `effect/<area>` families (225 modules), the 33 public packages, their tests and examples, and every canonical Markdown page in this site. Examples were checked with pnpm, Node's native TypeScript execution, TypeScript 7.0.2 in strict mode, and the Effect `@effect/tsgo` diagnostics. Short fragments may declare application-specific boundaries, but every Effect API shown is present in the audited release.
+
+All chapters and deep dives inherit this edition's audit target. Edition URLs identify `major.minor`; the release above, the site footer, and generated Markdown headers identify the exact audited patch. Chapter prose states the behavior directly; explicit version numbers are reserved for release history, migration boundaries, reproducible installation, and pinned source links.
 
 New to Effect 4? Start with [Getting Started](foundations/getting-started) — it covers installation (`npm install effect` now installs Effect 4), TypeScript and ESM settings, and a first program.
 
 ### Stability and support
 
-Effect 4.0 is a stable release with a published long-term-support policy: **bug fixes until September 2029 or one year after 5.0 ships, and security fixes until September 2029 or two years after 5.0 ships, whichever is later.** Every `effect` and `@effect/*` package shares one version number and is released together, so an upgrade is one coordinated bump.
+Effect 4.0 is a stable release with a published long-term-support policy: **bug fixes until September 2029 or one year after 5.0 ships, and security fixes until September 2029 or two years after 5.0 ships, whichever is later.** The `effect` runtime and packages in its release train share one version number and are released together, so upgrade them as one coordinated bump. External compiler tooling such as `@effect/tsgo` has its own version line.
 
 Stability is declared per API with a JSDoc tag, not by import path. Since 4.0.2 every module and every directly importable export carries an explicit tag:
 
@@ -22,9 +24,9 @@ Stability is declared per API with a JSDoc tag, not by import path. Since 4.0.2 
 | --- | --- | --- |
 | `@stability stable` | Strict semantic versioning: breaking changes only in a major release. | Most of the `"effect"` root barrel — `Effect`, `Layer`, `Schema`, `Stream`, `Config`, the data structures, most `Tx*` transactional modules — plus `effect/testing`'s `TestClock` and the text codecs `Base64`, `Base64Url`, `Hex`, and `EncodingError` under `effect/encoding`. |
 | `@stability unstable` | May change in a **minor** release. Production-ready; pin exact versions and read release notes before upgrading. | The subsystem families under `effect/<area>` — `http`, `http-api`, `rpc`, `sql`, `cluster`, `workflow`, `ai`, `cli`, `reactivity`, `persistence`, `eventlog`, `observability`, `net`, `socket`, `process`, `workers`, `devtools`, `schema` — a set of root-barrel modules (`Arbitrary`, `ByteSize`, `ChannelSchema`, `Crypto`, `ErrorReporter`, `ExecutionPlan`, `FileSystem`, `Graph`, `HashRing`, `LayerMap`, `LayerRef`, `Newtype`, `PartitionedSemaphore`, `Path`, `PlatformError`, `Stdio`, `Terminal`, `TxChunk`, `Version`), `TestConsole` and `TestSchema`, the format codecs `Ini`, `Ndjson`, `SchemaBinary`, `Sse`, `Toml`, and `Yaml`, a set of advanced `Schema` APIs, and every API that exposes a third-party dependency (driver options and clients in `@effect/sql-*`, provider clients and generated schemas in `@effect/ai-*`, `@effect/opentelemetry`, the `vitest` re-export in `@effect/vitest`, Redis and undici accessors in the platform packages). |
-| `@stability experimental` | May change in a **patch** release. | No API in `effect@4.0.2` carries this tag; the handbook will name any that appear in later releases. |
+| `@stability experimental` | May change in a **patch** release. | The new `effect/graphql` family and `@effect/graphql-generator`; `Host`, `Dns`, and `AddressResolver` under `effect/net`; `DatagramSocket` under `effect/socket`; their related `Schema` codecs and host adapters. Pin exact versions and re-check contracts on every upgrade; see [GraphQL](interfaces/graphql) and [Platform & Runtime Hosts](interfaces/platform-runtime-hosts). |
 
-"Unstable" describes the compatibility contract, not the quality: HTTP, SQL, and RPC are what production Effect applications are built on. Every handbook section carries a stable or unstable badge for its module. Each page describes the pinned release. What changed from one audited release to the next — behavior, stability, renamed options and telemetry names, new modules, and handbook corrections — is recorded in [Release History](reference/release-history); the per-package `CHANGELOG.md` files in the Effect repository remain the authoritative record of every change.
+"Unstable" describes the compatibility contract, not the quality: HTTP, SQL, and RPC are what production Effect applications are built on. Every module section carries its stable, unstable, or experimental label. `TestCrypto` joins `TestConsole` and `TestSchema` as an unstable testing API. Each page describes the pinned release. What changed from one audited release to the next — behavior, stability, renamed options and telemetry names, new modules, and handbook corrections — is recorded in [Release History](reference/release-history); the per-package `CHANGELOG.md` files in the Effect repository remain the authoritative record of every change.
 
 ### Official upstream companions
 
@@ -35,10 +37,10 @@ These official resources complement the handbook with longer explanations and ex
 | [Effect v4 guides](https://effect.website/docs/v4/getting-started) | The official website's narrative guides — error management, requirements, resources, concurrency, streams, scheduling, Schema, and platform. Not release-pinned. Every handbook topic links the matching guides at the top of its page. |
 | [API reference](https://effect.website/docs/v4/api) | Generated per-module reference for every `effect` and `@effect/*` package, versioned per release. |
 | [Onboarding track](https://effect.website/docs/v4/onboarding) and [Installation](https://effect.website/docs/v4/getting-started/installation) | The motivational on-ramp and setup steps; the handbook's short version is [Getting Started](foundations/getting-started). |
-| [`AGENTS.md` and `ai-docs/`](https://github.com/Effect-TS/effect/blob/effect%404.0.2/LLMS.md) shipped inside the `effect` package | The maintainers' own coding conventions for agents (also published as `LLMS.md`), with topic-organized executable examples under `node_modules/effect/ai-docs/src`. See [Coding conventions for agents](#coding-conventions-for-agents) below for how this handbook relates to it. |
-| [Migration guide](https://github.com/Effect-TS/effect/blob/effect%404.0.2/MIGRATION.md) | The official v3 → v4 guide: import and API rename maps, services, causes, error handling, forking, layers, scopes, and the Schema v4 migration. |
-| [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.2/packages/effect/ARBITRARY.md) | The long-form reference for the native property-testing engine. |
-| [Comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.2/packages/effect/SCHEMA.md) | The long-form reference for codecs, validation, transformations, serialization, tooling, errors, integrations, and migration. |
+| [`AGENTS.md` and `ai-docs/`](https://github.com/Effect-TS/effect/blob/effect%404.0.5/LLMS.md) shipped inside the `effect` package | The maintainers' own coding conventions for agents (also published as `LLMS.md`), with topic-organized executable examples under `node_modules/effect/ai-docs/src`. See [Coding conventions for agents](#coding-conventions-for-agents) below for how this handbook relates to it. |
+| [Migration guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/MIGRATION.md) | The official v3 → v4 guide: import and API rename maps, services, causes, error handling, forking, layers, scopes, and the Schema v4 migration. |
+| [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/ARBITRARY.md) | The long-form reference for the native property-testing engine. |
+| [Comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/SCHEMA.md) | The long-form reference for codecs, validation, transformations, serialization, tooling, errors, integrations, and migration. |
 
 Effect 4 ships as **one library**. The core `effect` package holds the runtime, standard library, and the subsystem families (http, rpc, sql, cluster, ai, …), with platform-, driver-, and provider-specific satellites around it. One import surface, one version number, zero runtime dependencies, a runtime built for speed and tree-shaking.
 
@@ -121,7 +123,7 @@ Two tooling habits make agents measurably more effective with Effect: install th
 
 ### The lay of the land
 
-- **effect** — The core: 138 root modules (Effect, Stream, Schema, Layer, the data structures, STM…) plus 20 public `effect/<area>` families (http, http-api, rpc, sql, cluster, ai, cli, workflow, eventlog, encoding, reactivity, persistence, net, testing, and more).
+- **effect** — The core: 139 root modules (Effect, Stream, Schema, Layer, the data structures, STM…) plus 21 public `effect/<area>` families (http, http-api, rpc, sql, cluster, ai, cli, workflow, eventlog, encoding, reactivity, persistence, net, testing, graphql, and more).
 
 - **@effect/platform-*** — `node`, `bun`, `deno`, `browser`, plus the shared Node implementation package — concrete implementations of FileSystem, HttpServer, sockets, workers, and runtimes for each host.
 
@@ -135,13 +137,13 @@ Two tooling habits make agents measurably more effective with Effect: install th
 
 - **@effect/vitest** — First-class testing: `it.effect`, `TestClock`-aware assertions, layer-sharing helpers, property tests over the native `Arbitrary` module.
 
-- **tools** — The repo's own build/codegen tooling — AI code/doc generators, an OpenAPI generator, `@effect/doctest`, the bundler and jsdoc pipeline.
+- **tools** — The repo's own build/codegen tooling — AI code/doc generators, OpenAPI and GraphQL generators, `@effect/doctest`, the bundler and jsdoc pipeline.
 
 **Import style.** Each module is labelled with its subpath (`effect/Queue`), while examples import from the `"effect"` barrel: `import { Effect, Queue } from "effect"`. The two are equivalent at runtime. The package declares no side effects, so bundlers with deep scope analysis (Rolldown, Rollup, Webpack 5+) tree-shake the barrel; `import * as Queue from "effect/Queue"` is the conservative form elsewhere. Area families are always imported by their own barrel, for example `import { HttpClient } from "effect/http"`. Official guide: [Importing Effect](https://effect.website/docs/v4/getting-started/importing-effect).
 
 ### How to use this handbook
 
-- **⌘K / Ctrl+K — search** — Jump to any of 350 modules by name. Type "semaphore", "TxRef", "HttpApi", "Sink" — hit enter and you land right on it, with the module highlighted.
+- **⌘K / Ctrl+K — search** — Jump to a module by name. Type "semaphore", "TxRef", "HttpApi", "Sink" — hit enter and you land right on it, with the module highlighted.
 
 - **Sidebar — browse by theme** — Chapters are grouped from foundations → concurrency → data → web → distributed → tooling. Roughly the order you'd grow into them.
 

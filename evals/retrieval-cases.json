@@ -3,6 +3,10 @@
   "description": "Intent-retrieval regression cases for the Effect 4 capability catalog. Each case also acts as a primitive-selection rubric for periodic LLM evaluations.",
   "requiredCapabilityFields": ["errorChannel", "requirements", "lifetime"],
   "cases": [
+    { "id": "graphql-client", "query": "consume a GraphQL API with typed operations and preserve partial results alongside errors", "expected": ["graphql.client"], "acceptable": [], "forbidden": ["claim GraphQLClient is a GraphQL server framework"] },
+    { "id": "dns-lookup", "query": "resolve a hostname and port with typed DNS records and IPv6 zone ids", "expected": ["net.resolve"], "acceptable": ["net.address"], "forbidden": ["treat a DNS lookup as protection against rebinding"] },
+    { "id": "udp-socket", "query": "send UDP datagrams through a scoped pull based socket reader and writer", "expected": ["socket.datagrams"], "acceptable": [], "forbidden": ["write without acquiring a reader or promise reliable ordered delivery"] },
+    { "id": "mcp-workers", "query": "serve a sessionless MCP endpoint on Cloudflare Workers without work outside the request", "expected": ["ai.mcp-request-scoped"], "acceptable": ["ai.mcp"], "forbidden": ["use a long-lived MCP server with request-bound fibers"] },
     { "id": "async-program", "query": "model interruptible asynchronous work with typed failures and dependencies", "expected": ["effect.program"], "acceptable": ["effect.promise-boundary"], "forbidden": ["use async await throughout domain services"] },
     { "id": "promise-api", "query": "wrap a Promise API and map rejected promises to a typed error", "expected": ["effect.promise-boundary"], "acceptable": ["effect.program"], "forbidden": ["let rejection become an untyped defect"] },
     { "id": "cleanup-interrupt", "query": "close a resource reliably when the fiber is interrupted", "expected": ["effect.resource"], "acceptable": ["layer.scoped"], "forbidden": ["return the resource after its Scope closes"] },

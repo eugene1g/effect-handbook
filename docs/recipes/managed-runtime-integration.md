@@ -2,19 +2,19 @@
 
 Build the service graph once, call it from Promise-based callbacks many times, and dispose it when the host application stops.
 
-> **Official guides:** [Runtime](https://effect.website/docs/v4/runtime). Where that guide and the tagged `effect@4.0.2` source disagree, this page and the source win.
+> **Official guides:** [Runtime](https://effect.website/docs/v4/runtime). Where that guide and the edition's tagged source disagree, this page and the source win.
 
 ## Contract
 
 - **Classification:** Runnable example; complete `managed-runtime.ts`.
-- **Install:** `pnpm add effect@4.0.2`
+- **Install:** `pnpm add effect@4.0.5`
 - **Run:** Node 26+: `node managed-runtime.ts`
 - **Expected output:** `Hello, Ada`, `Hello, Grace`, then `runtime disposed`.
 - **Before the bridge:** `greet(name)` is `Effect<string, never, GreetingService>`.
 - **At the bridge:** `runtime.runPromise(greet(name))` is `Promise<string>`; the runtime’s construction error is `never` in this example.
 - **Required Layers:** `GreetingLive` is captured by the ManagedRuntime.
 - **Lifetime and interruption:** the Layer is built lazily on first use and cached across calls. `await using` invokes `Symbol.asyncDispose` at block exit, closing the runtime scope and all Layer resources. A fiber returned by `runFork` still needs an ownership/cancellation policy.
-- **Cancellation:** every runner takes `{ signal }` as its second argument; aborting it interrupts that run's fiber. The minimal file below omits it because nothing here can be cancelled — a real request handler must not. [Recipe: Request Cancellation Through a Host](./request-cancellation-through-a-host) is the runnable proof.
+- **Cancellation:** the asynchronous runners take `{ signal }` as their second argument; `runSync` and `runSyncExit` accept no run options. Aborting the signal interrupts that run's fiber. The minimal file below omits it because nothing here can be cancelled — a real request handler must not. [Recipe: Request Cancellation Through a Host](./request-cancellation-through-a-host) is the runnable proof.
 - **Disposal is not a drain:** `dispose()` interrupts every fiber the runtime started and waits for them — and their finalizers — to finish, and only then releases the Layer; a second `dispose()` is a no-op; and any later run dies with `ManagedRuntime disposed`. Stop admitting work and wait for it first.
 
 ## Complete file
@@ -149,6 +149,6 @@ Do not sprinkle `Effect.runPromise(effect.pipe(Effect.provide(layer)))` througho
 
 Do not ignore the host's abort signal. `runtime.runPromise(effect)` without `{ signal }` keeps working for a client that has left, holding a pool slot and rate-limit budget; and a `tryPromise` adapter that does not pass Effect's own signal to the SDK leaves the socket open even after the fiber is interrupted. Both hops are needed.
 
-Do not call `dispose()` as the first step of shutdown, and never start an interior `Effect.runFork` "so the work survives the request": the first interrupts in-flight requests while their dependencies are being released, the second creates a fiber no scope owns. Work that must outlive a request is handed to a Layer-owned supervisor (a bounded queue and a scoped worker) inside the same runtime.
+Do not call `dispose()` as the first step of graceful shutdown, and never start an interior `Effect.runFork` "so the work survives the request": disposal interrupts in-flight requests and awaits their cleanup before releasing dependencies, rather than letting requests finish normally; an interior runner creates a fiber no scope owns. Work that must outlive a request is handed to a Layer-owned supervisor (a bounded queue and a scoped worker) inside the same runtime.
 
 Conversely, when the whole application is already Effect, do not add ManagedRuntime: compose the live Layers, use `Layer.launch` for long-lived infrastructure, and call the platform `runMain` once.

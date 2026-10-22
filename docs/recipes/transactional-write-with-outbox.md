@@ -5,7 +5,7 @@ Commit a domain change and the event that announces it in one SQL transaction, t
 ## Contract
 
 - **Classification:** Runnable example; complete `raise-outbox.ts`. It runs on an embedded PGlite database and a scripted in-memory broker, so no network, port, or Docker is required.
-- **Install:** `pnpm add effect@4.0.2 @effect/sql-pglite@4.0.2`
+- **Install:** `pnpm add effect@4.0.5 @effect/sql-pglite@4.0.5`
 - **Run:** Node 26+: `node raise-outbox.ts`
 - **Expected output:** six JSON lines, reproduced byte for byte under [Expected output](#expected-output).
 - **Before provision:** `program` is `Effect<Array<unknown>, EmployeeNotFound | MeritBudgetExceeded | RepositoryError, Raises | Outbox | Payroll | Publisher>`; one relay pass is `Effect<{ delivered: number; failed: number }, RepositoryError, Outbox | Publisher>`. No `SqlError`, `SchemaError`, or driver type appears in either signature.
@@ -379,7 +379,7 @@ for (const line of await Effect.runPromise(runnable)) {
 
 **Two repositories, one client.** `Outbox.enqueue` is an ordinary method on another service, yet it joins the transaction because both Layers were built from the same `SqlClient` and the active connection travels in the fiber context. A separately constructed client would run outside it.
 
-**A failed `COMMIT` is a defect, not a caught `SqlError`.** `sql.withTransaction` issues `BEGIN` (or a `SAVEPOINT` when nested), runs the body, then `COMMIT` on success or `ROLLBACK` on failure. Only a failure to acquire the connection or start the transaction surfaces as the typed `SqlError` that `Effect.catchTag("SqlError", ...)` above turns into `RepositoryError`; a failed `COMMIT` or `ROLLBACK` itself is promoted to a defect, because the driver's state at that point — did it commit or not? — is not something a typed error can describe safely. Letting the fiber die is the honest outcome; catching it and reporting a normal `RepositoryError` would let a caller believe the write definitely failed when it may have gone through.
+**A typed `COMMIT` error does not prove the write failed.** `sql.withTransaction` issues `BEGIN` (or a `SAVEPOINT` when nested), runs the body, then `COMMIT` on success or `ROLLBACK` on failure. A failed `COMMIT` remains a typed `SqlError` when commit-failure cleanup succeeds; failed cleanup promotes the combined commit and cleanup failures to defects. Rollback and savepoint-release failures are defects too. The `SqlError` handler above can therefore produce a `RepositoryError` after a failed commit. Preserve that uncertainty at the caller: do not blindly replay the write or report that it definitely did not commit. Reconcile by the business idempotency key; see [Classify every outcome of an external write](../deep-dives/durability-and-distribution-ladder#classify-every-outcome-of-an-external-write).
 
 **Repositories own their failures.** `owned(operation)` uses `Effect.mapError` at the two places a repository can fail — the statement (`SqlError`) and the row decode (`SchemaError`) — and produces one `RepositoryError` with a typed `cause`. Defects and interruption pass through untouched; `Effect.catchCause` would have reported a programming bug as a storage failure. Zero rows is a different outcome: `findOneOption` returns `Option.none()`, which the use case turns into `EmployeeNotFound`.
 

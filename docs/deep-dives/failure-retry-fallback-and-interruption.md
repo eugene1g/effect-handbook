@@ -1,6 +1,6 @@
 # Failure, Retry, Fallback, and Interruption
 
-Reliable Effect code does not ask only “did it throw?” It distinguishes an expected domain failure from a defect, an interruption, a timeout, an exhausted retry policy, and a failed alternative implementation. This guide follows one operation through those choices against `effect@4.0.2`.
+Reliable Effect code does not ask only “did it throw?” It distinguishes an expected domain failure from a defect, an interruption, a timeout, an exhausted retry policy, and a failed alternative implementation. This guide follows one operation through those choices.
 
 Use [Core Runtime & Execution](../foundations/core-runtime-execution) for `Effect`, `Exit`, `Cause`, and `ExecutionPlan`; [Errors, Option & Result](../foundations/errors-option-result) for the full recovery surface; [Scheduling & Time](../concurrency/scheduling-time) for Schedule semantics; [Observability](../operations/observability) for telemetry; and [Testing & Dev Tooling](../tooling/testing-dev-tooling) for virtual time.
 

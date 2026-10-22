@@ -4,7 +4,7 @@ Long-form guides build a working mental model across related Effect APIs. They c
 
 ## Available guides
 
-- [Reactivity — From Atoms to Mastery](reactivity-from-atoms-to-mastery) — follow `Reactivity`, `Atom`, `AtomRegistry`, `AsyncResult`, `AtomRef`, hydration, and React integration from the dependency graph through a complete Todos feature. It assumes the Effect/Layer basics and is designed for application developers building reactive clients or SSR UI.
+- [Reactivity — From Atoms to Mastery](reactivity-from-atoms-to-mastery) — follow `Reactivity`, `Atom`, `AtomRegistry`, `AsyncResult` (including combined stale values), `AtomRef`, hydration, and React integration from the dependency graph through a complete Todos feature. It assumes the Effect/Layer basics and is designed for application developers building reactive clients or SSR UI.
 - [Adopting Effect in an Existing TypeScript Codebase](adopting-effect-in-an-existing-codebase) — audit a Promise-based service, pin its behavior with characterization tests, migrate leaf-first behind an unchanged contract, and keep exactly one seam where Promise meets Effect.
 - [Anatomy of a Real Effect Application](anatomy-of-a-real-effect-application) — compose domain schemas, errors, services, Layers, configuration, resources, observability, an entrypoint, shutdown, and tests into one application.
 - [Owning Lifetimes — Startup, Readiness, and Shutdown](owning-lifetimes-startup-readiness-and-shutdown) — give every resource and fiber one owner, treat startup as a transaction, separate liveness from readiness and draining, shut down through one path, and bridge into non-Effect hosts without leaking work.
@@ -13,9 +13,9 @@ Long-form guides build a working mental model across related Effect APIs. They c
 - [Structured Concurrency Through a Bounded Worker](structured-concurrency-through-a-bounded-worker) — build and test a Queue-based worker with backpressure, supervised fibers, resource safety, and graceful shutdown.
 - [Testing an Effect Application](testing-an-effect-application) — validate services, Layers, typed failures, virtual time, resources, fibers, HTTP boundaries, and integration seams without global mocks.
 - [Streaming Ingestion Without Accidental Buffering](streaming-ingestion-without-accidental-buffering) — preserve bounded memory and backpressure from input framing through decoding, batching, writes, recovery, and shutdown.
-- [The Durability and Distribution Ladder](durability-and-distribution-ladder) — choose deliberately among Persistence, EventLog, Workflow, and Cluster as durability and distribution requirements increase.
-- [Building a Production AI Capability](building-a-production-ai-capability) — compose provider-neutral models, Schema-backed outputs and tools, resilience, telemetry, testing, and MCP exposure.
-- [Exposing an Effect Application over MCP](exposing-an-effect-application-over-mcp) — serve an existing Toolkit to AI clients over stdio and Streamable HTTP, choose protocol eras, shape the catalog, authorize as an OAuth resource server, run human-in-the-loop round trips, and test the server in-process.
+- [The Durability and Distribution Ladder](durability-and-distribution-ladder) — choose deliberately among Persistence, EventLog, Workflow, and Cluster, including delayed independent jobs, detached children, and explicit failure recovery.
+- [Building a Production AI Capability](building-a-production-ai-capability) — compose provider-neutral models, Schema-backed outputs and tools, strict or deferred validation boundaries, resilience, telemetry, testing, and MCP exposure.
+- [Exposing an Effect Application over MCP](exposing-an-effect-application-over-mcp) — serve an existing Toolkit to AI clients over stdio and Streamable HTTP, distinguish long-lived dual-era from request-scoped stateless hosting, shape the catalog, authorize as an OAuth resource server, run human-in-the-loop round trips, and test the server in-process.
 
 For quick lookup rather than a connected walkthrough, use the concise [handbook](../), [primitive chooser](../reference/choosing-effect-primitives), and topic reference pages.
 

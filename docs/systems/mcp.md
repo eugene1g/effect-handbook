@@ -118,7 +118,26 @@ Tool input schemas follow `Tool.Strict`: a strict tool advertises `additionalPro
 - **Server identity can carry icons.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `icons: ReadonlyArray<McpSchema.Icon>` (`src`, optional `mimeType`, `sizes`, `theme`). The `McpSchema.Resource`, `ResourceTemplate`, `Prompt`, and `Tool` schemas have the same optional field for entries registered through the lower-level `McpServer` registry service.
 - **Prompt and resource callbacks receive decoded values.** `McpServer.prompt` / `registerPrompt` pass `content` the *decoded* type of each `parameters` schema, and resource templates resolve over both stdio and Streamable HTTP.
 - **Tool annotation titles survive `tools/list`.** On the `2025-06-18` and `2025-11-25` protocol revisions, a tool's annotation `title` is reported in `tools/list` responses alongside its top-level `title` and behavioral hints.
-- **Server `extensions` are advertised, not implemented.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `extensions`, a record keyed `vendor/name` with JSON settings, reported in the server capabilities of `initialize` and `server/discover`. `2026-07-28` discovery lists only object-valued settings. Behavior behind an extension is your code; 4.0.2 ships no extension helpers and no MCP client.
+- **Server `extensions` are advertised, not implemented.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `extensions`, a record keyed `vendor/name` with JSON settings, reported in the server capabilities of `initialize` and `server/discover`. `2026-07-28` discovery lists only object-valued settings. Behavior behind an extension is your code; Effect ships no extension helpers and no MCP client.
+
+### Request-scoped HTTP and typed requirements
+
+Use `McpServer.layerHttpRequestScoped` on serverless hosts where execution must belong to an HTTP request. Each POST owns its server fibers, timers, and queue consumers until its response body completes. It accepts only stateless adapters such as `McpProtocol.v2026_07_28`; an untyped session-era adapter fails Layer construction with `IllegalArgumentError`. Tools, resources, prompts, completions, `InputRequired` round trips, and the request's own progress/log notifications work. Sessions, legacy reverse requests (`elicit`), broadcast list changes, subscriptions, and DELETE session termination do not: discovery reports `listChanged: false`, `subscriptions/listen` is method-not-found, and DELETE returns `405`. The same origin and media-type admission rules as `layerHttp` apply. This is an execution-lifetime boundary, not an authorization or request-size limit.
+
+Keep `layerHttp` for long-lived hosts with session-era clients or subscriptions. It shares one scoped server across POSTs; `allowSubscriptions: false` disables stateless subscriptions without disabling request-local progress/logs or legacy protocols. Request-scoped configuration intentionally has neither `allowSubscriptions` nor `allowSessionTermination`.
+
+```ts
+import { McpProtocol, McpServer } from "effect/ai"
+
+export const RequestScopedMcp = McpServer.layerHttpRequestScoped({
+  name: "Comp Server",
+  version: "1.0.0",
+  path: "/mcp",
+  protocols: [McpProtocol.v2026_07_28]
+})
+```
+
+Resource templates retain their parameter schemas' **decoding and encoding services**, plus completion-handler services even when a completion callback takes a context argument. Prompts retain parameter decoding services and the encoding services of parameters with completion handlers, in addition to callback requirements. Provide those application services when composing the registration Layer; only the framework-supplied `McpRequestContext` is excluded from these requirements. A schema that transforms using a service does not become service-free merely because it is embedded in a URI template or prompt.
 
 ### Request context, client gating, and human input
 

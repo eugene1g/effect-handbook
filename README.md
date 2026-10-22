@@ -43,13 +43,15 @@ pnpm docs:smoke       # exercise both HTTP and file:// builds in headless Chrome
 pnpm docs:diagrams    # re-render diagrams/*.mmd to public/diagrams/*.svg (needs Chrome; docs:check verifies they are current)
 pnpm docs:links       # check external links in docs, README, skills, theme, and the site navigation (also runs weekly in CI)
 pnpm docs:eval        # measure catalog retrieval against checked-in realistic intent cases
+pnpm docs:tasks prepare .validation/agent-run dist # freeze Markdown and tasks for fresh agents
+pnpm docs:tasks score .validation/agent-run        # compile and behavior-test their submissions
 pnpm docs:examples    # extract, type-check, and execute every TypeScript/TSX fence, plus the behavior probes
 pnpm docs:test        # build and verify everything
 ```
 
 After `pnpm docs:build`, open [`dist/effect-4-handbook.html`](dist/effect-4-handbook.html) directly in a browser. The file currently contains all 65 pages (52 concise pages and 13 deep-dive pages including the landing page) and offers **Copy page Markdown**, **Copy all Markdown**, and **Download .md** without fetching another asset.
 
-The deterministic retrieval suite is stored in [`evals/retrieval-cases.json`](evals/retrieval-cases.json). It gates Recall@1/Recall@3 and doubles as the rubric for periodic model runs using only `llms.txt`; generated code from those runs must still pass the tracked TypeScript/Effect example validator and focused runtime assertions.
+The deterministic retrieval suite is stored in [`evals/retrieval-cases.json`](evals/retrieval-cases.json). It gates Recall@1/Recall@3. The separate [portable solution tasks](evals/README.md#portable-solution-tasks) freeze a built Markdown snapshot for independently generated programs, then score strict TypeScript, Effect diagnostics, and observable behavior with injected dependencies. Unit tests exercise the grader with correct and incorrect controls in CI; actual agent runs are explicit, not a network dependency of PR validation.
 
 **Diagrams.** Author a diagram as Mermaid in `diagrams/<name>.mmd`, run `pnpm docs:diagrams` (set `HANDBOOK_CHROMIUM` if Chrome is not on a standard path), and commit the SVG it writes to `public/diagrams/`. Reference it from a page as `![descriptive alt text](/diagrams/<name>.svg)` followed by an italic caption that states the takeaway, so readers of the Markdown twins get the meaning without the picture. `pnpm docs:check` fails when an SVG is missing, stale, unused, or lacks alt text or a caption.
 

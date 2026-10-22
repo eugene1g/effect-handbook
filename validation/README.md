@@ -42,6 +42,14 @@ The five dispositions are:
 - `pseudocode`: visibly labelled and paired with a specific tracked reason;
 - `invalid`: one precise expected TypeScript diagnostic.
 
+Source completeness is independent. The extractor also records `sourceForm`:
+`fragment` for contextual fixtures, ambient value declarations, or local imports;
+`self-contained` for source without those dependencies; `illustrative` for
+pseudocode and intentional errors. The site, offline HTML, and published JSON
+share that classification. Complete source can still require a host, configuration,
+or external services, and need not execute the Effect it defines. The labels state
+the required validation contract, not cached evidence that a check passed.
+
 `contextual`, `run`, and `invalid` require semantic stable IDs that do not
 contain content hashes. `validation/examples.json` binds those identities to
 the canonical source path and full SHA-256, so body changes require an explicit

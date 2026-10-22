@@ -22,6 +22,7 @@
     "docs:links": "node scripts/check-external-links.ts",
     "docs:release:check": "node scripts/audit-latest-effect.ts",
     "docs:eval": "node scripts/evaluate-retrieval.ts",
+    "docs:tasks": "node scripts/evaluate-agent-tasks.ts",
     "docs:examples": "pnpm --filter effect-4-handbook-example-validation validate",
     "docs:check": "node scripts/verify-handbook.ts",
     "docs:diagrams": "node scripts/diagrams.ts",

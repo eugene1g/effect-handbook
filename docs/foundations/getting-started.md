@@ -168,6 +168,42 @@ The Effect language service ships as `@effect/tsgo`, built on the native TypeScr
 
 The official guidance for working with coding agents makes the same point from the other side: the tighter the feedback loop, the better the generated code, so install the language service first, and keep the installed `effect` source (and its bundled `AGENTS.md` and `ai-docs/`) within the agent's reach rather than relying on remembered API shapes. [Testing & Dev Tooling](../tooling/testing-dev-tooling) covers the tooling in depth.
 
+## First-session route: a small approval worker
+
+After the first program, follow these five stops in order. Grow one small worker that processes raise proposals through a replaceable approval service; use an in-memory fake and a counted resource rather than a real payroll connection. The recipes are patterns to adapt, not successive files to paste together. These are self-check exercises, not automatically executed or graded lessons.
+
+1. **Model errors.** Read [Designing the error model](errors-option-result#designing-the-error-model), then [Effect error handling](errors-option-result#effect-error-handling).
+
+   **Exercise:** Give an over-limit proposal a tagged failure and recover from that tag at the worker boundary; keep an unexpected bug distinct.
+
+   **Done when:** An accepted proposal succeeds, an over-limit proposal reaches its named handler, and a defect does not reach that handler.
+
+2. **Define and test a service.** Read [Designing a service contract](services-context-layers#designing-a-service-contract), then the service recipe's [Complete file](../recipes/service-and-layers#complete-file) and [Variations](../recipes/service-and-layers#variations).
+
+   **Exercise:** Put approval behind a service whose method retains step 1's expected error. Substitute a recording fake and assert the submitted proposal and result.
+
+   **Done when:** The assertion depends on a call recorded only by the fake; the same worker runs unchanged with either implementation.
+
+3. **Own resources.** Read [Scope](fibers-scopes-runtimes#scope), then the bounded worker's [Complete file](../recipes/resource-safe-bounded-worker#complete-file).
+
+   **Exercise:** Adapt its counted per-job acquisition/release around approval. Try success, a typed failure, and interruption while a job is active.
+
+   **Done when:** Each acquired handle is released exactly once after its job ends, including the failed and interrupted cases.
+
+4. **Compose Layers.** Read [Resourceful services](services-context-layers#resourceful-services), then [Reading and composing the graph](services-context-layers#reading-and-composing-the-graph).
+
+   **Exercise:** Give the approval service a counted app-lifetime client, distinct from the per-job handle. Wire client → service → worker, and provide the graph once at the edge.
+
+   **Done when:** The runnable worker has no remaining service requirements; two jobs share one client acquisition, and that client closes once when the owning scope ends.
+
+5. **Run and shut down.** Read the graceful entrypoint's [Complete file](../recipes/graceful-entrypoint-and-shutdown#complete-file) and [Why these primitives?](../recipes/graceful-entrypoint-and-shutdown#why-these-primitives).
+
+   **Exercise:** Host the worker as scoped background work in an application Layer, launch it with the platform runner, and send SIGINT or SIGTERM during a job.
+
+   **Done when:** The active job releases its handle, the app-lifetime client closes, and the process exits without leaving the worker running.
+
+Keep the first pass small: no network, database, or readiness endpoint. Once these checks are clear, add a bounded retry policy using [Typed Retry with TestClock: Assert the shape of the policy](../recipes/retry-with-test-clock#assert-the-shape-of-the-policy), or extend shutdown with [Adding readiness and a bounded drain](../recipes/graceful-entrypoint-and-shutdown#adding-readiness-and-a-bounded-drain).
+
 ## Where next
 
 | You want to | Go to |

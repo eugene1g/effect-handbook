@@ -97,6 +97,7 @@ export async function buildRetrievalArtifacts() {
       validationEvidence: "not-included",
       fieldSemantics: {
         requiredChecks: "Validation requirements, not evidence that a check ran. Actual results are regenerated under ignored .validation/generated/** by pnpm docs:examples.",
+        sourceForm: "Independent of validation: fragment needs declared application values, local modules, or a contextual fixture; self-contained source has none of those but may still require a specific host, services, or configuration; illustrative is pseudocode or intentionally invalid code.",
         compile: "Must pass isolated strict TypeScript and strict Effect diagnostics.",
         contextual: "The exact Markdown body must pass strict TypeScript and Effect diagnostics with one named tracked fixture.",
         run: "Must pass strict TypeScript and Effect diagnostics plus a tracked runtime or Markdown doctest assertion.",
@@ -104,7 +105,8 @@ export async function buildRetrievalArtifacts() {
         invalid: "Must produce its one precise expected TypeScript diagnostic."
       },
       totals: {
-        disposition: Object.fromEntries(["compile", "contextual", "run", "pseudocode", "invalid"].map((disposition) => [disposition, examples.filter((example) => example.disposition === disposition).length]))
+        disposition: Object.fromEntries(["compile", "contextual", "run", "pseudocode", "invalid"].map((disposition) => [disposition, examples.filter((example) => example.disposition === disposition).length])),
+        sourceForm: Object.fromEntries(["fragment", "self-contained", "illustrative"].map((form) => [form, examples.filter((example) => example.sourceForm === form).length]))
       },
       examples: examples.map((example) => ({
         id: example.id,
@@ -115,6 +117,7 @@ export async function buildRetrievalArtifacts() {
         endLine: example.endLine,
         sha256: example.sha256,
         disposition: example.disposition,
+        sourceForm: example.sourceForm,
         classificationSource: example.classificationSource,
         fixture: example.fixture ?? null,
         runtimeCheckId: example.runtime ?? null,

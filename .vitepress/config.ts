@@ -6,10 +6,13 @@ import { defineConfig } from "vitepress"
 
 import { capabilities, handbookRelease, officialEffectLinks, siteGroups, sitePages, slugifyHeading } from "../handbook.ts"
 import { renderMarkdownTwin } from "../scripts/build-page-markdown.ts"
+import { exampleLabels } from "../scripts/example-labels.ts"
+import { classifyDocExamples } from "../scripts/validation/example-model.ts"
 import { resolveEditionContext } from "../scripts/versions.ts"
 
 process.env.VITE_EXTRA_EXTENSIONS = [process.env.VITE_EXTRA_EXTENSIONS, "md"].filter(Boolean).join(",")
 
+const { examples } = await classifyDocExamples()
 const base = normalizeBase(process.env.VITEPRESS_BASE ?? "/")
 const repository = process.env.HANDBOOK_REPOSITORY ?? process.env.GITHUB_REPOSITORY
 const repositoryUrl = process.env.HANDBOOK_REPOSITORY_URL ?? (repository ? `https://github.com/${repository}` : undefined)
@@ -88,7 +91,8 @@ export default defineConfig({
     },
     image: {
       lazyLoad: true
-    }
+    },
+    config: exampleLabels(examples)
   },
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: `${base}favicon.svg` }],

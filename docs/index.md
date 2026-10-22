@@ -14,6 +14,8 @@ All chapters and deep dives inherit this edition's audit target. Edition URLs id
 
 New to Effect 4? Start with [Getting Started](foundations/getting-started) — it covers installation (`npm install effect` now installs Effect 4), TypeScript and ESM settings, and a first program.
 
+**Your first session:** follow the [small approval worker route](foundations/getting-started#first-session-route-a-small-approval-worker) through errors, a tested service, resource ownership, Layers, and shutdown — five small exercises with observable self-checks.
+
 ### Stability and support
 
 Effect 4.0 is a stable release with a published long-term-support policy: **bug fixes until September 2029 or one year after 5.0 ships, and security fixes until September 2029 or two years after 5.0 ships, whichever is later.** The `effect` runtime and packages in its release train share one version number and are released together, so upgrade them as one coordinated bump. External compiler tooling such as `@effect/tsgo` has its own version line.

@@ -37,7 +37,7 @@ const run = (command, args, options = {}) => new Promise((resolve, reject) => {
   })
 })
 
-const ensureTsgoExecutable = async (version) => {
+export const ensureTsgoExecutable = async (version) => {
   const packageRoots = [
     path.join(repositoryRoot, "node_modules", ".pnpm"),
     path.join(validationRoot, "node_modules", ".pnpm")

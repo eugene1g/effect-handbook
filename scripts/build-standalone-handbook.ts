@@ -10,6 +10,8 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { createMarkdownRenderer, disposeMdItInstance } from "vitepress"
 
 import { capabilities, siteGroups, sitePages, slugifyHeading } from "../handbook.ts"
+import { exampleLabels } from "./example-labels.ts"
+import { classifyDocExamples } from "./validation/example-model.ts"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const docsRoot = path.join(root, "docs")
@@ -17,6 +19,7 @@ const outputPath = path.join(root, "dist/effect-4-handbook.html")
 const templateDirectory = path.join(root, "scripts/standalone")
 
 export async function buildStandaloneHandbook() {
+  const { examples } = await classifyDocExamples()
   const [styles, clientScript, ...markdownSources] = await Promise.all([
     readFile(path.join(templateDirectory, "handbook.css"), "utf8"),
     readFile(path.join(templateDirectory, "handbook.js"), "utf8"),
@@ -46,6 +49,7 @@ export async function buildStandaloneHandbook() {
     image: { lazyLoad: true },
     languages: ["ts", "tsx", "bash", "json"],
     config(md) {
+      exampleLabels(examples)(md)
       // Diagrams are inlined as SVG so the file stays dependency-free (no <img src>).
       const defaultImage = md.renderer.rules.image ?? ((tokens, index, options, _env, self) => self.renderToken(tokens, index, options))
       md.renderer.rules.image = (tokens, index, options, env, self) => {

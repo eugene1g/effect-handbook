@@ -84,30 +84,21 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install pnpm and Node
-        id: setup
-        continue-on-error: true
-        timeout-minutes: 3
-        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+      - name: Install Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          runtime: node@26
-          cache: true
-          cache-dependency-path: pnpm-lock.yaml
-          install: false
+          node-version: 26
+          package-manager-cache: false
 
-      - name: Back off before retrying setup
-        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
-        run: sleep 5
+      - name: Install pinned pnpm through npm
+        run: npm install --global "$(node -p 'require("./package.json").packageManager')"
 
-      - name: Retry pnpm and Node setup
-        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
-        timeout-minutes: 3
-        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+      - name: Restore pnpm store cache
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          runtime: node@26
-          cache: true
+          node-version: 26
+          cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-          install: false
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
@@ -131,30 +122,21 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install pnpm and Node
-        id: setup
-        continue-on-error: true
-        timeout-minutes: 3
-        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+      - name: Install Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          runtime: node@26
-          cache: true
-          cache-dependency-path: pnpm-lock.yaml
-          install: false
+          node-version: 26
+          package-manager-cache: false
 
-      - name: Back off before retrying setup
-        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
-        run: sleep 5
+      - name: Install pinned pnpm through npm
+        run: npm install --global "$(node -p 'require("./package.json").packageManager')"
 
-      - name: Retry pnpm and Node setup
-        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
-        timeout-minutes: 3
-        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+      - name: Restore pnpm store cache
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          runtime: node@26
-          cache: true
+          node-version: 26
+          cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-          install: false
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
@@ -176,30 +158,21 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install pnpm and Node
-        id: setup
-        continue-on-error: true
-        timeout-minutes: 3
-        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+      - name: Install Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          runtime: node@26
-          cache: true
-          cache-dependency-path: pnpm-lock.yaml
-          install: false
+          node-version: 26
+          package-manager-cache: false
 
-      - name: Back off before retrying setup
-        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
-        run: sleep 5
+      - name: Install pinned pnpm through npm
+        run: npm install --global "$(node -p 'require("./package.json").packageManager')"
 
-      - name: Retry pnpm and Node setup
-        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
-        timeout-minutes: 3
-        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+      - name: Restore pnpm store cache
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          runtime: node@26
-          cache: true
+          node-version: 26
+          cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-          install: false
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
@@ -227,30 +200,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install pnpm and Node
-        id: setup
-        continue-on-error: true
-        timeout-minutes: 3
-        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+      - name: Install Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          runtime: node@26
-          cache: true
-          cache-dependency-path: pnpm-lock.yaml
-          install: false
+          node-version: 26
+          package-manager-cache: false
 
-      - name: Back off before retrying setup
-        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
-        run: sleep 5
+      - name: Install pinned pnpm through npm
+        run: npm install --global "$(node -p 'require("./package.json").packageManager')"
 
-      - name: Retry pnpm and Node setup
-        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
-        timeout-minutes: 3
-        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+      - name: Restore pnpm store cache
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          runtime: node@26
-          cache: true
+          node-version: 26
+          cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-          install: false
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile

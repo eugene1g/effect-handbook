@@ -4,7 +4,7 @@ Caching avoids repeating the same lookup result; batching combines many logicall
 
 > **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/05_batching) builds a batched `RequestResolver`.
 
-> **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option `Effect.forEach` does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These guides track Effect's `main` branch rather than the tagged `4.0.5` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option `Effect.forEach` does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These guides track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ## Which problem do you have?
 

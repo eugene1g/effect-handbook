@@ -1,6 +1,6 @@
 # Exposing an Effect Application over MCP
 
-Written against `effect@4.0.5`, audited 2026-10-22. `McpServer`, `McpProtocol`, `McpSchema`, `Tool`, and `Toolkit` are all tagged `@stability unstable`: pin Effect, and re-check this guide when you upgrade.
+`McpServer`, `McpProtocol`, `McpSchema`, `Tool`, and `Toolkit` are all tagged `@stability unstable`: pin Effect, and re-check this guide when you upgrade.
 
 The Model Context Protocol (MCP) lets an agent host discover what your application can do and call it: tools to act, resources to read, prompts to start a task. `effect/ai/McpServer` turns a `Toolkit` and a few Layers into a server. It handles JSON-RPC framing, protocol negotiation, JSON Schema generation, argument decoding, and result encoding. Everything that makes the server safe to expose is still yours: who the caller is, which tenant they act for, what they are allowed to change, and what happens when a call arrives twice.
 
@@ -24,7 +24,7 @@ The same `Toolkit` value serves both surfaces. Define each tool once with `Tool.
 
 **What you own.** Authentication, tenant binding, per-tool authorization, confirmation of consequential actions, idempotency, rate limits, request-size limits, and audit records. Protocol negotiation is not authorization.
 
-**What Effect 4.0.5 does not ship.** Say this plainly in design reviews so nobody waits for it:
+**What Effect does not ship.** Say this plainly in design reviews so nobody waits for it:
 
 - **No MCP client.** There is no module for connecting to a remote MCP server and calling its tools. If your agent consumes remote tools, fetch and snapshot their schemas yourself and wrap them with `Tool.dynamic`, following the rules for [dynamic and MCP-sourced tools](building-a-production-ai-capability#adjacent-capabilities-same-discipline).
 - **No OAuth helpers.** Nothing verifies tokens, serves protected-resource metadata, or issues challenges. You write a middleware and a route; this guide shows both.
@@ -52,7 +52,7 @@ For a serverless host such as Cloudflare Workers, choose `McpServer.layerHttpReq
 
 ### One server, two eras
 
-`protocols` is a non-empty list of adapters. Effect 4.0.5 ships five: `McpProtocol.v2024_11_05`, `v2025_03_26`, `v2025_06_18`, and `v2025_11_25`, which are session-based (the client sends `initialize`, the server issues a session), and `v2026_07_28`, which is stateless. One endpoint can serve several eras at once, so old and new clients share a deployment. Two rules apply:
+`protocols` is a non-empty list of adapters. Effect ships five: `McpProtocol.v2024_11_05`, `v2025_03_26`, `v2025_06_18`, and `v2025_11_25`, which are session-based (the client sends `initialize`, the server issues a session), and `v2026_07_28`, which is stateless. One endpoint can serve several eras at once, so old and new clients share a deployment. Two rules apply:
 
 - **At most one stateless adapter.** Listing two fails the server layer with `IllegalArgumentError` when it builds.
 - **The list is the contract.** A session client that offers an unlisted version on `initialize` is answered with the first session adapter in your list, and the client decides whether to continue. Do not list revisions you have not tested.

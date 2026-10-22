@@ -2,7 +2,7 @@
 
 Build the service graph once, call it from Promise-based callbacks many times, and dispose it when the host application stops.
 
-> **Official guides:** [Runtime](https://effect.website/docs/v4/runtime). Where that guide and the tagged `effect@4.0.5` source disagree, this page and the source win.
+> **Official guides:** [Runtime](https://effect.website/docs/v4/runtime). Where that guide and the edition's tagged source disagree, this page and the source win.
 
 ## Contract
 

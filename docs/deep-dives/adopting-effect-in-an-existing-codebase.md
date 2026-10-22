@@ -1,7 +1,5 @@
 # Adopting Effect in an Existing TypeScript Codebase
 
-Audited against `effect@4.0.5` and the matching Effect repository source on 2026-10-22.
-
 Most teams do not get to start over. They have a Promise-based service that works, callers that depend on its exact shape, and a list of production incidents that all sound alike: a request nobody could cancel, a failure nobody could tell apart from another failure, a batch job that opened four hundred connections. This guide takes one such service from a compensation platform and moves it to Effect without a rewrite, one verifiable step at a time.
 
 [Anatomy of a Real Effect Application](anatomy-of-a-real-effect-application) describes the destination. This page is the path. For the mechanics it relies on, see [Core Runtime & Execution](../foundations/core-runtime-execution), [Recipe: ManagedRuntime at an Imperative Boundary](../recipes/managed-runtime-integration), [Recipe: Request Cancellation Through a Host](../recipes/request-cancellation-through-a-host), and [Testing an Effect Application](testing-an-effect-application).

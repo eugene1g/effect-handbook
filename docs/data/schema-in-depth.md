@@ -73,7 +73,7 @@ const auditLine = Schema.toFormatter(Employee, {
 auditLine({ id: 1, displayName: "Ada" }) // { "id": 1, "displayName": <masked> }
 ```
 
-Official guides: [Schema Annotations](https://effect.website/docs/v4/schema/annotations) (its `parseOptions` annotation row and its claim that `concurrency` reaches union members are obsolete in 4.0.5), [Schema to Equivalence](https://effect.website/docs/v4/schema/equivalence), [Schema to Formatter](https://effect.website/docs/v4/schema/formatter).
+Official guides: [Schema Annotations](https://effect.website/docs/v4/schema/annotations) (its `parseOptions` annotation row and its claim that `concurrency` reaches union members are obsolete), [Schema to Equivalence](https://effect.website/docs/v4/schema/equivalence), [Schema to Formatter](https://effect.website/docs/v4/schema/formatter).
 
 ## 2. Serialization codecs
 
@@ -223,7 +223,7 @@ Level.make(42, { disableChecks: true }) // 42 — a deliberate hole
 
 **Deliberate fallbacks.** `SchemaParser.makeOption(schema)` is the standalone form of `.makeOption(...)`. `Schema.catchDecoding` can replace a decoding failure with an effectful `Option` fallback; `catchDecodingWithContext` may additionally require services. These middlewares intentionally weaken a boundary, so reserve them for an explicit compatibility/defaulting policy rather than hiding malformed input.
 
-Official guide: [Default Constructors](https://effect.website/docs/v4/schema/default-constructors) (it types `makeEffect` as failing with `SchemaError` and prints formatted text for a throwing `make`; 4.0.5 behaves as the table above says).
+Official guide: [Default Constructors](https://effect.website/docs/v4/schema/default-constructors) (it types `makeEffect` as failing with `SchemaError` and prints formatted text for a throwing `make`; use the behavior in the table above).
 
 ## 5. Parse options are boundary policy
 

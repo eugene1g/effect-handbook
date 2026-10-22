@@ -4,7 +4,7 @@
 
 > **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
 >
-> **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.5` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ![Diagram: pull sources produce on demand; push sources feed a buffer with a capacity and overflow strategy; operators sit between sources and the sink, which pulls each element](/diagrams/stream-backpressure.svg)
 

@@ -159,7 +159,6 @@ test("builds grouped links for root, Pages base, and an absolute site URL", () =
   assert.match(robots, /major\.minor\): \/effect-handbook\/versions\.json/)
   assert.doesNotMatch(robots, /Sitemap:/)
   assert.match(buildRobotsTxt({ siteUrl: "https://example.com/handbook" }), /\nSitemap: https:\/\/example\.com\/handbook\/sitemap\.xml\n$/)
-  assert.equal(handbookRelease.version, "4.0.5")
 })
 
 test("points diagram images at the published copy relative to twins and bundles", () => {

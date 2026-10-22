@@ -503,7 +503,7 @@ const draft07 = JsonSchema.toDocumentDraft07(orgDoc) // also toDocumentDraft04, 
 
 **Which model owns which artifact.** A value schema knows a shape. It does not know methods, paths, parameter locations, status codes, per-endpoint errors, security, or media types; those facts live on the assembled `HttpApi`. So **derive JSON Schema from `Schema` for value contracts, and derive the OpenAPI document from the API** with [`OpenApi.fromApi`](../interfaces/http-api#openapi). Point a generator at the wrong model and its output silently lacks everything that only the other model records.
 
-Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) (it documents an `additionalProperties` generation option and closed-by-default output; 4.0.5 uses `onExcessProperty` and is open by default).
+Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) (it documents an `additionalProperties` generation option and closed-by-default output; use `onExcessProperty`, with open output by default).
 
 **Reach for it when** you need a machine-readable *value* contract for external consumers: JSON Schema config validation, cross-language codegen of a payload, or structured-output LLM prompting. For an HTTP API description, generate OpenAPI from `HttpApi` instead.
 

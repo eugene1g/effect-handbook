@@ -2,7 +2,7 @@
 
 `Config` is an `Effect`, validated by `Schema`, read from a swappable provider. Three-part model: **Config** describes what you need and its shape. **ConfigProvider** decides where values come from. **Redacted** masks secret values; **Redactable** customizes rendering for consumers that honor Effect's redaction protocol.
 
-> **Official guides:** [Configuration](https://effect.website/docs/v4/configuration). These track Effect's `main` branch rather than the tagged `4.0.5` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Configuration](https://effect.website/docs/v4/configuration). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ## Config
 

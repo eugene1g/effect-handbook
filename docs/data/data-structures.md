@@ -2,7 +2,7 @@
 
 Most collections here use immutable transformations, `pipe`-friendly dual APIs, and structural `Equal`/`Hash`. Exceptions are explicit: `HashRing` and low-level helpers such as `Record.assignProperty` mutate their targets. Check each operation's result and ownership contract.
 
-> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is a stale name; 4.0.5 spells it `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than the pinned 4.0.5 release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Chunk](https://effect.website/docs/v4/data-types/chunk) (its `unsafeFromArray` heading is a stale name; use `Chunk.fromArrayUnsafe`), [HashSet](https://effect.website/docs/v4/data-types/hash-set), [Equal](https://effect.website/docs/v4/trait/equal). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ## Array
 
@@ -161,7 +161,7 @@ const program = pipe(
 
 Use when accumulating many small pieces and avoiding repeated array copies — especially in stream processing, recursive algorithms, or custom collectors.
 
-Official guide: [Chunk](https://effect.website/docs/v4/data-types/chunk) (it says `fromIterable` copies its input; in 4.0.5 that is only true for non-array iterables).
+Official guide: [Chunk](https://effect.website/docs/v4/data-types/chunk) (it says `fromIterable` copies its input; that is only true for non-array iterables).
 
 ## HashMap
 

@@ -2,7 +2,7 @@
 
 Effect's coordination primitives let fibers share permits, queues, broadcasts, pooled resources, and replaceable scoped values without abandoning typed errors or structured concurrency. Start with `Semaphore`, `Queue`, or `PubSub`; use the partitioned, reference-counted, and scoped variants when ownership or lifecycle becomes the harder part.
 
-> **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than the tagged `4.0.5` release, so where they differ, this page and the tagged source win.
+> **Official guides:** the Semaphore, Queue, and PubSub guides are linked from the matching sections below. These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 Fork variants and fiber ownership live in [Core Runtime & Execution](../foundations/fibers-scopes-runtimes#fiber); stream-level buffering and backpressure live in [Streaming & Channels](./streaming-channels#stream). This page owns what happens *between* fibers: who waits, who is told "no", and what is lost.
 
@@ -313,7 +313,7 @@ Smells worth a second look in review: `Queue.unbounded` chosen because a test hu
 
 Use for producer-consumer decoupling with back-pressure inside a single process: batch pipelines, worker pools, actor-style mailboxes, rate-limited ingestion.
 
-Official guides: [Queue](https://effect.website/docs/v4/concurrency/queue) (its `takeAll` description and `takeUpTo` heading do not match the tagged `4.0.5` source — use the table above — and it predates the `Queue<A, E>` completion protocol); the callback constructor in [Creating Streams](https://effect.website/docs/v4/stream/creating) drives the same `offerUnsafe` / `endUnsafe` / `failCauseUnsafe` API.
+Official guides: [Queue](https://effect.website/docs/v4/concurrency/queue) (its `takeAll` description and `takeUpTo` heading do not match this edition's tagged source — use the table above — and it predates the `Queue<A, E>` completion protocol); the callback constructor in [Creating Streams](https://effect.website/docs/v4/stream/creating) drives the same `offerUnsafe` / `endUnsafe` / `failCauseUnsafe` API.
 
 ## PubSub
 
@@ -447,7 +447,7 @@ it.effect("a closed subscription retains nothing", () =>
 
 Use for one-to-many event fan-out within a process where multiple independent consumers should each see every message.
 
-Official guide: [PubSub](https://effect.website/docs/v4/concurrency/pubsub) (its prose calls the subscription a `Dequeue`; the tagged `4.0.5` source returns a `PubSub.Subscription` read with `PubSub.take`, and the guide omits the `{ capacity, replay }` constructor form).
+Official guide: [PubSub](https://effect.website/docs/v4/concurrency/pubsub) (its prose calls the subscription a `Dequeue`; this edition's tagged source returns a `PubSub.Subscription` read with `PubSub.take`, and the guide omits the `{ capacity, replay }` constructor form).
 
 ## Pool
 

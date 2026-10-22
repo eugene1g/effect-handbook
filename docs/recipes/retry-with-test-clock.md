@@ -2,7 +2,7 @@
 
 Keep transient failures typed, classify them in the Schedule, fork the retrying operation, and advance virtual time instead of waiting in real time.
 
-> **Official guides:** [Retrying](https://effect.website/docs/v4/error-management/retrying), [TestClock](https://effect.website/docs/v4/testing/testclock). Where that guide and the tagged `effect@4.0.5` source disagree, this page and the source win.
+> **Official guides:** [Retrying](https://effect.website/docs/v4/error-management/retrying), [TestClock](https://effect.website/docs/v4/testing/testclock). Where that guide and the edition's tagged source disagree, this page and the source win.
 
 ## Contract
 

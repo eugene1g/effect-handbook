@@ -51,6 +51,7 @@ Edition **4.0** (updated in place). Tag [`effect@4.0.5`](https://github.com/Effe
 ### Changes in the handbook
 
 - Added [GraphQL](../interfaces/graphql) as a concise chapter, and topic-sized sections for DNS/host resolution, UDP, TestCrypto, transaction metadata, request-scoped MCP, and new operational options. The site now has 65 pages: 52 concise pages and 13 deep-dive pages including their landing page.
+- Removed redundant current-release numbers and audit dates from chapter prose. Chapters inherit the [edition audit target](../#version-and-validation-scope); exact versions remain in release metadata, generated headers, reproducible installs, source links, and migration boundaries. The refresh skill preserves this policy.
 - Updated deep dives, the decision guide, cheat sheet, troubleshooting, review checklists, capability routes, and retrieval cases with the new selection boundaries. Experimental APIs are labelled separately from unstable ones.
 - Corrected stale claims about TestClock wakeups, mixed-cause retry, `DecisionModel.Image.mediaType`, workflow finalizer lifetime, and OTLP JSON spelling; pinned current source links and recipe installs to 4.0.5.
 - Corrected group-level Config defaults and secret-log safety, queue shutdown producer outcomes, semaphore fairness, stream batch timing, SQL commit-error routing, and ManagedRuntime cleanup ordering. Removed a transactional queue termination race and clarified Schema length bounds, codec widening, structural equality, and decimal rounding.

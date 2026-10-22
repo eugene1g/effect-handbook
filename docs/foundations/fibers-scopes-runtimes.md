@@ -672,12 +672,12 @@ The `effect` package version string reported in OTLP resources, telemetry header
 import * as Version from "effect/Version"
 
 // Read the version Effect reports in telemetry.
-const v: string = Version.getCurrentVersion() // e.g. "4.0.5"
+const v: string = Version.getCurrentVersion() // installed package version
 
 // Override it — useful in a monorepo where the installed version
 // should differ from the one surfaced in traces and OTLP resources.
-Version.setCurrentVersion("4.0.5-internal.1")
-console.log(Version.getCurrentVersion()) // "4.0.5-internal.1"
+Version.setCurrentVersion("custom-build")
+console.log(Version.getCurrentVersion()) // "custom-build"
 ```
 
 > **Note:** `setCurrentVersion` mutates only this copy of the module. Telemetry layers built before the call retain the version they read at construction time.

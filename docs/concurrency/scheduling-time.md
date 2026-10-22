@@ -4,7 +4,7 @@ _Effect provides a composable time stack: typed duration values, a testable cloc
 
 > **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/07_datetime) examples.
 
-> **Official guides:** [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules) introduces `Effect.repeat`, `Effect.schedule`, and `Effect.retry`; [Choosing and combining schedules](https://effect.website/docs/v4/scheduling/choosing-and-combining-schedules) walks through the constructors, limiters, and combinators; the [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook) has complete retry and polling programs. Section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.5` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules) introduces `Effect.repeat`, `Effect.schedule`, and `Effect.retry`; [Choosing and combining schedules](https://effect.website/docs/v4/scheduling/choosing-and-combining-schedules) walks through the constructors, limiters, and combinators; the [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook) has complete retry and polling programs. Section-specific guides are linked where they apply. These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ## Schedule
 

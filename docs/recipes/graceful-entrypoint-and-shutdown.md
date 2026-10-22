@@ -2,7 +2,7 @@
 
 Represent the long-lived application as a Layer, put every background fiber and acquired handle under its Scope, then hand the launched Layer to `NodeRuntime.runMain`.
 
-> **Official guides:** [Guidelines](https://effect.website/docs/v4/code-style/guidelines) (why `runMain` rather than `runPromise`). Where that guide and the tagged `effect@4.0.5` source disagree, this page and the source win.
+> **Official guides:** [Guidelines](https://effect.website/docs/v4/code-style/guidelines) (why `runMain` rather than `runPromise`). Where that guide and the edition's tagged source disagree, this page and the source win.
 
 ## Contract
 

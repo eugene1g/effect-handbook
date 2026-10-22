@@ -1,7 +1,5 @@
 # The Durability and Distribution Ladder
 
-Audited against `effect@4.0.5` and the matching Effect repository source on 2026-10-22.
-
 An Effect application does not become durable by moving a fiber to another machine. It also does not become distributed merely because a value is in a database. Durability and distribution are separate axes:
 
 - **durability** decides which facts, results, messages, and waits survive a crash;

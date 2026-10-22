@@ -1,6 +1,6 @@
 # GraphQL
 
-Typed operations for consuming a GraphQL API, not a GraphQL server framework. All seven `effect/graphql` modules are **experimental** in `effect@4.0.5`: pin matching packages and re-audit on every upgrade. Prefer [HttpApi](./http-api) for an Effect-owned HTTP contract, and [RPC](./rpc) for an Effect-to-Effect procedure protocol.
+Typed operations for consuming a GraphQL API, not a GraphQL server framework. All seven `effect/graphql` modules are **experimental**: pin matching packages and re-audit on every upgrade. Prefer [HttpApi](./http-api) for an Effect-owned HTTP contract, and [RPC](./rpc) for an Effect-to-Effect procedure protocol.
 
 ## GraphQL
 
@@ -110,7 +110,7 @@ When middleware requires a per-call service, supply the required `batchKey` deri
 
 `@effect/graphql-generator/Config` — experimental
 
-**pkg @effect/graphql-generator** — provides the `graphqlgen` CLI and public tool modules through subpath exports; there is no package-root entry point. `bin`, `main`, and `internal/*` are not public imports. Pin it with `effect` and its `@effect/platform-node` peer to `4.0.5`.
+**pkg @effect/graphql-generator** — provides the `graphqlgen` CLI and public tool modules through subpath exports; there is no package-root entry point. `bin`, `main`, and `internal/*` are not public imports. Pin it with `effect` and its `@effect/platform-node` peer to the same release.
 
 ```ts
 // The generator configuration API is intentionally experimental too.
@@ -129,7 +129,7 @@ Run `graphqlgen`, `graphqlgen --watch`, or `graphqlgen --check` (CI, no writes);
 
 For programmatic tooling, `@effect/graphql-generator/Generator.generate(config, { cwd })` returns generated files, stale-file deletions, and diagnostics **in memory**, requiring `FileSystem` and `Path`; it does not write files itself. Error diagnostics leave the returned file/deletion lists empty. This is the public generator entry point; do not import its parser/emitter internals.
 
-The generator validates documents and writes sibling `.graphql.ts` / `.gql.ts` modules plus a shared schema module. Generated exports include operations, a group, fragment schemas, and named decoded interfaces. In 4.0.5 object selections, ordinary input objects, and object fragments use a `Schema.Struct` const with a same-named interface, rather than the earlier Opaque class shape; abstract unions and one-of inputs retain their specialized forms. Use exported interfaces in explicit annotations when structural editor hovers become large.
+The generator validates documents and writes sibling `.graphql.ts` / `.gql.ts` modules plus a shared schema module. Generated exports include operations, a group, fragment schemas, and named decoded interfaces. Object selections, ordinary input objects, and object fragments use a `Schema.Struct` const with a same-named interface, rather than the earlier Opaque class shape; abstract unions and one-of inputs retain their specialized forms. Use exported interfaces in explicit annotations when structural editor hovers become large.
 
 Built-in `Int` is 32-bit, `Float` finite, and `ID` string. `DateTime` defaults to a UTC DateTime codec and `URI` to string; unmapped custom scalars fall back to `Schema.Json` with a warning. Scalar mappings name an exported Schema codec (`module#export`): generation does not prove that module exists, so compile the output too.
 

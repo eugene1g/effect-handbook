@@ -10,6 +10,8 @@
 
 This edition describes the published `effect@4.0.5` API — not unreleased `main`. The source audit covered all 139 modules exported from the `effect` root barrel, all 21 public `effect/<area>` families (225 modules), the 33 public packages, their tests and examples, and every canonical Markdown page in this site. Examples were checked with pnpm, Node's native TypeScript execution, TypeScript 7.0.2 in strict mode, and the Effect `@effect/tsgo` diagnostics. Short fragments may declare application-specific boundaries, but every Effect API shown is present in the audited release.
 
+All chapters and deep dives inherit this edition's audit target. Edition URLs identify `major.minor`; the release above, the site footer, and generated Markdown headers identify the exact audited patch. Chapter prose states the behavior directly; explicit version numbers are reserved for release history, migration boundaries, reproducible installation, and pinned source links.
+
 New to Effect 4? Start with [Getting Started](foundations/getting-started) — it covers installation (`npm install effect` now installs Effect 4), TypeScript and ESM settings, and a first program.
 
 ### Stability and support

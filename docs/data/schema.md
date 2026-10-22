@@ -6,7 +6,7 @@ Effect v4 rebuilt Schema around a single `Codec` abstraction: a two-way, validat
 
 > **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
 >
-> **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings are stale — see the sections below); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this page's tagged 4.0.5 source, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings are stale — see the sections below); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ## Schema
 
@@ -68,7 +68,7 @@ Effect.runPromise(Schema.encodeUnknownEffect(SalaryFromString)(192400)).then(con
 
 Per-call behavior — excess keys, error accumulation, concurrency, rejected-input reporting — is covered in [Parse options are boundary policy](schema-in-depth#5-parse-options-are-boundary-policy).
 
-Official guide: [Getting Started](https://effect.website/docs/v4/schema/getting-started) (its `"preserve"`, `propertyOrder`, and `parseOptions`-annotation passages do not apply to 4.0.5).
+Official guide: [Getting Started](https://effect.website/docs/v4/schema/getting-started) (its `"preserve"`, `propertyOrder`, and `parseOptions`-annotation passages do not apply to this edition).
 
 ### 2. Type vs Encoded — the distinction that runs everything
 
@@ -283,7 +283,7 @@ const PayComponents = Schema.Record(Schema.Literals(["base", "bonus"]), Schema.F
 
 Also available: `Schema.NonEmptyArray(item)` (infers `readonly [A, ...A[]]`), `Schema.ArrayEnsure(item)` (a single value or an array decodes to an array; a one-element array encodes back to the single value), `Schema.UniqueSymbol(sym)`, `Schema.Enum(TsEnum)` (exposes `.enums`; rejects non-finite numeric members), `Schema.JsonObject` (a string-keyed record of `Schema.Json` values — arrays and non-JSON leaves such as `Date` fail), and the primitives `BigInt`, `Symbol`, `ObjectKeyword`, `Any`, `Unknown`, `Never`, `Null`. Schema values keep their parts public — `.fields`, `.members`, `.elements`, `.rest`, `.literals`, `.key` / `.value`, `.schema` — so they can be recombined. `Schema.Literal(0)` and `Schema.Literal(-0)` each accept either signed zero and preserve the input's sign; add a transformation when a canonical sign matters.
 
-Official guide: [Basic Usage](https://effect.website/docs/v4/schema/basic-usage) (its "Transforming Keys" passage is stale: 4.0.5 records accept transformed key schemas).
+Official guide: [Basic Usage](https://effect.website/docs/v4/schema/basic-usage) (its "Transforming Keys" passage is stale: records accept transformed key schemas).
 
 ### 5. Refinements — `check` and `refine`
 
@@ -434,7 +434,7 @@ Schema.decodeUnknownSync(PageFromQueryValue)("%7B%22page%22%3A1%2C%22size%22%3A2
 
 Getters that call services or do asynchronous work are covered in [Effectful schemas and services](schema-in-depth#9-effectful-schemas-and-services).
 
-Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it still spells `transformEffect` as `transformOrFail`, and it predates `SchemaGetter.forbiddenEncoding` — this page and the tagged 4.0.5 source win).
+Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it still spells `transformEffect` as `transformOrFail`, and it predates `SchemaGetter.forbiddenEncoding` — this page and the edition's tagged source win).
 
 ### 7. Branded schemas
 
@@ -615,4 +615,4 @@ Equal.equals(decoded, new LevelBand({ min: 150_000, max: 210_000, level: 5 })) /
 | round trip under a stated equivalence | use `Equal.equals` or `Schema.toEquivalence`, never `===` |
 | the JSON form | `JSON.stringify(instance)` is not the codec; derive `Schema.toCodecJson(Class)` |
 
-Official guide: [Class APIs](https://effect.website/docs/v4/schema/classes) (its sample output for a failing `new` shows formatted issue text; 4.0.5 throws the generic message described in [section 4 of Schema in Depth](schema-in-depth#4-construction-and-deliberate-fallbacks)).
+Official guide: [Class APIs](https://effect.website/docs/v4/schema/classes) (its sample output for a failing `new` shows formatted issue text; construction throws the generic message described in [section 4 of Schema in Depth](schema-in-depth#4-construction-and-deliberate-fallbacks)).

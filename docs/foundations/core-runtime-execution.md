@@ -6,7 +6,7 @@
 
 > **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/04_integration).
 
-> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; `Effect.runFork` returns `Fiber`). These guides track Effect's `main` branch rather than the tagged `4.0.5` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; `Effect.runFork` returns `Fiber`). These guides track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ## Effect
 

@@ -2,7 +2,7 @@
 
 A source-grounded tour of Effect 4's reactive state layer — the same primitives that power TanStack-Query-style data fetching, SSR hydration, and fine-grained UI state, but built natively on Effects, Streams, Layers, scopes, and typed errors.
 
-This guide shares the handbook's **2026-10-22** audit target, `effect@4.0.5`. The reactivity APIs are tagged `@stability unstable`, so pin compatible package versions and re-audit before upgrading.
+The reactivity APIs are tagged `@stability unstable`, so pin compatible package versions and re-audit before upgrading.
 
 For a compact module-by-module API reference, use the [Reactivity & Atom handbook topic](../systems/reactivity-atom). This deep dive repeats only the details needed to connect those modules into an application-level mental model.
 

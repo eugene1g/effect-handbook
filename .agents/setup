@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+export PATH="$HOME/.local/bin:$PATH"
+mkdir -p "$HOME/.local/bin"
+
+printf '\nInstalling the repository toolchain (%ss elapsed)\n' "$SECONDS"
+node_major="$(node -p 'require("./package.json").engines.node.match(/>=([0-9]+)/)[1]')"
+if [[ "$(node -p 'process.versions.node.split(".")[0]')" != "$node_major" ]]; then
+  npm install --global --prefix "$HOME/.local" "node@$node_major"
+  hash -r
+fi
+package_manager="$(node -p 'require("./package.json").packageManager')"
+if ! command -v pnpm >/dev/null || [[ "$(pnpm --version)" != "${package_manager#pnpm@}" ]]; then
+  npm install --global --prefix "$HOME/.local" "$package_manager"
+  hash -r
+fi
+printf 'Using Node %s and pnpm %s\n' "$(node --version)" "$(pnpm --version)"
+
+printf '\nPreparing Chrome for browser smoke tests (%ss elapsed)\n' "$SECONDS"
+find_browser() {
+  local candidate
+  for candidate in "${HANDBOOK_CHROMIUM:-}" \
+    /usr/bin/google-chrome /usr/bin/google-chrome-stable \
+    /usr/bin/chromium /usr/bin/chromium-browser \
+    "$HOME"/.agent-browser/browsers/chrome-*/chrome; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+  return 1
+}
+if ! chromium="$(find_browser)"; then
+  agent-browser install
+  chromium="$(find_browser)"
+fi
+ln -sfn "$(realpath -- "$chromium")" "$HOME/.local/bin/effect-handbook-chromium"
+export HANDBOOK_CHROMIUM="$HOME/.local/bin/effect-handbook-chromium"
+"$HANDBOOK_CHROMIUM" --version
+
+# Amp and supervised services start in separate login shells after setup exits.
+profile_marker="# effect-handbook orb environment: $repo_root"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  {
+    printf '\n%s\n' "$profile_marker"
+    printf 'if [[ "$PWD" == %q || "$PWD" == %q/* ]]; then\n' "$repo_root" "$repo_root"
+    printf '  export PATH="$HOME/.local/bin:$PATH"\n'
+    printf '  export HANDBOOK_CHROMIUM="$HOME/.local/bin/effect-handbook-chromium"\n'
+    printf 'fi\n'
+  } >> "$HOME/.bash_profile"
+fi
+
+printf '\nInstalling frozen workspace dependencies (%ss elapsed)\n' "$SECONDS"
+pnpm install --frozen-lockfile
+printf '\nOrb setup finished in %ss\n' "$SECONDS"

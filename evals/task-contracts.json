@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "tasks": [
+    {
+      "id": "host",
+      "instructions": "Use Effect to implement export function adapt(signal: AbortSignal, work: (signal: AbortSignal) => Promise<string>): Promise<{ kind: 'success'; value: string } | { kind: 'failure'; message: string } | { kind: 'interrupted' }>. A host abort must interrupt the request and abort downstream Promise work, even if that work never settles. Already-aborted requests must not start work. Ordinary rejected Error messages must be preserved as failure, not interruption. Successful work must preserve its value. Do not install host services."
+    },
+    {
+      "id": "config",
+      "instructions": "Use Effect Config to implement export function settings(values: Record<string, string>): Promise<{ host: string; port: number }>. Read HOST (required nonempty string) and PORT (optional, default 8123). A supplied PORT must be a decimal integer in 1..65535; malformed, empty, zero, negative, fractional and out-of-range values must reject. A missing PORT must not discard HOST. Do not read ambient process.env; the supplied map is the entire configuration source."
+    },
+    {
+      "id": "tenants",
+      "instructions": "Use Effect to implement export function lookup(requests: ReadonlyArray<{ tenant: string; id: string }>, fetch: (tenant: string, ids: ReadonlyArray<string>) => Promise<Readonly<Record<string, string>>>): Promise<Array<string | null>>. Batch into exactly one fetch per distinct tenant, deduplicating IDs within that tenant. Preserve original order and duplicates in the result, mapping absent IDs to null. Never share data or a batch between tenants. Empty input makes no fetches. Any fetch rejection rejects the operation. Fake fetch functions are injected; no live services."
+    }
+  ]
+}

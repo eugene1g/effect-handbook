@@ -69,6 +69,13 @@
   margin-inline: 0;
 }
 
+.vp-doc .example-contract {
+  margin: 16px 0 -8px;
+  color: var(--vp-c-text-2);
+  font-size: 12px;
+  line-height: 20px;
+}
+
 .markdown-toolbar {
   display: flex;
   min-height: 36px;

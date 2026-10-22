@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises"
 import path from "node:path"
 import test from "node:test"
 
-import { assertExactObjectKeys, assertRuntimeDefinitionsUsed, classifyDocExamples, importedPackages, parseExampleMetadata, repositoryRoot, sha256 } from "./example-model.ts"
+import { assertExactObjectKeys, assertRuntimeDefinitionsUsed, classifyDocExamples, exampleSourceForm, importedPackages, parseExampleMetadata, repositoryRoot, sha256 } from "./example-model.ts"
 import { extractExamples } from "./extract-examples.ts"
 import { assertKnownContextualFixtures } from "./fixture-projects.ts"
 
@@ -50,6 +50,24 @@ test("contextual ids are explicit semantic names, not content-derived hashes", a
   assert.ok(contextual.length > 0)
   assert.ok(contextual.every((example) => example.classificationSource === "registry"))
   assert.ok(contextual.every((example) => !/\.[a-f0-9]{16}$/.test(example.id)))
+})
+
+test("source completeness is separate from the validation disposition", () => {
+  const source = (body, disposition = "compile") => exampleSourceForm({ body, disposition })
+  assert.equal(source('import { Effect } from "effect"\nEffect.runSync(Effect.succeed(42))'), "self-contained")
+  assert.equal(source('declare const client: { close(): void }\nclient.close()'), "fragment")
+  assert.equal(source('import { client } from "./client.ts"\nclient.close()'), "fragment")
+  assert.equal(source('const client = await import("../client.ts")'), "fragment")
+  assert.equal(source('import "./setup.ts"'), "fragment")
+  assert.equal(source('import { client } from "/app/client.ts"'), "fragment")
+  assert.equal(source('const client = await import("file:///app/client.ts")'), "fragment")
+  assert.equal(source('declare interface Employee { id: string }\nconst e: Employee = { id: "E-7" }'), "self-contained")
+  assert.equal(source('// declare const client: Client\nconst text = "declare const client: Client"'), "self-contained")
+  assert.equal(source('Effect.runSync(program)', "contextual"), "fragment")
+  assert.equal(source('const program = 42', "run"), "self-contained")
+  assert.equal(source('declare const program: never', "run"), "fragment")
+  assert.equal(source('architectural sketch', "pseudocode"), "illustrative")
+  assert.equal(source('const broken: number = "no"', "invalid"), "illustrative")
 })
 
 test("orphan runtime definitions and unknown fixtures are rejected", () => {

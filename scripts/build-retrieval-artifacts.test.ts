@@ -34,7 +34,12 @@ test("builds a validated catalog and every focused domain bundle", async () => {
   assert.match(inventory.canonicalSourceHash, /^[a-f0-9]{64}$/)
   assert.equal(inventory.validationEvidence, "not-included")
   assert.equal(Object.values(inventory.totals.disposition).reduce((sum, count) => sum + count, 0), inventory.examples.length)
+  assert.equal(Object.values(inventory.totals.sourceForm).reduce((sum, count) => sum + count, 0), inventory.examples.length)
+  assert.ok(inventory.examples.some((example) => example.disposition === "compile" && example.sourceForm === "fragment"))
+  assert.ok(inventory.examples.some((example) => example.disposition === "run" && example.sourceForm === "self-contained"))
+  assert.ok(inventory.examples.filter((example) => example.disposition === "contextual").every((example) => example.sourceForm === "fragment"))
   for (const example of inventory.examples) {
+    assert.ok(["fragment", "self-contained", "illustrative"].includes(example.sourceForm), example.id)
     assert.deepEqual(example.requiredChecks, requiredChecksFor(example), example.id)
     for (const misleading of ["typeChecked", "effectChecked", "runtimeChecked", "status"]) {
       assert.equal(Object.hasOwn(example, misleading), false, `${example.id}.${misleading}`)

@@ -56,6 +56,7 @@ export async function extractExamples() {
       endLine: example.endLine,
       sha256: example.sha256,
       disposition: example.disposition,
+      sourceForm: example.sourceForm,
       fixture: example.fixture ?? null,
       runtime: example.runtime ?? null,
       diagnostic: example.diagnostic ?? null,

@@ -72,9 +72,15 @@ The `handbook` object at the top of every JSON artifact records the Effect versi
 
 ## Reading the example inventory
 
-`effect-4-examples.json` lists every fenced TypeScript example in the handbook with its `source`, `heading`, line range, `sha256`, and `disposition`:
+`effect-4-examples.json` lists every fenced TypeScript example in the handbook with its `source`, `heading`, line range, `sha256`, `sourceForm`, and `disposition`. Source form answers what you must supply:
 
-- `compile` — must pass isolated strict TypeScript and strict Effect diagnostics. Safe to lift into a project as written.
+- `self-contained` — no declared application values, local imports, or contextual fixture. This is complete source, not a guarantee of a runnable application: dependencies, host APIs, configuration, or external services may still be needed, and defining an Effect does not execute it.
+- `fragment` — supply the declared application values, local modules, or named fixture before using it.
+- `illustrative` — pseudocode or an intentional type error.
+
+The rendered site and offline handbook show this source form above each TypeScript fence alongside its independent validation contract:
+
+- `compile` — must pass isolated strict TypeScript and strict Effect diagnostics; ambient declarations can still stand in for application values.
 - `contextual` — the exact fence passes the same checks inside one named tracked fixture (`fixture`), which supplies surrounding declarations the fence refers to. Expect to add those declarations yourself.
 - `run` — compiled and executed by the harness with an asserted result (`runtimeCheckId`). Recipes are `run` examples.
 - `pseudocode` — visibly labelled architectural sketches; never paste them as code.
@@ -113,7 +119,7 @@ Use the Effect 4 Handbook at https://HOST/ for Effect questions. Rules:
 3. Start at that edition's `llms.txt`. Use its "Intent and primitive map" to find the exact section; use its `effect-4-modules.md` when you already know the module name. Take page URLs from those lists — never guess a path.
 4. For breadth, read `effect-4-essentials.md` (every page and section in brief, each linked to the full text); otherwise fetch one page or one domain bundle (`effect-4-core.md`, `-web`, `-concurrency`, `-distributed`, `-ai`). Fetch the full `effect-4-handbook.md` only when the task needs every rule at once.
 5. Before writing code, check the "Effect 3 names that do not exist in Effect 4" list at the top of `llms.txt` (for example `Effect.catchAll` is `Effect.catch`, `Layer.scoped` is `Layer.effect`, and there is no `@effect/platform`).
-6. Prefer `compile` and `run` examples from the edition's `effect-4-examples.json`; treat `pseudocode` fences as sketches and `invalid` fences as counter-examples.
+6. Prefer `sourceForm: "self-contained"` examples from the edition's `effect-4-examples.json` when you need complete source, and `run` recipes when you need asserted behavior. `compile` alone does not mean runnable; supply application values for fragments. Treat pseudocode as sketches and invalid examples as counter-examples.
 7. The installed `effect` package (`node_modules/effect/AGENTS.md`, `ai-docs/src`, and the `.d.ts` files) wins over the handbook when they disagree.
 8. Cite sections as `<edition>/<twin path>#<anchor>` and name the audited release from the twin's first line.
 ```

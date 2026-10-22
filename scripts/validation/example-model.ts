@@ -125,6 +125,21 @@ const importTokens = (source) => {
   return tokens
 }
 
+/** Source completeness is not runtime evidence: even a complete file may need a host or external services. */
+export function exampleSourceForm({ body, disposition }) {
+  if (["pseudocode", "invalid"].includes(disposition)) return "illustrative"
+  if (disposition === "contextual") return "fragment"
+  const tokens = importTokens(body)
+  const valueDeclarations = new Set(["const", "let", "var", "function", "class", "enum", "namespace", "module", "global"])
+  const needsApplication = tokens.some((token, index) =>
+    token.kind === "identifier" && token.value === "declare" && valueDeclarations.has(tokens[index + 1]?.value))
+  const needsLocalFile = tokens.some((token, index) => token.kind === "string" && /^(\.|\/|file:)/.test(token.value) && (
+    tokens[index - 1]?.value === "from" || tokens[index - 1]?.value === "import" ||
+    tokens[index - 1]?.value === "(" && tokens[index - 2]?.value === "import"
+  ))
+  return needsApplication || needsLocalFile ? "fragment" : "self-contained"
+}
+
 export function importedPackages(body) {
   const packages = new Set()
   const add = (specifier) => {
@@ -360,6 +375,7 @@ export async function classifyDocExamples() {
     Object.assign(example, {
       id,
       disposition,
+      sourceForm: exampleSourceForm({ body: example.body, disposition }),
       fixture: registered?.fixture,
       runtime: registered?.runtime,
       reason: registered?.reason,

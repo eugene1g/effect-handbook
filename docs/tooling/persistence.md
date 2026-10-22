@@ -234,7 +234,7 @@ console.log(req._tag)                                            // "GetEmployee
 
 A two-tier cache: in-process `Cache` in front of a durable `Persistence` store. On a miss, it checks the persistence store before running the lookup. A persistence-layer hit restores the result without calling the lookup effect — across process restarts.
 
-**Mental model.** L1 = in-memory (fast, lost on restart). L2 = persistence store (slower, survives restarts). The lookup is only called on a true L2 miss. Results are written to both layers simultaneously. Invalidation clears both.
+**Mental model.** L1 = in-memory (fast, lost on restart). L2 = persistence store (slower, survives restarts). The lookup is only called on a true L2 miss. Its result is persisted before being returned into L1; writes are not simultaneous. Invalidation clears both.
 
 ```ts
 import { Effect, Schema } from "effect"
@@ -386,6 +386,8 @@ const layers = Layer.mergeAll(
 
 > **Tip:** Pass a custom `id` to `queue.offer(value, { id })` and the queue will silently skip re-enqueueing if that id is already present. This gives idempotent producers — safe to call on retry without double-queueing. De-duplication **outlives completion**: the id keeps suppressing duplicates until `layerCleanup` removes the completed element (`timeToLive`, default 30 days), so size that window to your longest producer replay.
 
+Use `queue.offer(value, { delay: "5 minutes" })` to postpone **first delivery**, independently of the retry schedule and without counting an attempt. The memory, Redis, and SQL stores support this option; a finite positive delay enqueues now but makes the item claimable later. Delivery can lag visibility by the store's polling interval; SQL uses the database clock and rounds up to whole seconds, while Redis depends on agreement between producer and worker clocks. Zero, negative, and omitted delays enqueue immediately. An infinite delay stores **nothing**, not even a deduplication record, although the offer returns its ID. An existing custom ID is still deduplicated, not rescheduled by a repeated offer.
+
 `PersistedQueue.layerCleanup` deletes completed elements after `timeToLive`. Failed elements are the dead-letter record and are kept **forever** unless you set `failedTimeToLive` — monitor and drain them deliberately. The SQL store creates and upgrades its tables through versioned migrations.
 
 The SQL and Redis stores claim an item with a per-worker lock that is refreshed while the handler runs (`lockRefreshInterval`, default 30 seconds) and expires after `lockExpiration` (default 2 minutes for SQL, 90 seconds for Redis); both poll every second by default. **Interrupting the handler releases the item without consuming the attempt**, so a graceful shutdown does not push work toward the dead-letter state. A hard kill cannot run that release: the attempt stays counted and the item becomes claimable again once its lock expires.
@@ -522,7 +524,7 @@ const layers = RateLimiter.layer.pipe(
 ### Algorithms
 
 - **fixed-window** — Count requests within a time bucket. Cheap to compute; can allow 2x the limit at window boundaries if producers are synchronized. Best for loose API quota enforcement.
-- **token-bucket** — Tokens refill continuously over the window. Smoother than fixed-window; prevents burst spikes at boundaries. Better for tight throughput control against write quotas.
+- **token-bucket** — Tokens refill at whole-token boundaries over the window. This avoids fixed-window resets but still permits bursts up to bucket capacity; it is not a no-burst guarantee. Use it for sustained-rate control with an explicit burst allowance.
 
 Adaptive limiting is a separate feedback API, not another `algorithm` string. Call `adaptiveConsume` before the request, retain its `epoch`, then report the response with `adaptiveFeedback`. The state progresses through `inactive`, `cooldown`, `learning`, and `learned`: a `429` with `Retry-After` starts or extends cooldown, later traffic measures an accepted rate, and learned state schedules future requests accordingly. The in-memory store coordinates only one process; use the Redis store when this learned state must be shared by several workers.
 

@@ -46,7 +46,7 @@ const program = Effect.gen(function*() {
 | Choosing between primitives that all look plausible | [Choosing Effect Primitives](choosing-effect-primitives) |
 | Looking at a symptom, or checking generated code against known mistakes | [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns) |
 | Reviewing a design or a diff | [Review Checklists](review-checklists) |
-| Coming from Effect 3 | [Migration guide](https://github.com/Effect-TS/effect/blob/effect%404.0.2/MIGRATION.md) |
+| Coming from Effect 3 | [Migration guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/MIGRATION.md) |
 | Moving an existing Promise codebase over, one leaf at a time | [Adopting Effect in an Existing TypeScript Codebase](../deep-dives/adopting-effect-in-an-existing-codebase) |
 | Wanting a connected walkthrough rather than a lookup | [Deep Dives](../deep-dives/) |
 
@@ -203,6 +203,7 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | --- | --- |
 | Call an HTTP API | [`HttpClient`](../interfaces/http-client), with [budgets and safe retries](../interfaces/http-client#retries-time-budgets-and-cancellation) and [three failure classes](../interfaces/http-client#three-failure-classes) |
 | Fetch a URL a user supplied | [User-controlled destinations](../interfaces/http-client#user-controlled-destinations) |
+| Call an existing GraphQL API with typed operations and subscriptions | [GraphQL](../interfaces/graphql) and [`@effect/graphql-generator`](../interfaces/graphql#graphql-generator) (experimental; not a server executor) |
 | Build a contract-first HTTP API | [`HttpApi`](../interfaces/http-api), its [status mapping](../interfaces/http-api#status-mapping-is-part-of-the-contract), and [authentication vs authorization](../interfaces/http-api#authentication-is-not-authorization) |
 | Serve HTTP and set edge limits | [`HttpServer`](../interfaces/http-server#httpserver) and the [edge policy checklist](../interfaces/http-server#edge-policy-checklist) |
 | Work with status codes and media types | [`HttpStatus`](../interfaces/http-server#httpstatus), [`Mime`](../interfaces/http-server#mime) |
@@ -215,6 +216,8 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | Go end to end from Schema to HttpApi to SQL | [the boundary recipe](../recipes/schema-httpapi-sql-boundary) |
 | Files, sockets, workers, child processes | [Platform & Runtime Hosts](../interfaces/platform-runtime-hosts); sockets are pull-based (`reader` / `writer`) |
 | Parse and match IP addresses and networks | [`NetAddress`](../interfaces/platform-runtime-hosts#netaddress), [`IpNetwork`](../interfaces/platform-runtime-hosts#ipnetwork), [`IpInterface`](../interfaces/platform-runtime-hosts#ipinterface) |
+| Parse host names, query DNS, or resolve endpoints | [`Host`, `Dns`, `AddressResolver`](../interfaces/platform-runtime-hosts#host) (experimental; DNS validation alone does not prevent SSRF) |
+| Send or receive UDP datagrams | [`DatagramSocket`](../interfaces/platform-runtime-hosts#datagramsocket) (experimental; not a byte stream) |
 | Test file code without a disk | [`FileSystem.layerNoop`](../interfaces/platform-runtime-hosts#testing-without-a-disk) |
 
 ### Operate
@@ -245,6 +248,7 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | Call an LLM (provider-agnostic) | [`LanguageModel` + an `@effect/ai-*` provider](../systems/ai-language-models), under the [production rules](../systems/ai-language-models#production-rules-for-model-calls) |
 | Gate tool calls behind approval, or bound their concurrency | [Tool-call resolution](../systems/ai-language-models#tool-call-resolution-concurrency-and-manual-dispatch) |
 | Expose tools over MCP | [`McpServer`](../systems/mcp#mcpserver) |
+| Host MCP on a serverless request lifetime | [`layerHttpRequestScoped`](../systems/mcp#request-scoped-http-and-typed-requirements) (stateless adapters only) |
 | Ship an AI feature with budgets, gates, and tests | [Building a Production AI Capability](../deep-dives/building-a-production-ai-capability) |
 
 ### Test and tool
@@ -252,6 +256,7 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | You want to… | Reach for |
 | --- | --- |
 | Test effects deterministically | [`@effect/vitest` + `TestClock`](../tooling/testing-dev-tooling) and [Testing an Effect Application](../deep-dives/testing-an-effect-application) |
+| Seed random bytes and IDs without faking digests | [`TestCrypto`](../tooling/testing-dev-tooling#testcrypto) over a platform `Crypto` service |
 | Property-test from a Schema | [`Arbitrary`](../tooling/testing-dev-tooling#arbitrary) (`effect/Arbitrary`; the fast-check bridge was removed) |
 | Know what an in-memory harness does *not* prove | [In-memory test runtimes shipped with Effect](../tooling/testing-dev-tooling#in-memory-test-runtimes-shipped-with-effect) |
 | Test laziness and the exact `E` and `R` | [Prove laziness and the static contract](../tooling/testing-dev-tooling#prove-laziness-and-the-static-contract) |
@@ -278,4 +283,4 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | An LLM feature with tools and budgets | — | [Building a Production AI Capability](../deep-dives/building-a-production-ai-capability) |
 | An MCP server other agents can call, with auth and approvals | [`McpServer`](../systems/mcp#mcpserver) | [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp) |
 
-> **Tip:** Most of what you import from `"effect"` is `@stability stable` and covered by semver. The exceptions carry an explicit `@stability unstable` tag and an unstable badge here: root-barrel modules such as `Arbitrary`, `FileSystem`, `Path`, `ExecutionPlan`, `LayerMap`, `Graph`, and `ByteSize` (the full list is in [Stability and support](../#stability-and-support)), plus a set of advanced `Schema` APIs. The big subsystems — `http`, `http-api`, `rpc`, `sql`, `cluster`, `workflow`, `eventlog`, `ai`, `cli`, `reactivity`, `persistence`, `observability`, `devtools`, `socket`, `workers`, `process`, `net`, `schema/Model` — live under `"effect/<area>"`, carry `@stability unstable`, and may shift in minor releases. They're built to be used; just pin your version, read the changelog, and keep each unstable import [behind one app-owned capability](../interfaces/platform-runtime-hosts#keep-platform-and-unstable-imports-behind-a-capability).
+> **Tip:** Most of what you import from `"effect"` is `@stability stable` and covered by semver. Exceptions such as `Arbitrary`, `FileSystem`, `Path`, `ExecutionPlan`, `LayerMap`, `Graph`, and `ByteSize`, plus advanced `Schema` APIs, carry explicit stability labels. Most subsystem APIs under `"effect/<area>"` are unstable and may change in minor releases; GraphQL, host/DNS resolution, and UDP APIs are experimental and may change in patches. See [Stability and support](../#stability-and-support) for the distinctions. Pin exact versions, read the changelog, and keep each unstable or experimental import [behind one app-owned capability](../interfaces/platform-runtime-hosts#keep-platform-and-unstable-imports-behind-a-capability).

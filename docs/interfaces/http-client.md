@@ -4,7 +4,7 @@ Effect 4 ships three stacked layers: a fully typed **HTTP client** (request as v
 
 Four cooperating modules: `HttpClient` is the service you acquire and decorate with policy; `HttpClientRequest` is an immutable request built with pipes; `HttpClientResponse` decodes a raw response through a Schema; `HttpClientError` is the tagged error family for transport/status/body failures. Composing a schema decoder also adds `SchemaError`. Idiomatic use: wrap the union in a domain service so callers never touch headers.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpClient example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/50_http-client) builds a typed client service.
+> **Official example:** Effect's release-matched [`ai-docs` HttpClient example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/50_http-client) builds a typed client service.
 
 ## HttpClient
 
@@ -113,6 +113,8 @@ class Hris extends Context.Service<Hris, {
 > **Warning:** **With `FetchHttpClient` the platform `fetch` follows redirects before Effect ever sees them** (probed on Node 26: a `302` arrives as the final `200`, and `response.url` reports the final URL). `HttpClient.followRedirects` — and any per-hop validation you hang on it — only takes over when the underlying fetch is told not to: provide `FetchHttpClient.RequestInit` with `{ redirect: "manual" }`. In a browser a manual redirect is an opaque response, so hop-by-hop control is a server-side technique.
 
 ### Retries, time budgets, and cancellation
+
+`retryTransient` honors a valid `Retry-After` on a response or response-bearing error: integer seconds or an HTTP date, measured against the Effect Clock. Its delay is the **maximum** of the schedule delay and the server's delay, not an additional sleep; malformed headers fall back to the schedule and past dates add no wait. The header does not make a non-transient response retryable or override the schedule/count limit. `withRateLimiter` also interprets HTTP dates as dates, not seconds.
 
 - **Every call gets a finite budget.** No decorator adds a timeout for you. `HttpClient.transformResponse(Effect.timeout("10 seconds"))` bounds each attempt when placed *before* a retry decorator and the whole call when placed *after* it.
 - **Interruption cancels the request, not just the wait.** The client hands the platform an `AbortSignal` and aborts it when the calling fiber is interrupted — by a timeout, a lost race, or a closed scope (probed: the remote server observes the disconnect). Wrapping a non-Effect SDK yourself? Forward the signal `Effect.tryPromise` gives you; see the [request-cancellation recipe](../recipes/request-cancellation-through-a-host).
@@ -260,6 +262,23 @@ const program = Effect.gen(function*() {
 
 Use `updateHeaders(f)` for a whole-map immutable transform and `removeHeader(name)` for one field. Replacing a request body also synchronizes its `content-type` and `content-length`: metadata supplied by the new body replaces stale values, and an empty or `FormData` body removes both so the platform can derive the right headers.
 
+### Request compression and native connections
+
+`compressBody("gzip" | "deflate", { minSize? })` is an effectful request transform using global `CompressionStream`. The default threshold is 1024 known bytes; unknown-length streams are always compressed. It preserves content type, updates byte-body content length, and removes stream content length. Empty, FormData, raw, below-threshold, and already encoded bodies (even `identity`) are unchanged. Byte-compression failures are defects, not a new typed error channel; stream failures surface while sending.
+
+```ts
+import { HttpClientRequest } from "effect/http"
+
+export const compressed = HttpClientRequest.post("https://api.example.com/import").pipe(
+  HttpClientRequest.bodyText("employee_id,salary\n".repeat(200)),
+  HttpClientRequest.compressBody("gzip")
+)
+```
+
+For client-wide compression use `HttpClient.mapRequestEffect(HttpClientRequest.compressBody("gzip"))`. Retry preprocessing recompresses each attempt: compress a large replayable body once before `execute` instead. Compression does not make a one-shot stream replayable. Fetch streaming uploads still need runtime support for `duplex: "half"`; Safari/Firefox support must not be assumed.
+
+`NodeHttpClient.makeDispatcherOptions` / `layerDispatcherOptions` accept typed Undici agent options: `connect: { socketPath }` for Unix sockets (or Windows named pipes), and `connect: { ca, cert, key, servername, rejectUnauthorized }` for TLS/mTLS. The scoped dispatcher is destroyed on release. URL origin still supplies the Host header/path for Unix connections. This is native-transport configuration, not portable Fetch behavior. Per-request Undici timeouts override agent header/body timeouts; use `Effect.timeout` for application budgets. Never disable certificate verification as a routine fix for a connection error.
+
 **Reach for it when** a request needs more than a URL, or when you want a reusable request transform.
 
 ## HttpClientResponse
@@ -268,7 +287,7 @@ Use `updateHeaders(f)` for a whole-map immutable transform and `removeHeader(nam
 
 Typed wrapper around a raw response, plus decoders. `schemaBodyJson(schema)` reads the body, parses JSON, and validates against a Schema in one effectful step. Transport/body-read/JSON failures are `HttpClientError`; a value that parses as JSON but violates the schema is `SchemaError`. `schemaJson` (decode status + headers + body together) has the same union. Also: `filterStatusOk`/`filterStatus`, `matchStatus` (branch on status code), and `stream` for incremental consumption.
 
-`response.url` is the resolved request URL including query parameters and excluding the hash; after redirects it is the *final* URL, and it is an empty string when the platform cannot tell. Log it, or compare its origin with the one you asked for, when redirects are allowed.
+`response.url` is the resolved request URL including query parameters and excluding the hash; after redirects it is the *final* URL, and it is an empty string when the platform cannot tell. Compare its origin with the one you asked for when redirects are allowed; use `UrlParams.redactUrl(response.url)` before logging it rather than leaking signed query parameters or credentials ([URL redaction](./http-server#url-credentials-and-query-redaction)).
 
 Every decoder takes parse options as a second argument — `schemaBodyJson(schema, options)`, and `schemaJson` and `schemaNoBody` honor them too — so `{ onExcessProperty: "error" }` makes an unexpected upstream field a `SchemaError` instead of a silent drop, and `{ errors: "all" }` reports every issue. The JSON decoders also accept `reviver`, passed to `JSON.parse`, for upstreams that need one (for example, reading large integers from the source text).
 

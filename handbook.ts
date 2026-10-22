@@ -22,6 +22,7 @@ const pageDescriptions = {
   "interfaces/http-client.md": "Typed HTTP clients, requests, responses, middleware, retries, cookies, tracing, and platform layers.",
   "interfaces/http-server.md": "HTTP servers, routers, incoming messages, multipart handling, static files, and host integrations.",
   "interfaces/http-api.md": "Contract-first HTTP APIs, endpoints, schemas, handlers, middleware, clients, OpenAPI, and security.",
+  "interfaces/graphql.md": "Experimental typed GraphQL operations, clients, middleware, transports, resolvers, partial results, pagination, and code generation.",
   "interfaces/rpc.md": "Typed RPC requests, routers, clients, transports, serialization, streaming, and middleware.",
   "interfaces/sql.md": "SQL clients, schemas, resolvers, models, migrations, transactions, streams, and provider adapters.",
   "interfaces/platform-runtime-hosts.md": "Node, Bun, Deno, browser, Cloudflare, filesystem, path, terminal, worker, and runtime services.",
@@ -96,11 +97,11 @@ const pageRelated = Object.freeze({
 
 export const handbookRelease = Object.freeze({
   package: "effect",
-  version: "4.0.2",
-  tag: "effect@4.0.2",
-  commit: "269a7c864351231d42e6e95b7fa8f32050df3691",
-  publishedAt: "2026-10-07T18:21:31.965Z",
-  auditedAt: "2026-10-09"
+  version: "4.0.5",
+  tag: "effect@4.0.5",
+  commit: "7f524e25cfb49a71ac39b0f44278d08d40dda5de",
+  publishedAt: "2026-10-15T01:27:07.583Z",
+  auditedAt: "2026-10-22"
 })
 
 function upstreamUrl(kind: "blob" | "tree", pathname: string): string {
@@ -199,6 +200,7 @@ export const handbookGroups = [
       page("HTTP Client", "interfaces/http-client.md"),
       page("HTTP Server", "interfaces/http-server.md"),
       page("HttpApi", "interfaces/http-api.md"),
+      page("GraphQL", "interfaces/graphql.md"),
       page("RPC", "interfaces/rpc.md"),
       page("SQL", "interfaces/sql.md"),
       page("Platform & Runtime Hosts", "interfaces/platform-runtime-hosts.md")
@@ -323,6 +325,7 @@ export const agentBundles = [
     "interfaces/http-client.md",
     "interfaces/http-server.md",
     "interfaces/http-api.md",
+    "interfaces/graphql.md",
     "interfaces/rpc.md",
     "interfaces/platform-runtime-hosts.md",
     "systems/reactivity-atom.md",

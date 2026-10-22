@@ -2,7 +2,7 @@
 
 Most incorrect Effect code uses a real primitive for the wrong job. Choose first by semantics—absence, failure, coordination, ownership, durability, or distribution—and only then by API convenience.
 
-The tables below describe Effect `4.0.2`. “In-process” means that a restart loses the state unless the program explicitly writes it to a durable subsystem. `Scope` in the requirements column means that acquisition or borrowing is tied to structured cleanup. Every table ends with a **Details** line that names the section owning the full explanation; this page only decides. Official guide links track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
+The tables below describe Effect `4.0.5`. “In-process” means that a restart loses the state unless the program explicitly writes it to a durable subsystem. `Scope` in the requirements column means that acquisition or borrowing is tied to structured cleanup. Every table ends with a **Details** line that names the section owning the full explanation; this page only decides. Official guide links track Effect's `main` branch rather than the tagged `4.0.5` release, so where they differ, this page and the tagged source win.
 
 ## Boundary rules before primitives
 
@@ -34,7 +34,7 @@ Choose the constructor by how the wrapped JavaScript reports failure and when it
 | A Promise that is not expected to reject | `Effect.promise((signal) => ...)` | a defect | the call touches a network, disk, or SDK; `Effect.promise(() => fetch(url))` moves every outage out of `E` |
 | A one-shot callback API | `Effect.callback<A, E>((resume, signal) => ...)` | whatever is passed to `resume`; only the first call counts | the source emits many values; use a `Queue` or `Stream.callback` |
 | Building the next effect is itself work | `Effect.suspend(() => effect)` | a defect if the thunk throws | a plain conditional inside `Effect.gen` already defers it |
-| An `Option`, `Result`, or nullable value | `Effect.fromOption`, `Effect.fromResult`, `Effect.fromNullishOr` | not applicable | you expected `yield*` to accept the `Option` or `Result` directly; it does not in `4.0.2` |
+| An `Option`, `Result`, or nullable value | `Effect.fromOption`, `Effect.fromResult`, `Effect.fromNullishOr` | not applicable | you expected `yield*` to accept the `Option` or `Result` directly; it does not in `4.0.5` |
 
 Details: [Creating effects](../foundations/core-runtime-execution#1-creating-effects), [Cancellable adapters for promises and callbacks](../foundations/core-runtime-execution#8-cancellable-adapters-for-promises-and-callbacks).
 
@@ -52,7 +52,7 @@ Choose the runner by the outcome contract the host needs. Reusable code — serv
 | Platform `runMain` | `void` | a logged error and a process exit code | the process entry point, once | inside application code |
 | `ManagedRuntime` | the same family as methods | as above | a non-Effect host calls in repeatedly against one Layer graph | one runtime per request, or disposing without draining first |
 
-Every runner except `runSync` / `runSyncExit` accepts `{ signal }`, which turns a host abort into interruption. Details: [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge), [ManagedRuntime](../foundations/fibers-scopes-runtimes#managedruntime), [Bridge into a host that is not Effect](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#bridge-into-a-host-that-is-not-effect).
+The `Effect.run*` and `ManagedRuntime` runners except `runSync` / `runSyncExit` accept `{ signal }`, which turns a host abort into interruption. Platform `runMain` owns process signal handling instead. Details: [Running effects at an owned edge](../foundations/core-runtime-execution#11-running-effects-at-an-owned-edge), [ManagedRuntime](../foundations/fibers-scopes-runtimes#managedruntime), [Bridge into a host that is not Effect](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown#bridge-into-a-host-that-is-not-effect).
 
 ## Option vs Result vs Effect
 
@@ -274,7 +274,7 @@ Pull-based back-pressure bounds a pipeline only if every stage is bounded. Detai
 
 ## HttpClient vs HttpRouter vs HttpApi vs RPC
 
-These modules are `@stability unstable` in `4.0.2`; pin all Effect packages to exactly the same release.
+These modules are `@stability unstable` in `4.0.5`; pin all Effect packages to exactly the same release. The adjacent [GraphQL](../interfaces/graphql) family is **experimental**, so it can change even in a patch release.
 
 | Primitive | Error and requirements | Scope, lifetime, and backpressure | Durability and distribution | Choose it when | Avoid it when |
 | --- | --- | --- | --- | --- | --- |
@@ -284,6 +284,12 @@ These modules are `@stability unstable` in `4.0.2`; pin all Effect packages to e
 | `RPC` | Each request has payload, success, and error Schemas; routers/middleware/transports add services and transport errors. | Typed request/response and streaming procedures over HTTP, sockets, workers, or in-memory transports. | Distributed transport, not durable by default. | Services share a typed procedure contract and may need streaming or multiple transports. | Public REST/OpenAPI compatibility matters, or calls must survive outages/restarts as workflows. |
 
 Details: [Three failure classes](../interfaces/http-client#three-failure-classes), [Status mapping is part of the contract](../interfaces/http-api#status-mapping-is-part-of-the-contract), [Evolving a contract](../interfaces/rpc#evolving-a-contract), [Keep six failure categories distinguishable](../interfaces/rpc#keep-six-failure-categories-distinguishable).
+
+### When the remote contract is GraphQL
+
+Use `GraphQL` operations, `GraphQLGroup`, and `GraphQLClient` when an existing endpoint speaks GraphQL. `GraphQLProtocol` selects HTTP, SSE, or WebSocket transport; `GraphQLResolver` batches lookups by operation and resolved URL. This is a **client** abstraction, not a GraphQL server or an alternative way to derive OpenAPI. Choose a partial-result mode deliberately: GraphQL can return useful `data` together with errors, unlike a simple success/failure HTTP decoder. Use `@effect/graphql-generator` when operations and schemas should be generated from `.graphql` documents rather than authored by hand.
+
+Details: [GraphQL](../interfaces/graphql).
 
 ## Retry vs repeat vs polling vs Workflow
 
@@ -318,6 +324,7 @@ Pick the tool by the claim you need to prove; each is evidence for that claim an
 | A delay, timeout, retry spacing, or TTL behaves as specified | `TestClock` inside `it.effect`: fork, adjust, join | that a real driver or OS timer honors the same timing |
 | Orchestration, typed failures, interruption, cleanup | `it.effect` plus replacement Layers; assert on `Exit` | the real adapter's behavior |
 | `Console.*` output / `Effect.log*` records | `TestConsole` / a capturing test `Logger` | each other |
+| Reproducible crypto-service random bytes and UUIDs | `TestCrypto` over a platform `Crypto` layer | cryptographic security of the seeded test generator; `Random` operations use a separate seed |
 | A rule holds for every valid input | `Arbitrary.schema` via `it.effect.prop` | rejection of malformed wire input; generated values are already valid |
 | A codec decodes, encodes, and round-trips | `TestSchema` | cross-field rules the schema does not state |
 | HTTP or RPC contract, routing, middleware, status mapping | `HttpApiTest.groups`, `RpcTest.makeClient` | sockets, malformed wire input, and for `RpcTest` serialization |
@@ -336,7 +343,8 @@ A platform Layer says how a capability is implemented; the host decides who owns
 | --- | --- | --- | --- | --- |
 | Node / Bun / Deno process | one platform `runMain` at the root; the launched Layer's scope owns everything | SIGINT and SIGTERM interrupt the main fiber; finalizers run before exit | surviving SIGKILL or an expired grace period | `process.exit()` in application code |
 | Web-standard handler (serverless, edge) | `HttpRouter.toWebHandler` returns `{ handler, dispose }`; module scope owns the Layer, each request its own scope | `request.signal` interrupts the request fiber | that `dispose` is ever awaited, or that work continues after the response | `node:*` assumptions; work scheduled past the response |
-| Foreign framework callback (Express, Hono, UI, plugin API) | one `ManagedRuntime`, created and warmed at boot, disposed by the host's shutdown hook | nothing, unless you forward the host's `AbortSignal` with `{ signal }` and stop admission yourself | a drain: `dispose()` interrupts running fibers while the Layer scope closes | a runtime per request |
+| Request-scoped MCP on a serverless host | `McpServer.layerHttpRequestScoped`; each POST owns its server | the request ending closes its server scope | sessions, subscriptions, or background work past the request | using long-lived `layerHttp` fibers in a request-bound host |
+| Foreign framework callback (Express, Hono, UI, plugin API) | one `ManagedRuntime`, created and warmed at boot, disposed by the host's shutdown hook | nothing, unless you forward the host's `AbortSignal` with `{ signal }` and stop admission yourself | a drain: `dispose()` interrupts managed fibers and awaits cleanup before releasing the Layer, rather than letting requests finish normally | a runtime per request |
 | Browser page | `BrowserRuntime.runMain` | a non-persisted `pagehide` | completion of asynchronous finalizers or network flushes | relying on a final flush |
 | Worker thread or child process | the parent's scope around the worker; the worker side runs a `WorkerRunner` | the parent scope closing | worker-side cleanup longer than the adapter's grace period | unscoped spawns |
 | CLI | `Command.run` handed to the platform `runMain` | as a process | — | a second runner inside a command handler |

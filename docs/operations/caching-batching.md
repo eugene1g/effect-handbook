@@ -2,9 +2,9 @@
 
 Caching avoids repeating the same lookup result; batching combines many logically independent requests into fewer physical calls. `Cache` stores both successful and failed lookup `Exit` values, while `ScopedCache` owns resource lifetimes. `Request` and `RequestResolver` describe data fetching so Effect can deduplicate and batch it safely.
 
-> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/05_batching) builds a batched `RequestResolver`.
+> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/05_batching) builds a batched `RequestResolver`.
 
-> **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option `Effect.forEach` does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These guides track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option `Effect.forEach` does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These guides track Effect's `main` branch rather than the tagged `4.0.5` release, so where they differ, this page and the tagged source win.
 
 ## Which problem do you have?
 
@@ -607,7 +607,7 @@ export const CompSummaryResolver = RequestResolver.makeGrouped<GetCompSummary, s
 | Combinator | Effect |
 | --- | --- |
 | `RequestResolver.make(runAll)` | Batched resolver: `runAll(entries, key)` answers a non-empty batch. Default window: one `Effect.yieldNow`. |
-| `RequestResolver.makeGrouped({ key, resolver })` | Like `make`, with a grouping key computed from each *entry*: `key: (entry) => K`, `resolver: (entries, key) => …`. **The key decides what may share a round trip** — a constant key puts every request in one batch, while keying by tenant, shard, or data source batches within each group and never mixes requests bound for different backends. Keys are compared with `Equal`; keep their domain small and bounded, because the resolver remembers each distinct key it has seen. `RequestResolver.grouped(f)` adds the same grouping to an existing resolver. |
+| `RequestResolver.makeGrouped({ key, resolver })` | Like `make`, with a grouping key computed from each *entry*: `key: (entry) => K`, `resolver: (entries, key) => …`. **The key decides what may share a round trip** — a constant key puts every request in one batch, while keying by tenant, shard, or data source batches within each group and never mixes requests bound for different backends. Keys are compared with `Equal` in the pending batch map and released as soon as their batch stops pending, including after interruption; the resolver does not retain every historical key. `RequestResolver.grouped(f)` adds the same grouping to an existing resolver. |
 | `RequestResolver.fromEffect(f)` | No batch endpoint: `f(entry)` runs once per entry, concurrently, and its `Exit` completes that entry. You still get one call site for caching, tracing, and delay. |
 | `RequestResolver.fromEffectTagged<Req>()({ Tag: (entries) => … })` | One handler per request `_tag`; each returns an iterable of results in the same order as its entries (arrays, iterators, and generators all work). A handler's typed error, defect, or interruption completes every entry of that tag with it. This is the one positional API — prefer `make` when the backend does not guarantee order. |
 | `RequestResolver.fromFunctionBatched(f)` | Quick path: map entries to successes with a pure function; no explicit completions needed. Also positional. |

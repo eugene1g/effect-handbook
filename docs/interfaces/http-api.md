@@ -4,7 +4,7 @@ Describe the API once as data: groups of endpoints, each with Schema-typed path 
 
 > **Tip:** Keep the API *definition* (`HttpApi`, groups, endpoints, error schemas, middleware interfaces) in a module with **no server code**. The server implements handlers against it; clients derive from it. This lets a frontend import the exact same contract the backend serves, with zero server code crossing the boundary.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
+> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
 
 ![Diagram: an HttpApi request passes middleware and decoding, then the handler; invalid input is a 400, declared errors use their declared status, defects and encoding failures are 500s, and a disconnect interrupts the request fiber](/diagrams/httpapi-request-lifecycle.svg)
 
@@ -683,6 +683,8 @@ const SwaggerRoute = HttpApiSwagger.layer(Api, { path: "/docs" })
 `effect/http-api/HttpApiScalar` — unstable
 
 Same idea as Swagger, rendered with [Scalar's](https://github.com/scalar/scalar) modern API reference UI. `HttpApiScalar.layer(Api, { path: "/docs" })` bundles the Scalar script inline; `HttpApiScalar.layerCdn(Api, { path, version })` loads it from a CDN. Both serve the generated OpenAPI spec.
+
+Scalar configuration supports `authentication.preferredSecurityScheme` (a scheme name, alternatives, nested combinations, or `null`) to choose the initially selected authentication UI. It changes the explorer's preference, not the API's security requirements or the server's credential verification.
 
 ```ts
 import { HttpApiScalar } from "effect/http-api"

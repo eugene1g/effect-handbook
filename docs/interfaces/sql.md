@@ -2,7 +2,7 @@
 
 > **Note:** The query API, schema adapters, resolvers, models, and migrator live in the `effect` package itself, under `effect/sql` (tagged `@stability unstable`). They are database-agnostic. A driver package like `@effect/sql-pg` contributes one thing: a `Layer` producing the `SqlClient` service wired to a real connection pool and the correct dialect compiler. Write your service against `SqlClient`; swap the driver layer to change databases.
 
-> **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
+> **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
 
 ## Where SQL belongs in an application
 
@@ -117,6 +117,8 @@ const page = sql`select * from employees ${filter} order by id limit 20`
 
 `sql.withTransaction(effect)` runs every query in the effect on one reserved connection, inside a transaction. Success commits; failure or interruption rolls back. Nested `withTransaction` calls automatically become **savepoints** rather than a second `BEGIN`.
 
+The transaction itself can fail after the body succeeds: a failed `COMMIT` remains a typed `SqlError` when cleanup succeeds, so callers can handle it outside `withTransaction`. Drivers can run commit-failure cleanup (notably SQLite rollback for deferred constraints) before reusing the connection. If that cleanup also fails, the combined causes become defects rather than disguising a broken connection as a routine retryable failure. A successful body is not proof of a durable commit; publish events only after the transaction Effect succeeds.
+
 ```ts
 import { Effect } from "effect"
 import { SqlClient } from "effect/sql"
@@ -194,7 +196,7 @@ Transaction rules:
 - **Nested calls are savepoints, not isolation.** A failure that escapes an inner `withTransaction` rolls back to its savepoint; if you recover *around the inner call*, the outer transaction continues and commits without the inner writes — the one legitimate way to make a step optional. The helper does not prevent lost updates: pick an isolation level, `select … for update`, a version column, or a single atomic `update … set remaining = remaining - ${n}` from the invariant you need.
 - **Savepoints release once a nested transaction settles.** The PostgreSQL, PGlite, MySQL, libSQL, and Node/Bun/React Native/WASM SQLite clients release a savepoint as soon as the nested `withTransaction` succeeds or successfully rolls back, freeing PostgreSQL's transaction locks before the outer transaction completes. A custom client built with `SqlClient.makeWithTransaction` opts in with its own `releaseSavepoint` option.
 - **Retry the whole transaction, never an inner statement.** After a `DeadlockError` or `SerializationError` the database has already aborted the transaction, so retry `sql.withTransaction(unit)` as a unit, with a bounded schedule, and only when `unit` is database-only.
-- **`BEGIN` and `SAVEPOINT` failures are typed; `COMMIT` and `ROLLBACK` failures are defects.** Failing to acquire the connection, to begin, or to create a savepoint fails with `SqlError`. A failed `COMMIT` or `ROLLBACK` is converted with `Effect.orDie`: for example a `deferrable initially deferred` constraint that fires at commit arrives as a **defect** whose value is the `SqlError`. Alert on defects from `sql.transaction` spans, not only on typed failures, and inspect them with `SqlError.isSqlError`.
+- **Commit errors can be typed too.** Acquisition, `BEGIN`, and `SAVEPOINT` failures surface as `SqlError`. A failed `COMMIT` preserves its typed error if commit-failure cleanup succeeds; if cleanup fails too, the combined failures become defects. `ROLLBACK` and savepoint-release failures are defects. Observe both channels on `sql.transaction` spans, and never infer from the error channel alone that a write definitely did not commit.
 
 ### External effects after commit (outbox)
 
@@ -610,6 +612,8 @@ Loaders: `fromFileSystem(dir)` imports numbered `.js`/`.ts`/`.mjs`/`.mts` files,
 
 **Migrations are production code: append-only, tested from real snapshots, and compatible with the release that is still running.**
 
+PostgreSQL migrations-table discovery uses `to_regclass` without intentionally failing a statement, so discovery does not poison an enclosing transaction. It quotes the configured table identifier consistently, and rechecks existence if another runner wins the initial table-creation race. This does not make arbitrary migration effects idempotent: keep the ordered ledger and database transaction as the authority.
+
 | Rule | Reason |
 | --- | --- |
 | **Never edit an applied migration, and only ever add higher ids.** | The migrator applies files whose id is greater than the **latest recorded id** and compares nothing else: an edited file is silently skipped wherever it already ran, and a lower-numbered migration merged late from another branch never runs at all. |
@@ -764,6 +768,8 @@ export const CompDatabase = PgClient.layer({
 The driver checks the fields it owns (empty names, NUL bytes, reserved names, a non-UTF-8 `client_encoding`) before it opens a socket. The pool is lazy, though, so the layer still builds, and the first query fails with a `SqlError` whose reason is `ConnectionError`. That reason reports `isRetryable: true`, so a retry loop around the query spins on a configuration typo; run one query in a readiness check, and let a bounded schedule end any retry.
 
 TLS follows the URL's `sslmode` unless `ssl` is set explicitly. `sslmode=prefer` and `sslmode=allow` both try TLS first and fall back to plaintext only when the server declines the `SSLRequest`; handshake and certificate failures stay fatal. An attacker on the path can make the server appear to decline, so production connections should use `sslmode=require` or `ssl: true`.
+
+`keepAlive: Duration.Input` enables native TCP keepalive after the configured idle duration (whole-second precision, minimum one second); omission leaves it disabled. Unix sockets and custom streams are unaffected. It is **not** a query/write deadline: bound application operations with `Effect.timeout` as well.
 
 ### Native client behavior: codecs, JSON, and LISTEN
 

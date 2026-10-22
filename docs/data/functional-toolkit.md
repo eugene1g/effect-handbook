@@ -2,7 +2,7 @@
 
 Effect ships a full standard library — structural equality, comparators, branded types, pattern matching, optics, arbitrary-precision decimals, and more — all composable with each other and the rest of the ecosystem.
 
-> **Official guides:** [Pattern Matching](https://effect.website/docs/v4/code-style/pattern-matching), [Branded Types](https://effect.website/docs/v4/code-style/branded-types), [Equal](https://effect.website/docs/v4/trait/equal), [Hash](https://effect.website/docs/v4/trait/hash), [Equivalence](https://effect.website/docs/v4/behaviour/equivalence), [Order](https://effect.website/docs/v4/behaviour/order), [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal), [Dual APIs](https://effect.website/docs/v4/code-style/dual); each is linked again, with any caveat, in the section it belongs to. These track Effect's `main` branch rather than this page's tagged 4.0.2 source, so where they differ, this page and the tagged source win.
+> **Official guides:** [Pattern Matching](https://effect.website/docs/v4/code-style/pattern-matching), [Branded Types](https://effect.website/docs/v4/code-style/branded-types), [Equal](https://effect.website/docs/v4/trait/equal), [Hash](https://effect.website/docs/v4/trait/hash), [Equivalence](https://effect.website/docs/v4/behaviour/equivalence), [Order](https://effect.website/docs/v4/behaviour/order), [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal), [Dual APIs](https://effect.website/docs/v4/code-style/dual); each is linked again, with any caveat, in the section it belongs to. These track Effect's `main` branch rather than this page's tagged 4.0.5 source, so where they differ, this page and the tagged source win.
 
 ## Match
 
@@ -10,7 +10,7 @@ Effect ships a full standard library — structural equality, comparators, brand
 
 Exhaustive, composable pattern matching for TypeScript. Type-safe `switch` that narrows unions automatically, enforces case coverage, and composes through `pipe`.
 
-**Mental model.** A `Matcher` is a function under construction. Start with `Match.type<YourUnion>()` (reusable matcher) or `Match.value(someValue)` (one-shot). Add arms with `when`, `tag`, `discriminator`, etc. — each narrows the remaining union. When remaining union is `never`, seal with `exhaustive`; otherwise use `orElse` for a catch-all. Result is `(input: I) => Result`.
+**Mental model.** Start with `Match.type<YourUnion>()` (reusable matcher) or `Match.value(someValue)` (one-shot). Add arms with `when`, `tag`, `discriminator`, etc. — each narrows the remaining union. When remaining union is `never`, seal with `exhaustive`; otherwise use `orElse` for a catch-all. Closing `Match.type` or `Match.fn` produces a reusable function; closing `Match.value` produces the result for the already-supplied value.
 
 ```ts
 import { Match, pipe } from "effect"
@@ -55,6 +55,8 @@ reviewNote({ _tag: "Below", pipPlan: "Q3-improvement" })
 ```
 
 **Structural patterns.** `when` accepts any predicate or literal pattern — match by shape, not just tag:
+
+For a known object input, `Match.when`, `whenOr`, `whenAnd`, and `not` reject pattern keys absent from every input variant, catching misspelled fields at compile time. Tuple patterns match a **prefix**, not an exact array length: matching `[1]` against a variadic array narrows the first element but preserves the remaining elements' original type.
 
 ```ts
 import { Match, pipe } from "effect"
@@ -251,7 +253,7 @@ Equal.equals(emp1, emp3) // false — different id
 ### Equality pitfalls and opt-outs
 
 - **Structural is the default in Effect 4.** Plain objects, arrays, `Map`, `Set`, `Date`, and instances of ordinary classes all compare by content, and `NaN` equals `NaN`. `Data` classes are about ergonomics — constructors, tags, yieldable errors — not about obtaining value equality. The comparison looks at keys and values, not at the constructor: prototype keys such as methods take part, so two instances of one class are equal when their fields are, while an instance with methods is not equal to a bare literal carrying the same fields. If exactly one operand implements `Equal`, the result is `false`.
-- **Every enumerable field counts.** An incidental field such as a request id or a fetched-at timestamp makes two records of the same entity unequal. When identity is a subset of the shape, implement `[Equal.symbol]` and `[Hash.symbol]` over the identifying fields only, as `Employee` does above.
+- **Hidden own fields count too.** Default record equality compares own string and symbol keys, including non-enumerable ones. An incidental field such as a request id or a fetched-at timestamp makes two records of the same entity unequal. When identity is a subset of the shape, implement `[Equal.symbol]` and `[Hash.symbol]` over the identifying fields only, as `Employee` does above.
 - **Native collections ignore `Equal`.** `new Set([{ id: "e1" }, { id: "e1" }]).size` is `2`; only Effect's hash collections ([HashMap](./data-structures#hashmap), [HashSet](./data-structures#hashset)) dedupe structurally.
 - **Compared values must stay frozen.** Hashes are cached per object and comparison results per object pair, so mutating a value after its first comparison or first use as a key leaves stale answers behind. Build a new value instead.
 - **Opting out.** `Equal.byReference(obj)` returns a proxy that compares by identity and leaves `obj` untouched; `Equal.byReferenceUnsafe(obj)` marks `obj` itself, permanently and without a proxy.
@@ -504,7 +506,7 @@ Failures surface as `Brand.BrandError`: a tagged, error-like value that wraps a 
 
 Use to prevent primitive confusion — mixing `EmployeeId` with `DepartmentId`, salary cents with share counts, validated with raw strings — without wrapper classes at runtime.
 
-Official guides: [Branded Types](https://effect.website/docs/v4/code-style/branded-types) (its illustrative `Brand` declaration uses a symbol key; in 4.0.2 brand keys are strings), [Schema branded types](https://effect.website/docs/v4/schema/advanced-usage).
+Official guides: [Branded Types](https://effect.website/docs/v4/code-style/branded-types) (its illustrative `Brand` declaration uses a symbol key; in 4.0.5 brand keys are strings), [Schema branded types](https://effect.website/docs/v4/schema/advanced-usage).
 
 ## Optic
 
@@ -675,7 +677,7 @@ Use for runtime type narrowing, building eligibility predicates, or passing guar
 
 Arbitrary-precision decimal arithmetic based on a `bigint` significand and integer scale. No floating-point rounding errors — `0.1 + 0.2 === 0.3` in BigDecimal.
 
-**Mental model.** A `BigDecimal` is `value / 10^scale` where both are exact integers. All arithmetic preserves precision; division returns `Option<BigDecimal>` (use `divideUnsafe` if known non-zero). Parse from strings, format back to strings — never go through IEEE 754.
+**Mental model.** A `BigDecimal` is `value / 10^scale` where both are exact integers. Addition and multiplication are exact within representable scales; division uses default precision 100 and rounds the terminal digit, so non-terminating quotients are approximate. Division returns `Option<BigDecimal>` (use `divideUnsafe` if known non-zero). Parse from strings, format back to strings — never go through IEEE 754.
 
 ```ts
 import { BigDecimal, pipe } from "effect"
@@ -734,7 +736,7 @@ const perShare = BigDecimal.divide(
 | A `bigint` | `BigDecimal.fromBigInt(5000n)` | Scale 0 |
 | A `number` | `BigDecimal.fromNumber(n)` / `fromNumberUnsafe(n)` | `Option` / throws for `NaN` and infinities. The float may already be imprecise — prefer text or minor units for money |
 
-**Scale, `normalize`, and display.** The same number has many `(value, scale)` representations: multiplication *adds* the operands' scales (`120000.00 × 0.04` has scale 4) and addition keeps the larger one. `BigDecimal.normalize` strips trailing zeros, and `BigDecimal.format` normalizes before rendering — so `format` **never pads**: `124800.00` prints as `"124800"` and `123.50` as `"123.5"`. Round with `BigDecimal.round` for arithmetic, and pad to the currency's minor units yourself when rendering money. Non-terminating quotients are cut off at 100 digits, and `format` switches to scientific notation once the normalized scale reaches 16, so `1 / 3` prints as `3.333…e-1`; round a quotient to the scale you actually need (`BigDecimal.round(q, { scale: 4 })` formats as `"0.3333"`).
+**Scale, `normalize`, and display.** The same number has many `(value, scale)` representations: multiplication *adds* the operands' scales (`120000.00 × 0.04` has scale 4) and addition keeps the larger one. `BigDecimal.normalize` strips trailing zeros, and `BigDecimal.format` normalizes before rendering — so `format` **never pads**: `124800.00` prints as `"124800"` and `123.50` as `"123.5"`. Round with `BigDecimal.round` for arithmetic, and pad to the currency's minor units yourself when rendering money. Non-terminating quotients are rounded at precision 100, and `format` switches to scientific notation once the normalized scale reaches 16, so `1 / 3` prints as `3.333…e-1`; round a quotient to the scale you actually need (`BigDecimal.round(q, { scale: 4 })` formats as `"0.3333"`).
 
 ```ts
 import { BigDecimal, Option } from "effect"
@@ -757,7 +759,7 @@ Key APIs: make / fromString / fromStringUnsafe / fromBigInt / fromNumber / fromN
 
 Use for any financial or compensation calculation where floating-point rounding is unacceptable.
 
-Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are stale names; 4.0.2 uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
+Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are stale names; 4.0.5 uses `fromStringUnsafe` / `fromNumberUnsafe` and adds the safe `fromNumber`).
 
 ## ByteSize
 
@@ -949,7 +951,7 @@ pipe(120_000, applyMerit(0.04))       // 124_800
 
 Use for `pipe` or `flow` (everyday use), or when building dual-mode utility functions for your own library.
 
-Official guides: [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it states that `Option` and `Result` can be yielded inside `Effect.gen`; in 4.0.2 they cannot — convert with `Effect.fromOption` / `Effect.fromResult`), [Dual APIs](https://effect.website/docs/v4/code-style/dual).
+Official guides: [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it states that `Option` and `Result` can be yielded inside `Effect.gen`; in 4.0.5 they cannot — convert with `Effect.fromOption` / `Effect.fromResult`), [Dual APIs](https://effect.website/docs/v4/code-style/dual).
 
 ## Number
 
@@ -973,6 +975,8 @@ N.clamp({ minimum: 90_000, maximum: 160_000 })(185_000)  // 160_000
 `effect/String` — stable
 
 Comprehensive, pipeable string API. Re-exports the global `String` constructor plus safe wrappers for common string operations. Notable additions over plain JS: `String.indexOf`/`lastIndexOf` return `Option`, `String.stripMargin` cleans multiline template literals, full case-conversion helpers (`camelCase`, `pascalCase`, `snakeToCamel`, `constantCase`, etc.).
+
+`snakeToCamel` and `snakeToPascal` drop a trailing underscore rather than throwing; an input made only of an even number of underscores becomes `""`. `noCase` returns `""` without invoking a custom `transform` when the input contains no words (such as `""` or `"---"`). These are case-conversion utilities, not identifier validators.
 
 ```ts
 import { String as S, pipe } from "effect"
@@ -1033,7 +1037,7 @@ BI.toNumber(totalGranted)      // Option.some(50000)
 
 `effect/Pipeable` — stable
 
-The mixin that gives any object a `.pipe(...)` method, enabling `value.pipe(f, g, h)` fluent style. All Effect data types implement this. Extend `Pipeable.Class` or mix in `Pipeable.Mixin(Base)` to add `.pipe` to your own types. `Pipeable.pipeArguments` is the internal dispatch used by the `.pipe` implementation.
+The mixin that gives an object a `.pipe(...)` method, enabling `value.pipe(f, g, h)` fluent style. Many object-based Effect types implement this; primitive brands such as `ByteSize` are plain bigints and use module functions or `pipe(value, ...)`. Extend `Pipeable.Class` or mix in `Pipeable.Mixin(Base)` to add `.pipe` to your own types. `Pipeable.pipeArguments` is the internal dispatch used by the `.pipe` implementation.
 
 ```ts
 import { Pipeable } from "effect"
@@ -1059,7 +1063,7 @@ new SalaryBand(90_000, 120_000, 150_000)
 
 `effect/Symbol` — stable
 
-Re-exports the global `Symbol` constructor and provides `Symbol.isSymbol` (type guard), consistent with `Predicate.isSymbol`. Exists for import from `"effect"` without colliding with the JS global in tree-shaking-aware builds.
+Provides `Symbol.isSymbol` (type guard), consistent with `Predicate.isSymbol`. It does not re-export a constructor alias; use `globalThis.Symbol` to construct symbols when the imported namespace shadows the global name.
 
 ## RegExp
 

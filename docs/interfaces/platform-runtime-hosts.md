@@ -28,7 +28,7 @@ The service covers the whole `node:fs` surface, so reaching for raw `node:fs` co
 | Temporary paths | `makeTempDirectory`, `makeTempFile`, and the `…Scoped` variants that delete on scope close |
 | Change notification | `watch` |
 
-**Sizes are `ByteSize` values.** `File.Info.size` is a stable [`ByteSize.ByteSize`](../data/functional-toolkit#bytesize) — an exact non-negative `bigint` brand — so compare it with `ByteSize.isGreaterThan` and friends rather than with `>`; there is no separate `FileSystem.Size` brand or `KiB` / `MiB` / `GiB` / `TiB` / `PiB` family on `FileSystem`. `stream`'s `offset` and `bytesToRead` accept any `ByteSize.Input`; `chunkSize` and `truncate`'s `length` are plain `number`s. Optional numeric `stat` metadata that exceeds the safe-integer range is reported as `Option.none()` instead of failing the whole call. The same exact-arithmetic treatment reaches HTTP file responses: [`HttpPlatform`](./http-server#httpplatform) clamps a requested range to the file's size, so `Content-Length` always matches the bytes actually sent.
+**Sizes are `ByteSize` values.** `File.Info.size` is a stable [`ByteSize.ByteSize`](../data/functional-toolkit#bytesize) — an exact non-negative `bigint` brand — so compare it with `ByteSize.isGreaterThan` and friends rather than with `>`; there is no separate `FileSystem.Size` brand or `KiB` / `MiB` / `GiB` / `TiB` / `PiB` family on `FileSystem`. `stream`'s `offset` and `bytesToRead` accept any `ByteSize.Input`; `chunkSize` and `truncate`'s `length` are plain `number`s. The 64-bit `stat` metadata uses exact arithmetic: `dev` is `bigint`, while `ino`, `rdev`, and `blocks` use `Option<bigint>`; unavailable optional metadata remains `Option.none()`. The same exact-arithmetic treatment reaches HTTP file responses: [`HttpPlatform`](./http-server#httpplatform) clamps a requested range to the file's size, so `Content-Length` always matches the bytes actually sent.
 
 ```ts
 import { ByteSize, FileSystem } from "effect"
@@ -75,7 +75,7 @@ const program = loadCompBands.pipe(
 )
 ```
 
-`fs.watch(path)` returns a `Stream<WatchEvent>` whose tags are `Create`, `Update`, and `Remove`. Watching is host-dependent and may fail with `PlatformError`; a platform layer supplies the `FileSystem.WatchBackend`.
+`fs.watch(path)` returns a `Stream<WatchEvent>` whose tags are `Create`, `Update`, and `Remove`. Watching is host-dependent and may fail with `PlatformError`. A caller-provided `FileSystem.WatchBackend` is honored at the watch call, so provide it around consumption rather than assuming the backend was captured when the filesystem layer was built. `open` supports `noFollow`, and handle reads accept explicit positions without advancing the implicit cursor.
 
 When to use: any filesystem I/O in an Effect program. Use `FileSystem.layerNoop` to stub in unit tests.
 
@@ -134,6 +134,8 @@ const buildExportPath = Effect.fn("buildExportPath")(
 ```
 
 `fromFileUrl` and `toFileUrl` are effectful because malformed or unsupported URLs fail with `PlatformError.BadArgument`; use them instead of slicing `file:` strings by hand.
+
+`resolveWithin(root, input)` returns `Option<string>` after checking containment using the implementation's path semantics, unlike a raw prefix check; rooted inputs and escapes return `None`. It is a lexical boundary, not protection against symlinks or filesystem races: combine it with an appropriate file-opening policy for untrusted paths.
 
 When to use: building or decomposing file paths inside an Effect. Inject via service rather than calling `path.join` directly so tests can control path logic.
 
@@ -202,7 +204,7 @@ Official guide: [Terminal](https://effect.website/docs/v4/platform/terminal).
 
 `effect/Stdio` — unstable
 
-Lower-level counterpart to `Terminal`: `process.argv` via `args`, write `Sink`s for stdout and stderr (accepting `string | Uint8Array`), raw byte `Stream` for stdin, and `stdinIsTerminal` / `stdoutIsTerminal` effects for adapting output to pipes versus TTYs. I/O can fail with `PlatformError`. `Stdio.layerTest` lets you stub any field for unit testing.
+Lower-level counterpart to `Terminal`: `process.argv` via `args`, write `Sink`s for stdout and stderr (accepting `string | Uint8Array`), raw byte `Stream` for stdin, and `stdinIsTerminal` / `stdoutIsTerminal` / `stderrIsTerminal` effects for adapting output to pipes versus TTYs. I/O can fail with `PlatformError`. `Stdio.layerTest` lets you stub any field for unit testing.
 
 Mental model: where `Terminal` is for interactive programs, `Stdio` is for pipeable Unix-filter style tools — read stdin, write stdout, parse argv.
 
@@ -251,7 +253,7 @@ const hashNationalId = Effect.fn("hashNationalId")(
     const crypto = yield* Crypto.Crypto
 
     // Stable time-ordered UUID for the ledger entry PK
-    const grantId = yield* crypto.randomUUIDv7
+    const grantId = yield* crypto.randomUUIDv7()
 
     // SHA-256 hash of the national ID for pseudonymous cross-referencing
     const encoder = new TextEncoder()
@@ -269,6 +271,8 @@ const program = hashNationalId("emp-001", "123-45-6789").pipe(
 ```
 
 `crypto.randomULID` returns a 26-character, uppercase Crockford base32 ULID: 10 characters of millisecond timestamp from the current `Clock`, then 80 secure random bits. ULIDs sort by creation time across milliseconds, with no ordering within one millisecond, and because the timestamp comes from `Clock`, a `TestClock` pins the prefix in tests. Reach for it when an identifier must be time-sortable and shorter than a UUID in URLs or file names (payroll-run exports, say); `randomUUIDv7` gives the same ordering in a `uuid` column.
+
+`randomUUIDv4()` and `randomUUIDv7()` are functions returning Effects, not Effect-valued properties. Their default `format: "hex"` returns the conventional UUID string; `{ format: "bytes" }` returns 16 bytes. `randomULID` remains an Effect-valued property.
 
 When to use: secure randomness, UUIDs, or hashing inside an Effect with testable, non-global injection.
 
@@ -322,6 +326,8 @@ const triggerPayrollSync = Effect.gen(function*() {
 ```
 
 For combinator-style consumption, `Socket.toStream(socket)` is a read-only binary `Stream` backed by the same pull, and `Socket.toChannel` / `Socket.toChannelString` expose the duplex connection as a `Channel`. All three fail on close for the same reason `pull` does.
+
+Client-side TLS upgrades also accept `servername` for SNI/certificate-name selection independently of the numeric connection address. Keep verification enabled and use the intended peer name; a successful TCP connection alone authenticates nothing.
 
 When to use: typed Effect-native TCP or WebSocket communication over a persistent connection.
 
@@ -434,7 +440,70 @@ if (Result.isSuccess(relay)) {
 
 `Schema` ships matching codecs — `Schema.IpAddressFromString`, `Schema.InetAddressFromString`, `Schema.MacAddressFromString`, `Schema.SocketAddress`, and the v4/v6-specific variants — so a config value or request field decodes straight to an address. A server address has no `hostname` string field; read `NetAddress.formatIp(address.address)` instead, and use `address.path` for Unix sockets. Bun and Deno HTTP server layers can fail with `ServeError` when the listener address cannot be converted.
 
+The `*FromInput` constructors normalize supported strings, address values, octets/segments, bytes, or parts objects to their corresponding address kind; `IpNetwork.fromInput` and `IpInterface.fromInput` provide the same boundary convenience for networks/interfaces. Each accepts its own declared input union, not arbitrary JSON. Checked forms return `Result`; keep Unsafe variants at trusted boundaries.
+
 When to use: any time an address crosses a boundary — config, request data, allow/deny lists, logging a bound listener — and whenever address equality or classification matters.
+
+## Host
+
+`effect/net/Host` — experimental
+
+Pure values for DNS domain names, numeric hosts (including scoped IPv6), and host/port endpoints. Checked `domainNameFromString`, `hostFromString`, and `hostPortFromString` return `Result`s with `NetAddressError`; `*Unsafe` forms are for trusted literals. `*FromInput` constructors accept the corresponding supported value/string/parts inputs without doing DNS. Format endpoints with `formatHostPort` so IPv6 gets brackets; bare numeric-address parsing belongs to [NetAddress](#netaddress).
+
+`toFullyQualified` adds the terminal DNS dot; `toRelative` removes it. `parseHostsFile` reads text you supply into a name-to-nonempty-addresses map, skips invalid entries and comments, and normalizes names to relative form. It does not read the OS hosts file itself. `NetAddress.loopbackAddresses` supplies typed loopback values without resolution.
+
+**Reach for it when** parsing configuration that may contain a name rather than only an IP address.
+
+## Dns
+
+`effect/net/Dns` — experimental
+
+`Dns.Dns` separates `lookup` (OS host resolution, including hosts-file/system sources), `resolve` (DNS records of a selected type), and `reverse` (names for an address). Inputs accept supported strings and typed host/address values. Records include A, AAAA, CAA, CNAME, MX, NAPTR, NS, PTR, SOA, SRV, TXT, and TLSA; record values support structural equality and hashing. A TLSA answer is DNS data, not automatic certificate verification.
+
+Failures are `DnsError`; do not collapse “lookup failed” into “this name is safe” or silently fall back to another destination. `NodeDns.layer`, `BunDns.layer`, and `DenoDns.layer` provide host adapters. A separate resolver instance can configure name servers for DNS queries; it is not a replacement for the OS lookup policy. Browsers have no equivalent raw DNS layer.
+
+`Dns.layerStatic(zone)` provides deterministic lookup/record/reverse data without network I/O; invalid zone input fails layer construction with `NetAddressError`. Use it with `AddressResolver.layer()` for portable tests, rather than replacing DNS with live public queries. Native lookups do not attach a usable interface to link-local IPv6 addresses; resolve scoped endpoints through [AddressResolver](#addressresolver) when that distinction matters.
+
+**Reach for it when** querying DNS records or resolving host names without embedding a host API in application code.
+
+## AddressResolver
+
+`effect/net/AddressResolver` — experimental
+
+`AddressResolver.AddressResolver.resolve(target, { family? })` converts a socket address or host/port input to a nonempty list of socket addresses. Numeric hosts avoid lookup; names use `Dns.lookup`. Results retain resolver order and are filtered by family; Unix-domain addresses pass through. Invalid endpoints or unsupported numeric families fail with `NetAddressError`, and lookup failures with `DnsError`.
+
+Core `AddressResolver.layer()` requires `Dns` and handles numeric IPv6 zones only. `NodeAddressResolver.layer`, `BunAddressResolver.layer`, and `DenoAddressResolver.layer` add host interface lookup for named zones. Unscoped link-local IPv6 lookup results are skipped because the resolver cannot infer their interface; a name resolving only to such addresses fails rather than returning unusable endpoints. Supply a zoned literal instead.
+
+```ts
+// Host resolution is deliberately experimental in this release.
+// @effect-diagnostics experimentalApiUsage:off
+import { Effect, Layer } from "effect"
+import { AddressResolver } from "effect/net"
+import { NodeAddressResolver, NodeDns } from "@effect/platform-node"
+
+export const endpoints = Effect.gen(function*() {
+  const resolver = yield* AddressResolver.AddressResolver
+  return yield* resolver.resolve("example.com:443", { family: "IPv4" })
+}).pipe(
+  Effect.provide(NodeAddressResolver.layer.pipe(Layer.provide(NodeDns.layer)))
+)
+```
+
+Resolution alone is not an SSRF defense. Validate every resolved candidate and the actual connected peer, consider DNS rebinding and redirects, and do not substitute string-prefix tests for address classification.
+
+**Reach for it when** turning configured endpoints into typed connection candidates while keeping DNS and interface policy explicit.
+
+## DatagramSocket
+
+`effect/socket/DatagramSocket` — experimental
+
+Pull-based UDP with scoped native handles. Acquiring `reader` opens and binds the socket; only one reader may be open, and another acquisition waits interruptibly. The scoped writer cannot fail to acquire, but writes wait until a reader is open — even send-only applications must acquire one. `reader.pull` yields a nonempty packet batch; packets retain their bytes safely. `writer.write` takes `{ payload, address? }`, where payload is text or bytes; omit the destination only for a configured/connected peer.
+
+Closing the reader scope discards queued packets and fails waiting pulls. After a terminal error, queued packets drain before subsequent pulls fail. `reader.dropped()` counts this reader's receive-buffer overflow, not kernel or network loss. UDP does not guarantee ordering, delivery, uniqueness, or application acknowledgment. `writeAll` does not resend on failure and does not identify which packet failed; bound sends with `Effect.timeout` if required.
+
+Use `NodeDatagramSocket.layer`, `BunDatagramSocket.layer`, or `DenoDatagramSocket.layer`; these and DNS/address-resolver adapters are explicit exports, **not** part of `NodeServices.layer`, `BunServices.layer`, or `DenoServices.layer`. `reader.joinMulticast` owns membership until its scope closes; the ingress interface is distinct from the adapter's multicast sending interface. Browser WebSockets are not UDP and do not provide this service.
+
+**Reach for it when** implementing datagram protocols or multicast discovery with deliberate loss and lifetime handling.
 
 ## IpNetwork
 
@@ -547,7 +616,7 @@ Typed error union for worker communication. `WorkerError` wraps one of four reas
 
 `effect/workers/Transferable` — unstable
 
-Zero-copy worker message delivery. Annotate schema fields with `Transferable.schema`; the `Transferable.Collector` service collects the backing `ArrayBuffer`, `MessagePort`, or `ImageData` buffer and passes it as the `postMessage` transfer list — no structured-clone copy. Essential for large binary payloads between parent and worker at native speed.
+Transfer-list support for worker message fields. Annotate fields with `Transferable.schema`; a `Transferable.Collector` records backing `ArrayBuffer`s, `MessagePort`s, or `ImageData` buffers for the platform's `postMessage` transfer list. The surrounding message still passes through Schema encoding and structured clone; only the transferred resources avoid copying. Transferring an ArrayBuffer detaches it from the sender, so do not retain a usable-sender-buffer assumption after sending. Without a Collector the annotation does not collect anything.
 
 ## ChildProcess
 

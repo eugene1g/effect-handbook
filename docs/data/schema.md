@@ -4,9 +4,9 @@ Effect v4 rebuilt Schema around a single `Codec` abstraction: a two-way, validat
 
 **This page covers the everyday codec work** (sections 1–9 below). [Schema in Depth](schema-in-depth) continues with annotations, serialization, recursion, parse options, optional fields, and effectful schemas; [Schema Tooling & Internals](schema-tooling) covers the AST, compilers, issues, JSON Schema, and `TestSchema`.
 
-> **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.2/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
+> **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
 >
-> **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings are stale — see the sections below); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this page's tagged 4.0.2 source, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings are stale — see the sections below); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this page's tagged 4.0.5 source, so where they differ, this page and the tagged source win.
 
 ## Schema
 
@@ -14,7 +14,7 @@ Effect v4 rebuilt Schema around a single `Codec` abstraction: a two-way, validat
 
 The core module: declare data shape and validation; get back a value that is simultaneously a type-level description (`Type` and `Encoded`), a runtime validator, a two-way codec, and a seed for derived artifacts (JSON Schema, arbitraries, equivalence, formatters).
 
-**Mental model.** A schema is a `Codec<Type, Encoded, RD, RE>`: decodes into `Type`, encodes from `Encoded`, decoding may require services `RD`, encoding may require services `RE`. Use `typeof Employee.Type` and `typeof Employee.Encoded` rather than reading the full `Schema.Struct<...>` type. When a `Schema.Schema<T>` widens and loses `Encoded`, call `Schema.revealCodec(schema)` to recover the full `Codec<T, E, RD, RE>` view.
+**Mental model.** A schema is a `Codec<Type, Encoded, RD, RE>`: decodes `Encoded` into `Type`, encodes `Type` into `Encoded`, decoding may require services `RD`, encoding may require services `RE`. Use `typeof Employee.Type` and `typeof Employee.Encoded` rather than reading the full `Schema.Struct<...>` type. `Schema.revealCodec(schema)` exposes the four inferred codec parameters of a precise schema; it cannot recover information already erased by widening to `Schema.Schema<T>`. Retain the precise type or an explicit `Codec<T, E, RD, RE>` annotation.
 
 **Prerequisites and naming.** Schema assumes `strict: true`. **Turn on `exactOptionalPropertyTypes` too**, because `Schema.optionalKey(S)` means "absent, or present as an `S`": with the flag off TypeScript accepts `{ key: undefined }` and the decoder then rejects it at runtime. Library names follow one rule worth copying for your own codecs: a bare name (`Schema.Date`, `Schema.Trimmed`) only validates, so `Encoded` equals `Type`; `TFromE` (`DateFromString`) or a verb (`Trim`) transforms. In generic code, extract types with `Schema.Schema.Type<S>`, `Schema.Codec.Encoded<S>`, `Schema.Codec.DecodingServices<S>`, and `Schema.Codec.EncodingServices<S>`.
 
@@ -68,7 +68,7 @@ Effect.runPromise(Schema.encodeUnknownEffect(SalaryFromString)(192400)).then(con
 
 Per-call behavior — excess keys, error accumulation, concurrency, rejected-input reporting — is covered in [Parse options are boundary policy](schema-in-depth#5-parse-options-are-boundary-policy).
 
-Official guide: [Getting Started](https://effect.website/docs/v4/schema/getting-started) (its `"preserve"`, `propertyOrder`, and `parseOptions`-annotation passages do not apply to 4.0.2).
+Official guide: [Getting Started](https://effect.website/docs/v4/schema/getting-started) (its `"preserve"`, `propertyOrder`, and `parseOptions`-annotation passages do not apply to 4.0.5).
 
 ### 2. Type vs Encoded — the distinction that runs everything
 
@@ -225,7 +225,7 @@ const describe = CompAction.match({ _tag: "Promotion", fromLevel: 4, toLevel: 5 
 })
 ```
 
-`TaggedUnion` and a union augmented with `Schema.toTaggedUnion(tag)` also expose `.tag` (the property key used as discriminator, e.g. `"_tag"`) and `.discriminants` (an ordered tuple of their literal tag values). Duplicate or missing discriminants are rejected while building the augmented union. The same augmentation provides `.cases` (member schema per tag), `.guards`, `.isAnyOf([...tags])`, and `.matchOrElse(value, cases, orElse)`, which handles a subset of tags and hands every remaining member — typed as the residual union — to `orElse`.
+`TaggedUnion` and a union augmented with `Schema.toTaggedUnion(tag)` also expose `.tag` (the property key used as discriminator, e.g. `"_tag"`) and `.discriminants` (an ordered tuple of their literal tag values). Duplicate or missing discriminants are rejected while building the augmented union. `toTaggedUnion` also rejects overlapping discriminants in known member tuples at compile time, including nested unions and collisions between numeric and string keys such as `1` and `"1"`. The same augmentation provides `.cases` (member schema per tag), `.guards`, `.isAnyOf([...tags])`, and `.matchOrElse(value, cases, orElse)`, which handles a subset of tags and hands every remaining member — typed as the residual union — to `orElse`.
 
 **Tagged structs.** `Schema.tag("Raise")` is a literal field with a constructor default, and `Schema.TaggedStruct("Raise", fields)` is shorthand for a struct whose `_tag` is that field. **`make` fills the tag; decoding and encoding still require it on the wire.** When the external payload has no discriminator, `Schema.tagDefaultOmit` supplies it while decoding or constructing and strips it on encode.
 
@@ -279,9 +279,11 @@ const ImportArgs = Schema.TupleWithRest(
 const PayComponents = Schema.Record(Schema.Literals(["base", "bonus"]), Schema.Finite)
 ```
 
+`StructWithRest` requires an object-shaped encoded base. Whole-object transformations (even with an empty rest list) are not supported: first complete the struct/rest schema, then apply wrappers such as `Schema.fromJsonString`. Transformations on individual fields remain supported. Object-shaped encoded types alone do not guarantee that every encoding is supported at runtime.
+
 Also available: `Schema.NonEmptyArray(item)` (infers `readonly [A, ...A[]]`), `Schema.ArrayEnsure(item)` (a single value or an array decodes to an array; a one-element array encodes back to the single value), `Schema.UniqueSymbol(sym)`, `Schema.Enum(TsEnum)` (exposes `.enums`; rejects non-finite numeric members), `Schema.JsonObject` (a string-keyed record of `Schema.Json` values — arrays and non-JSON leaves such as `Date` fail), and the primitives `BigInt`, `Symbol`, `ObjectKeyword`, `Any`, `Unknown`, `Never`, `Null`. Schema values keep their parts public — `.fields`, `.members`, `.elements`, `.rest`, `.literals`, `.key` / `.value`, `.schema` — so they can be recombined. `Schema.Literal(0)` and `Schema.Literal(-0)` each accept either signed zero and preserve the input's sign; add a transformation when a canonical sign matters.
 
-Official guide: [Basic Usage](https://effect.website/docs/v4/schema/basic-usage) (its "Transforming Keys" passage is stale: 4.0.2 records accept transformed key schemas).
+Official guide: [Basic Usage](https://effect.website/docs/v4/schema/basic-usage) (its "Transforming Keys" passage is stale: 4.0.5 records accept transformed key schemas).
 
 ### 5. Refinements — `check` and `refine`
 
@@ -323,7 +325,7 @@ const RaiseRecommendation = Schema.Struct({
 
 Prebuilt aliases cover the common combinations (`Schema.NonEmptyString`, `Schema.Int`, `Schema.Natural`, `Schema.Trimmed`). `Duration` has no dedicated family; write a `makeFilter` over `Duration` predicates.
 
-`isMinLength`/`isMaxLength`/`isBetweenLength` count UTF-16 code units; `isMinCodePoints`/`isMaxCodePoints`/`isBetweenCodePoints` count Unicode code points instead, so a string with astral characters (emoji, many CJK extension characters) is measured the way a person reading it would count. The code-unit checks still drive generated JSON Schema: `isMinLength`/`isMaxLength`/`isBetweenLength` export `minLength`/`maxLength` as an estimated code-point bound (`Math.ceil(unitsLength / 2)`) rather than the exact unit count, since JSON Schema's `minLength`/`maxLength` are defined over code points — treat the exported bound as approximate when round-tripping through JSON Schema.
+`isMinLength`/`isMaxLength`/`isBetweenLength` count UTF-16 code units; `isMinCodePoints`/`isMaxCodePoints`/`isBetweenCodePoints` count Unicode code points instead. Neither counts grapheme clusters (user-perceived characters). JSON Schema measures code points: `isMinLength(n)` exports `minLength: Math.ceil(n / 2)`, while `isMaxLength(n)` exports `maxLength: n`; `isBetweenLength(min, max)` uses those respective bounds. These are sound approximations of the UTF-16 checks, not exact replacements when round-tripping through JSON Schema.
 
 **Filter annotations, `abort`, and groups.** `Schema.makeFilter(predicate, annotations?, abort?)` receives `(input, ast, options)` and may return `undefined` / `true` (pass), `false`, a message string, `{ path, issue }`, a full `SchemaIssue.Issue`, or an array of those. Its annotations decide what every derivation sees: `expected` / `message` for error text, **`toJsonSchema` so the rule reaches generated JSON Schema and OpenAPI (a custom predicate is otherwise invisible there)**, and `arbitraryConstraint` so the native generator satisfies the rule constructively instead of by rejection. `.abort()` on a filter stops later checks from running once it fails; `Schema.makeFilterGroup([...checks], annotations)` packages a reusable set.
 
@@ -432,7 +434,7 @@ Schema.decodeUnknownSync(PageFromQueryValue)("%7B%22page%22%3A1%2C%22size%22%3A2
 
 Getters that call services or do asynchronous work are covered in [Effectful schemas and services](schema-in-depth#9-effectful-schemas-and-services).
 
-Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it still spells `transformEffect` as `transformOrFail`, and it predates `SchemaGetter.forbiddenEncoding` — this page and the tagged 4.0.2 source win).
+Official guide: [Schema Transformations](https://effect.website/docs/v4/schema/transformations) (it still spells `transformEffect` as `transformOrFail`, and it predates `SchemaGetter.forbiddenEncoding` — this page and the tagged 4.0.5 source win).
 
 ### 7. Branded schemas
 
@@ -508,6 +510,7 @@ Schema.decodeUnknownSync(GrantDefaults)({ vestingMonths: 36 }) // { vestingMonth
 - **`{ encodingStrategy }`** (all four decoding helpers) decides what encoding writes: `"passthrough"` (the default) emits the value; `"omit"` always drops the key, so a non-default value does not survive a round trip. `"omit"` suits constants — `Schema.tagDefaultOmit` is built from it.
 - **Constructor defaults never apply while decoding**, including inside `Schema.Class`: an `optionalKey` field with `withConstructorDefault(Effect.succeed([]))` decodes to an absent key and gets `[]` only through `new` / `make`. They also do not make the encoded key optional.
 - **A constructor default is re-evaluated on every `make` / `new`** (`Effect.sync(() => crypto.randomUUID())` yields fresh values), it **travels with the field** (`Schema.Struct({ id: Grant.fields.id })` inherits it), and an **outer default may be partial**: its type is the constructor *input*, so nested defaults complete it.
+- **An Effect-valued decoding default need not make decoding asynchronous.** An already-successful effect such as `Effect.succeed(value)` preserves synchronous decoding. This is not a promise that arbitrary Effects can run in a synchronous decoder: defaults needing asynchronous work or services still need an appropriate Effect runner and provided services.
 
 ```ts
 import { DateTime, Effect, Schema } from "effect"
@@ -612,4 +615,4 @@ Equal.equals(decoded, new LevelBand({ min: 150_000, max: 210_000, level: 5 })) /
 | round trip under a stated equivalence | use `Equal.equals` or `Schema.toEquivalence`, never `===` |
 | the JSON form | `JSON.stringify(instance)` is not the codec; derive `Schema.toCodecJson(Class)` |
 
-Official guide: [Class APIs](https://effect.website/docs/v4/schema/classes) (its sample output for a failing `new` shows formatted issue text; 4.0.2 throws the generic message described in [section 4 of Schema in Depth](schema-in-depth#4-construction-and-deliberate-fallbacks)).
+Official guide: [Class APIs](https://effect.website/docs/v4/schema/classes) (its sample output for a failing `new` shows formatted issue text; 4.0.5 throws the generic message described in [section 4 of Schema in Depth](schema-in-depth#4-construction-and-deliberate-fallbacks)).

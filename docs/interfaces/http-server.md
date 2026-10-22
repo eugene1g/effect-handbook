@@ -41,6 +41,8 @@ export const handler = HttpEffect.toWebHandler(app)
 
 For a layer-backed handler, retain the returned `dispose` function and await it during test/process teardown. Advanced streaming adapters use `scopeTransferToStream` so a request scope remains alive until the response body finishes; misuse can leak resources, so high-level server code should let the supplied host adapter manage it.
 
+An already-aborted Web request is interrupted immediately. Aborting after headers have returned also interrupts the transferred response-body scope, even if nobody keeps pulling the body, so its resources are released; request abort listeners are removed when the request fiber ends. This is cancellation, not rollback of work already committed.
+
 ## HttpIncomingMessage
 
 `effect/http/HttpIncomingMessage` — unstable
@@ -115,6 +117,8 @@ Request router expressed as Layers. `HttpRouter.add(method, path, handler)` prod
 The method is `"*"` or one of `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, and `QUERY` — the safe, idempotent HTTP method that carries its query in the request body (read it with `request.json` or a schema body decoder, as for `POST`). `HttpRouter.route` accepts any `HttpMethod`.
 
 `HttpRouter.addAll(routes, { prefix: "/internal" })` mounts a batch under a prefix. Inside a prefixed route `request.url` has the prefix removed (`request.originalUrl` keeps it), and `router.prefixed("/v1").prefixed("/comp")` nests outer-first, serving `/v1/comp/...`.
+
+Prefix removal counts matched URL segments, including parameterized prefixes, rather than slicing by the pattern's character length. Slash normalization preserves the query string. Prefer `HttpRouter.params` and `ParsedSearchParams` over reparsing `request.url` with assumptions about the original mount path.
 
 For typed route middleware, `HttpRouter.middleware` tracks services it provides, errors it handles, errors it may add, and requirements that remain. Its `.layer` supplies both provided request services and handlers for the declared `handles` errors. Global middleware errors remain visible in the error channel returned by `HttpRouter.toHttpEffect`; they are not silently erased.
 
@@ -298,6 +302,8 @@ Response builder. Constructors: `text`, `json`, `html`/`htmlStream`, `uint8Array
 
 `setBody` keeps `content-type` and `content-length` aligned with the replacement body and removes stale values when it has no corresponding metadata. Because pipes apply in order, put an explicit `setHeader` after the body constructor when that header must override body-derived metadata.
 
+For a raw Web `Response`, `toWeb` returns it unchanged when there are no outer headers/cookies to merge. Otherwise it merges into a copy, so immutable headers (such as a fetched response's) work and the original response is not mutated. Outer headers replace matching native headers; cookies append. Its optional `signal` interrupts Effect-backed stream bodies on abort.
+
 ```ts
 import { Effect } from "effect"
 import { HttpServerResponse } from "effect/http"
@@ -328,6 +334,14 @@ const employeeResponse = HttpServerResponse.schemaJson(Employee)({ id: 1, name: 
 `effect/http/HttpMiddleware` — unstable
 
 Middleware as a plain function: takes the "rest of the app" (an `Effect` producing a response) and returns a new one. Built-ins: `logger` (applied automatically by `HttpRouter.serve` unless disabled), `tracer`, `cors`, `xForwardedHeaders`, `searchParamsParser`. Define custom middleware with `HttpMiddleware.make`. To modify the response, register via `HttpRouter.middleware` (the `serve`-level option runs around the whole chain but can't change the final response).
+
+### Decompressing incoming bodies
+
+`HttpMiddleware.decompression({ maxDecompressedSize? })` lazily decompresses `gzip` and zlib-format `deflate` through global `DecompressionStream`; raw deflate is not accepted. Stacked encodings are undone in reverse order and `identity` members ignored. Unsupported codings return `415` with `Accept-Encoding: gzip, deflate` without running the app.
+
+The replacement request's body accessors (including `stream` and multipart) see decompressed bytes, and its headers omit `Content-Encoding` and `Content-Length`. Malformed data fails the body read with `RequestParseError` (multipart: `MultipartError`, reason `Parse`). The size limit applies to decompressed bytes through **every** accessor: explicit `maxDecompressedSize`, otherwise `HttpIncomingMessage.MaxBodySize`, otherwise 10 MiB. Exceeding it fails with `RequestParseError` (multipart: reason `BodyTooLarge`). Keep ingress compressed-byte limits too: neither bound substitutes for the other.
+
+`request.source` remains compressed. `HttpServerRequest.toWeb` returns that original source when it is already a Web Request; on Node it builds from the decompressed view. Do not pass the source to a downstream parser expecting the replacement headers/body. This is independent of [response compression](#httpplatform).
 
 ```ts
 import { Clock, Effect } from "effect"
@@ -469,6 +483,12 @@ const updated = Url.mutate(url, (u) => {
 `effect/http/UrlParams` — unstable
 
 Immutable, order-preserving query-string model with correct repeated-key handling. Build with `make`/`fromInput`, read with `getAll`/`getFirst`/`getLast`, edit with `set`/`append`/`remove`. Accepts coercible inputs — numbers, booleans, bigints. The schemas for these HTTP data types live in `effect/Schema`: `Schema.UrlParams`, `Schema.RecordFromUrlParams`, and `Schema.JsonFromUrlParamsField(field, { reviver? })`, which round-trips a JSON-encoded query param through a Schema (the former `UrlParams.schemaJsonField`, `schemaRecord`, and `UrlParamsSchema`). `Schema.Headers`, `Schema.Cookie`, `Schema.Cookies`, and `Schema.RecordFromCookies` moved the same way.
+
+### URL credentials and query redaction
+
+`UrlParams.CurrentRedactedNames` governs inspection, HTTP spans, and HTTP error URLs. Defaults are `AWSAccessKeyId`, `Signature`, `sig`, and `X-Goog-Signature`; a custom list **replaces** them, so retain the defaults when adding names. Values can themselves be `Redacted` strings: inspection hides those independently of the name list, while the actual request sends their unwrapped values. Redaction changes diagnostics, not the wire request.
+
+`UrlParams.redactUrl(url, names?)` also hides URL userinfo (username/password), independent of query-name patterns. Use it for diagnostic URLs rather than logging `UrlParams.toString`, a raw URL, or an application-created error message. Fragments and arbitrary path secrets are not an application secret scrubber; avoid putting credentials there. Header redaction uses a separate [Headers reference](#headers).
 
 ```ts
 import { UrlParams } from "effect/http"

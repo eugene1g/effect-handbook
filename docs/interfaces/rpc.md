@@ -205,6 +205,8 @@ Five mechanisms are easy to conflate and do not substitute for each other: **han
 
 Request lifetime is request-owned: when the client interrupts a call, or an HTTP client disconnects, the server interrupts the matching handler fiber and its finalizers run. `Rpc.uninterruptible(effect)` opts a handler out — use it only for a short critical section, because cancellation is not rollback: a mutation interrupted halfway needs a transaction ([SQL transactions](sql#transactions)), not a hopeful client.
 
+Response-encoding failures are server failures too: the server records them on the RPC method span rather than silently losing observability after a successful handler. Keep the declared success Schema aligned with the actual value, and distinguish an encoding failure from a domain error or a client disconnect.
+
 **Reach for it when** you are the callee and need to expose handlers over a real transport.
 
 ## RpcClient
@@ -252,6 +254,8 @@ const program = Effect.gen(function*() {
 > **Tip:** Attach per-call headers with `RpcClient.withHeaders(effect, { authorization: token })` — they merge with `CurrentHeaders` and ride on outgoing requests, readable by the handler via `headers`. Pass `{ flatten: true }` to `RpcClient.make` to get a single `client(tag, payload)` function instead of a method-per-procedure object — useful for generic wrappers. Matching client transports: `layerProtocolHttp`, `layerProtocolSocket`, `layerProtocolWorker`. Socket clients accept `pingInterval` and `pingTimeout` options (both default to 5 seconds); any decoded server frame counts as liveness, so only a genuinely quiet connection triggers a ping.
 
 ### Retried mutations need a ledger
+
+Socket heartbeat liveness is time since the last **decoded server frame**, not only the last pong. `pingInterval` defaults to five seconds and `pingTimeout` to that interval. A late scheduler tick sends a ping before declaring silence, avoiding premature timeouts after event-loop stalls. `layerProtocolSocket({ onPingTimeout })` runs that no-error/no-services Effect on an open connection's timeout, before disconnect hooks and in-flight `SocketReadError` failures; hook defects are logged and ignored. This hook is distinct from `onTransientError`, which reports retried connection-open errors.
 
 A call that fails with `RpcClientError` has an **unknown outcome**: the request may never have left, or the handler may have committed just before the connection dropped. Anything that sends it again — `Effect.retry` around the call, `HttpClient.retryTransient` inside `layerProtocolHttp({ transformClient })`, a user clicking twice, a socket client reconnecting with `retryTransientErrors` and the caller retrying — can apply the mutation twice. A missed heartbeat pong always fails every in-flight call on that connection, even with `retryTransientErrors` enabled and a reconnect under way — `onTransientError` is not invoked for it, only for a retried connection-open failure — so a pong timeout is exactly the kind of unknown-outcome failure this section is about. Reads are replay-safe; mutations need a protocol:
 

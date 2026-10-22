@@ -188,6 +188,8 @@ const ui = AsyncResult.matchWithWaiting(result, {
 
 > **Tip:** `AsyncResult.value(r)` returns an `Option<A>` of the latest success and, while a `Failure` is showing, falls back to its `previousSuccess`. `getOrElse` supplies a default, `map`/`flatMap` transform the success, and guards `isSuccess`/`isFailure`/`isInitial`/`isWaiting` let you branch directly. Because `Failure` holds a full `Cause`, `matchWithError` and `matchWithWaiting` are preferred over a raw three-way match when defects and typed errors should render differently. `AsyncResult.Schema` encodes results across the wire — used by `AtomHttpApi`/`AtomRpc` for hydration.
 
+`AsyncResult.all` combines records or iterables (and plain values) into one result. The first non-success determines the result; an all-success result is waiting if any input success is waiting. When that first non-success is a failure, `previousSuccess` is rebuilt in the **combined record or tuple shape**, using each input's current or previous value. If any input has no value, the combined previous success is absent. Never render a single failed input's old value as though it were the whole combined view.
+
 **Reach for it when** — any atom backed by an Effect or Stream gives you one; render its four states (loading, stale-while-revalidating, error, success) cleanly.
 
 ## AtomHttpApi
@@ -325,7 +327,7 @@ Hydration.hydrate(clientRegistry, packet)
 
 **One bad atom does not abort the packet.** If a serializable atom's current value cannot be encoded by its schema (a `SchemaError`), `dehydrate` skips that atom and encodes the rest; any other exception still propagates. The skipped atom simply refetches on the client, so treat a missing key as "not hydrated", not as an error — and log encode failures in development, because the usual cause is a schema that does not cover the atom's whole value.
 
-For custom serializable atoms, the codec covers the atom's complete value. In particular, an effectful atom needs an `AsyncResult.Schema(...)`, not just its success schema; the release-matched [comprehensive upstream Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.2/packages/effect/SCHEMA.md) covers codecs and serialization in depth.
+For custom serializable atoms, the codec covers the atom's complete value. In particular, an effectful atom needs an `AsyncResult.Schema(...)`, not just its success schema; the release-matched [comprehensive upstream Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/SCHEMA.md) covers codecs and serialization in depth.
 
 **Reach for it when** you do SSR or static rendering and want fetched atom state to survive the trip to the browser instead of refetching on mount.
 

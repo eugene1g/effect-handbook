@@ -5,11 +5,11 @@ When a framework that is not Effect owns the request — Express, Hono, a queue 
 ## Contract
 
 - **Classification:** Runnable example; complete `request-cancellation.ts`. No network, no timers longer than 25 ms.
-- **Install:** `pnpm add effect@4.0.2`
+- **Install:** `pnpm add effect@4.0.5`
 - **Run:** Node 26+: `node request-cancellation.ts`
 - **Before the bridge:** `compBand(employeeId)` is `Effect<string, HrisUnavailable, HrisDirectory>`.
 - **At the bridge:** `runtime.runPromiseExit(effect, { signal })` is `Promise<Exit<string, HrisUnavailable>>`. It never rejects, so the host maps success, interruption, and typed failure to three different responses.
-- **Hop one (host → fiber):** the `signal` run option interrupts the fiber when the host aborts. Every runner on `ManagedRuntime` and on `Effect` accepts it.
+- **Hop one (host → fiber):** the `signal` run option interrupts the fiber when the host aborts. The asynchronous runners on `ManagedRuntime` and `Effect` accept it; `runSync` and `runSyncExit` do not accept run options.
 - **Hop two (fiber → SDK):** `Effect.tryPromise` hands its callback an `AbortSignal` that Effect aborts when the fiber is interrupted. It is a *different* signal from the host's; pass it to the SDK.
 - **Required Layers:** `HrisDirectory.layer`, captured once by the `ManagedRuntime`.
 - **Lifetime and interruption:** the Layer is acquired on the first request and released by `runtime.dispose()`. The request-scoped permit is released on every exit path, and its finalizer sees the interrupt-only `Exit`. An aborted request leaves the runtime fully usable.
@@ -178,4 +178,4 @@ The constructor-level mechanics (`Effect.callback`, `Effect.promise`, the run op
 - **The host wants a rejection, not an `Exit`.** Keep `runPromise`, but catch at the adapter and test the abort yourself (`signal.aborted`), because the rejection value is an ordinary `Error`, not a `Cause`.
 - **An Effect-native server needs only hop two.** `NodeHttpServer` interrupts the request fiber when the client closes the connection, and `HttpEffect.toWebHandler` listens to `request.signal`. This recipe is for hosts that Effect does not own; see [HTTP Server](../interfaces/http-server#httpeffect).
 - **Testing the seam.** Three assertions reject the three common mistakes: count Layer acquisitions across many requests (must be 1 — not a runtime per request); count releases after calling `dispose()` twice (must be 1 — disposal happened, and is idempotent); and for cancellation, abort on an "in flight" latch and await a cleanup gate, as the file above does, instead of sleeping after the abort.
-- **Shutting the host down.** `runtime.dispose()` interrupts whatever is still in flight and releases the Layer at the same time. Stop admitting requests and drain first: [Recipe: ManagedRuntime at an Imperative Boundary](./managed-runtime-integration) has the protocol and [Owning Lifetimes](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown) explains why.
+- **Shutting the host down.** `runtime.dispose()` interrupts managed request fibers and awaits their cleanup before releasing Layer resources. Stop admitting requests and drain first: [Recipe: ManagedRuntime at an Imperative Boundary](./managed-runtime-integration) has the protocol and [Owning Lifetimes](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown) explains why.

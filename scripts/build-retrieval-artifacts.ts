@@ -195,7 +195,7 @@ function validateCapabilities(pages, snippets) {
     assert(entry.symbols.length > 0, `${entry.id} has no symbols`)
     assert(entry.tasks.length > 0, `${entry.id} has no task aliases`)
     assert(entry.since?.relation === "availableBy" && entry.since?.version === handbookRelease.version, `${entry.id} has invalid availability metadata`)
-    assert(["stable", "unstable", "mixed", "satellite"].includes(entry.stability), `${entry.id} has unsupported stability ${entry.stability}`)
+    assert(["stable", "unstable", "experimental", "mixed", "satellite"].includes(entry.stability), `${entry.id} has unsupported stability ${entry.stability}`)
     const page = pages.get(entry.page)
     assert(page, `${entry.id} points at unknown page ${entry.page}`)
     assert(page.anchors.has(entry.anchor), `${entry.id} points at missing anchor ${entry.page}#${entry.anchor}`)

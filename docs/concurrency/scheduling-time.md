@@ -2,9 +2,9 @@
 
 _Effect provides a composable time stack: typed duration values, a testable clock-aware date/time system, a cron parser, an effect-native PRNG, and `Schedule`, the algebraic policy engine powering retry and repeat._
 
-> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/07_datetime) examples.
+> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/07_datetime) examples.
 
-> **Official guides:** [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules) introduces `Effect.repeat`, `Effect.schedule`, and `Effect.retry`; [Choosing and combining schedules](https://effect.website/docs/v4/scheduling/choosing-and-combining-schedules) walks through the constructors, limiters, and combinators; the [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook) has complete retry and polling programs. Section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules) introduces `Effect.repeat`, `Effect.schedule`, and `Effect.retry`; [Choosing and combining schedules](https://effect.website/docs/v4/scheduling/choosing-and-combining-schedules) walks through the constructors, limiters, and combinators; the [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook) has complete retry and polling programs. Section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.5` release, so where they differ, this page and the tagged source win.
 
 ## Schedule
 
@@ -492,7 +492,7 @@ Duration.format(Duration.sum(Duration.days(30), Duration.hours(4)))  // "30d 4h"
 | A value already typed as `Duration.Input` | `Duration.fromInput(input)` | `Option.none()` |
 | A literal you control | `Duration.fromInputUnsafe("5 seconds")`, or a constructor | Throws — never feed it external text |
 
-All four accept the same forms: a `number` is **milliseconds**, a `bigint` is **nanoseconds**, a string is `"<n> <unit>"` (`nanos` through `weeks`, singular or plural) or `"Infinity"` / `"-Infinity"`, a `[seconds, nanos]` tuple is high-resolution time, and an object such as `{ minutes: 1, seconds: 30 }` adds its fields.
+`Duration.fromInput` and `fromInputUnsafe` accept the full `Duration.Input` union: a `number` is **milliseconds**, a `bigint` is **nanoseconds**, a string is `"<n> <unit>"` (`nanos` through `weeks`, singular or plural) or `"Infinity"` / `"-Infinity"`, a `[seconds, nanos]` tuple is high-resolution time, and an object such as `{ minutes: 1, seconds: 30 }` adds its fields. `Schema.DurationFromString` decodes **strings only**; `Config.Duration` parses text from its provider. Their string grammars agree, not their full accepted input domains.
 
 ```ts
 import { Config, Duration, Effect, Option, Schema } from "effect"
@@ -528,6 +528,8 @@ const program = Effect.gen(function*() {
 
 - **`Duration.infinity` has no nanosecond value**: `Duration.toNanos` returns `Option.none()` for it, while `Duration.toNanosUnsafe` throws. Use the `Option` form whenever a configurable TTL or timeout may be infinite.
 - **Pick the codec by the precision and range you promise.** `Schema.DurationFromMillis` encodes through a JavaScript `number`, so nanosecond-precision durations beyond 2^53 ns do not survive a round trip. `Schema.DurationFromNanos` (a `bigint` carrier) is exact but rejects an infinite duration when encoding. `Schema.DurationFromString` is exact and carries `"Infinity"`.
+- **Large finite integer milliseconds convert through `bigint` before scaling to nanoseconds.** This avoids overflow in `millis * 1_000_000` and preserves the represented integer's precision; it cannot recover precision already lost in an input JavaScript number. Equal millisecond and nanosecond representations compare and hash equally even at very large magnitudes.
+- **Fractional scaling rounds to the nearest nanosecond, ties away from zero.** `Duration.times(Duration.nanos(3n), 0.5)` is `2n` nanoseconds; negative ties round away from zero too. Non-finite scaling and overflowing nanosecond input totals are normalized through Duration's infinity/zero handling rather than throwing during `BigInt` conversion.
 
 See [Configuration & Secrets](../foundations/configuration-secrets) for loading the rest of the startup configuration.
 
@@ -753,6 +755,8 @@ const reminderStart = cliffDate.pipe(DateTime.subtractDuration("30 days"))
 ```
 
 Month and year arithmetic clamps to the last valid day instead of spilling into the next month: `2026-01-31` plus `{ months: 1 }` is `2026-02-28`, and `2024-02-29` plus `{ years: 1 }` is `2025-02-28`. Consequently adding a month and then subtracting one is not always the identity — compute recurring dates from the original anchor (`grantDate + n months`), not by chaining increments. `DateTime.setParts` / `setPartsUtc` do not clamp: the parts you pass are applied together, so `{ month: 2, day: 15 }` on 31 January is 15 February, but `{ month: 2 }` alone keeps day 31 and rolls over to 3 March.
+
+**Calendar days and elapsed hours differ across DST.** On a zoned value, `DateTime.add` / `subtract` first apply hours, minutes, seconds, and milliseconds as elapsed time, then apply days, weeks, months, and years as calendar operations. Adding `{ hours: 24 }` moves the instant by exactly 24 hours; adding `{ days: 1 }` preserves the local clock time and can span 23 or 25 hours. Use `addDuration` for a fixed elapsed interval. When handing a zoned value to a JavaScript API, `toDateUtc` preserves the instant; `toDate` instead puts its local wall-clock fields into the returned Date's UTC fields.
 
 ### Providing the current zone via a Layer
 

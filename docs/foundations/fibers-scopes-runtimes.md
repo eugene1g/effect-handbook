@@ -602,12 +602,12 @@ async function shutdown() {
 **A `ManagedRuntime` is a lifetime-bearing bridge, so every callback follows the same protocol.**
 
 - **Forward the host's cancellation.** Every run method except `runSync` / `runSyncExit` takes `RunOptions`; pass the request's `AbortSignal` as `{ signal }` and an aborted request interrupts the fiber, which in turn aborts the signal handed to your Promise adapters ([section 8 of Core Runtime & Execution](core-runtime-execution#8-cancellable-adapters-for-promises-and-callbacks)). Check `signal.aborted` yourself first: the runner consults the signal only after the fiber's first synchronous run.
-- **Decide how outcomes cross the boundary.** `runPromise` rejects with the squashed cause; use `runPromiseExit` when the host must tell a typed failure from a defect from a cancellation (an interrupted run is an interrupt-only `Cause`, not an error to log).
+- **Decide how outcomes cross the boundary.** `runPromise` rejects with the squashed cause; use `runPromiseExit` when the host must tell a typed failure from a defect from a cancellation. Treat only an interruption-only `Cause` as ordinary cancellation: an interrupted run can also contain cleanup defects, which must not be hidden.
 - **Stop admitting work before you dispose.** Flip a draining flag, let in-flight callbacks finish or interrupt them, and only then call `dispose()`. After disposal every run dies with `ManagedRuntime disposed`. Disposal itself is idempotent — a second `dispose()` releases nothing twice — which keeps hot-reload and double shutdown hooks safe. `runtime.disposeEffect` is the same operation as an `Effect`, for shutdown that is itself composed in Effect.
 - **The first run pays for the Layer.** Services are built lazily on first use, so a startup failure surfaces on the first callback. Hosts that want to fail at boot warm the runtime with `await runtime.context()` (or one `runPromise(Effect.void)`).
 
 ```ts
-import { Effect, Exit, Layer, ManagedRuntime } from "effect"
+import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect"
 
 declare const AppLayer: Layer.Layer<never>
 declare const handleRaiseRequest: (body: unknown) => Effect.Effect<{ readonly raise: number }, "BandViolation">
@@ -619,8 +619,8 @@ export const onRequest = async (body: unknown, signal: AbortSignal) => {
   if (draining || signal.aborted) return { status: 503 as const }
   const exit = await runtime.runPromiseExit(handleRaiseRequest(body), { signal })
   if (Exit.isSuccess(exit)) return { status: 200 as const, body: exit.value }
-  if (Exit.hasInterrupts(exit)) return { status: 499 as const } // client went away: not a fault
-  return { status: Exit.hasFails(exit) ? (422 as const) : (500 as const) }
+  if (Cause.hasInterruptsOnly(exit.cause)) return { status: 499 as const } // cancellation without a cleanup fault
+  return { status: Cause.hasDies(exit.cause) || Cause.hasInterrupts(exit.cause) ? (500 as const) : (422 as const) }
 }
 
 export const onShutdown = async () => {
@@ -672,12 +672,12 @@ The `effect` package version string reported in OTLP resources, telemetry header
 import * as Version from "effect/Version"
 
 // Read the version Effect reports in telemetry.
-const v: string = Version.getCurrentVersion() // e.g. "4.0.2"
+const v: string = Version.getCurrentVersion() // e.g. "4.0.5"
 
 // Override it — useful in a monorepo where the installed version
 // should differ from the one surfaced in traces and OTLP resources.
-Version.setCurrentVersion("4.0.2-internal.1")
-console.log(Version.getCurrentVersion()) // "4.0.2-internal.1"
+Version.setCurrentVersion("4.0.5-internal.1")
+console.log(Version.getCurrentVersion()) // "4.0.5-internal.1"
 ```
 
 > **Note:** `setCurrentVersion` mutates only this copy of the module. Telemetry layers built before the call retain the version they read at construction time.

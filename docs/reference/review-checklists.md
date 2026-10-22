@@ -2,7 +2,7 @@
 
 Use this page three ways: in a **design review**, read a section before code exists and treat every "not decided yet" as an open design question; in a **code review**, answer each question from the diff alone; as a **coding-agent self-check**, run the relevant sections over generated code before proposing it. Every question is phrased so that **yes** is the safe answer — a "no" or "cannot tell from the diff" is a finding, and the link leads to the section that owns the rule and its evidence.
 
-The items describe Effect `4.0.2`. They are deliberately short; the owning pages carry the reasoning, the probed behavior, and the examples. For symptoms rather than rules, start from [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns); for choosing between primitives, from [Choosing Effect Primitives](choosing-effect-primitives).
+The items describe Effect `4.0.5`. They are deliberately short; the owning pages carry the reasoning, the probed behavior, and the examples. For symptoms rather than rules, start from [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns); for choosing between primitives, from [Choosing Effect Primitives](choosing-effect-primitives).
 
 ## Effect construction and running
 
@@ -198,6 +198,7 @@ The items describe Effect `4.0.2`. They are deliberately short; the owning pages
 
 ## MCP servers
 
+- On a request-bound host, does the endpoint use `layerHttpRequestScoped` with sessionless protocols and no subscriptions, rather than depending on long-lived server fibers? [McpServer](../systems/mcp#mcpserver)
 - Does every server layer list the protocol revisions it accepts, with at most one stateless revision, and is the Streamable HTTP endpoint deployed with its `allowedOrigins`, content-type, and accept checks intact? [McpServer](../systems/mcp#mcpserver)
 - Is the MCP endpoint an OAuth resource server — bearer token verified in router middleware, tenant and scopes taken from token claims only, per-tool scope checks in handlers, and no client token forwarded downstream? [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp)
 - Does each tool declare its failure schema, carry honest `Readonly` / `Destructive` / `Idempotent` annotations, use `Tool.Strict` where unexpected arguments must be rejected, and stay hidden from clients that cannot use it via `McpSchema.EnabledWhen`? [McpServer](../systems/mcp#mcpserver)
@@ -206,6 +207,7 @@ The items describe Effect `4.0.2`. They are deliberately short; the owning pages
 
 ## Upgrading Effect versions
 
+- Were experimental GraphQL and networking contracts re-checked even for a patch upgrade, including generated GraphQL output? [GraphQL](../interfaces/graphql), [Platform & Runtime Hosts](../interfaces/platform-runtime-hosts)
 - Are `effect` and every `@effect/*` package pinned to one exact version, with a single installed copy of `effect`? [Incompatible unstable package versions](../troubleshooting/troubleshooting-and-anti-patterns#incompatible-unstable-package-versions)
 - Were the per-package changelogs read for changes that alter bytes on the wire or on disk, and is there a coordinated rollout plan for them? [Stability and support](../#stability-and-support)
 - Do both peers of every binary RPC, cluster, or EventLog link move to `SchemaBinary` together, with old journals accounted for? [SchemaBinary](../concurrency/streaming-channels#schemabinary)

@@ -94,6 +94,23 @@ const program = Effect.gen(function*() {
 })
 ```
 
+### Inspecting transaction attempts
+
+Inside `Effect.tx`, yield `Effect.Transaction` to inspect the current attempt. `attempt` starts at `1`; `retryReason` is initially `undefined`, then `"retry"` after `Effect.txRetry` or `"conflict"` after a journal version conflict. `start` and `now` are millisecond timestamps; `elapsed` and `elapsedSincePrevious` are millisecond durations stamped at the start of each attempt, not continuously updated timers. Nested transactions share the outer boundary's metadata.
+
+```ts
+import { Effect } from "effect"
+
+const firstAttempt = Effect.tx(Effect.gen(function*() {
+  const tx = yield* Effect.Transaction
+  // Copy fields if retaining a snapshot: the service is reused across retries.
+  return { attempt: tx.attempt, retryReason: tx.retryReason, elapsed: tx.elapsed }
+}))
+// Effect.runSync(firstAttempt) -> { attempt: 1, retryReason: undefined, elapsed: 0 }
+```
+
+Attempt metadata is diagnostic information, not an idempotency or durability guarantee. The body can be re-evaluated: keep external writes, notifications, and irreversible effects outside STM. Use a database transaction and outbox when a committed intent must survive a process restart.
+
 ## TxRef
 
 `effect/TxRef` — stable
@@ -214,7 +231,7 @@ Transactional FIFO queue with `bounded`, `unbounded`, `dropping`, and `sliding` 
 
 **Mental model.** Transactional analog of `Queue`. `TxQueue.take` on an empty queue internally calls `Effect.txRetry`, blocking (by suspend-and-wake, not spin) until an item arrives. `offer` on a full bounded queue similarly blocks. Operations compose transactionally — debit the budget pool and enqueue atomically.
 
-Batch takes have their own waiting rule: `takeN(queue, n)` waits until `min(n, capacity)` items are available and removes exactly that many, while `takeBetween(queue, min, max)` waits only for `min`. Counts are normalised — a fractional count is floored, and on an open queue `NaN` or a non-positive count returns `[]` without removing anything. For non-transactional queues see [Queue](./concurrency-coordination#queue).
+Batch takes have their own waiting rule: on an open queue, `takeN(queue, n)` waits until `min(n, capacity)` items are available and removes exactly that many, while `takeBetween(queue, min, max)` waits only for `min`. A closing queue can return a short final batch. Counts are normalised — a fractional count is floored, and on an open queue `NaN` or a non-positive count returns `[]` without removing anything. For non-transactional queues see [Queue](./concurrency-coordination#queue).
 
 ```ts
 import { Effect, Fiber, TxQueue } from "effect"
@@ -428,22 +445,16 @@ const run = Effect.gen(function*() {
   // Reviewer: clear the queue until intake closes, then signal the freeze.
   const reviewer = Effect.gen(function*() {
     let allocated = 0
-    yield* Effect.whileLoop({
-      while: () => true,
-      body: () =>
-        Effect.gen(function*() {
-          // poll inside a tx: Some while items remain, None once closed+empty
-          const next = yield* Effect.tx(TxQueue.poll(approvals))
-          if (Option.isSome(next)) {
-            allocated += next.value
-          } else {
-            const open = yield* TxQueue.isOpen(approvals)
-            if (!open) return yield* Effect.interrupt
-            yield* Effect.yieldNow
-          }
-        }),
-      step: () => {}
-    }).pipe(Effect.ignoreCause)
+    while (true) {
+      // take waits while open+empty, then reports Done only after the final drain.
+      // Catch only normal completion; defects and external cancellation propagate.
+      const next = yield* TxQueue.take(approvals).pipe(
+        Effect.map(Option.some),
+        Effect.catchIf(Cause.isDone, () => Effect.succeed(Option.none<number>()))
+      )
+      if (Option.isNone(next)) break
+      allocated += next.value
+    }
     yield* Console.log(`total allocated: ${allocated}`) // 55000
     yield* TxDeferred.succeed(cycleFrozen, undefined)
   })

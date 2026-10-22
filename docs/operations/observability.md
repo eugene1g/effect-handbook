@@ -4,7 +4,7 @@ _Effect ships structured logging, spans, and metrics as first-class runtime citi
 
 This page covers instrumentation. Getting signals out of the process — OTLP, Prometheus, DevTools, and the OpenTelemetry SDK bridge — is on [Telemetry Export](telemetry-export).
 
-> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/08_observability) cover production logging and OTLP tracing.
+> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/08_observability) cover production logging and OTLP tracing.
 
 ## Designing signals
 

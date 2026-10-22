@@ -1,6 +1,6 @@
 # Anatomy of a Real Effect Application
 
-This guide turns Effect's core primitives into one application shape. It targets `effect@4.0.2`: domain values are Schemas, expected failures are tagged errors, behavior lives behind services, Layers own construction and cleanup, and the runtime is called only at an application edge.
+This guide turns Effect's core primitives into one application shape. It targets `effect@4.0.5`: domain values are Schemas, expected failures are tagged errors, behavior lives behind services, Layers own construction and cleanup, and the runtime is called only at an application edge.
 
 Use the concise references when you need the complete API surface: [Core Runtime & Execution](../foundations/core-runtime-execution), [Services, Context & Layers](../foundations/services-context-layers), [Configuration & Secrets](../foundations/configuration-secrets), [Errors, Option & Result](../foundations/errors-option-result), [Schema](../data/schema), [Observability](../operations/observability), and [Testing & Dev Tooling](../tooling/testing-dev-tooling).
 
@@ -358,7 +358,7 @@ export const handleRequest = () =>
 export const shutdown = () => runtime.dispose()
 ```
 
-That is the minimal shape. A real host callback also **forwards the host's cancellation, in both hops**. Every `ManagedRuntime` runner accepts `Effect.RunOptions`; passing the host's `AbortSignal` as `{ signal }` turns a client disconnect into fiber interruption, so finalizers run and pool slots come back. That is hop one. Hop two lives in the adapters: an `Effect.tryPromise` thunk receives Effect's own `AbortSignal` and must hand it to `fetch` or the driver. Drop either hop and the caller is gone while the work keeps its socket, connection, and rate-limit budget. When a framework offers a disconnect hook instead of a signal, abort an `AbortController` from that hook and pass its signal.
+That is the minimal shape. A real host callback also **forwards the host's cancellation, in both hops**. Every `ManagedRuntime` runner except `runSync` / `runSyncExit` accepts `Effect.RunOptions`; passing the host's `AbortSignal` as `{ signal }` turns a client disconnect into fiber interruption, so finalizers run and pool slots come back. Check an already-aborted signal before invoking the runner: its initial synchronous prefix can execute before it checks that signal. That is hop one. Hop two lives in the adapters: an `Effect.tryPromise` thunk receives Effect's own `AbortSignal` and must hand it to `fetch` or the driver. Drop either hop and the caller is gone while the work keeps its socket, connection, and rate-limit budget. When a framework offers a disconnect hook instead of a signal, abort an `AbortController` from that hook and pass its signal.
 
 > **Example status — Contextual:** `AppLive` stands for the application Layer assembled above.
 

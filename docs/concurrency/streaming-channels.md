@@ -2,9 +2,9 @@
 
 `Stream<A, E, R>` is a pull-based source: the consumer requests the next chunk, the stream computes it (possibly failing with `E`, needing services `R`), emits the chunk, and waits. This pull loop provides automatic back-pressure. `Sink<A, In, L, E, R>` folds chunks into a final answer. `Channel` is the bidirectional primitive both are built from. In practice: live in `Stream` 95% of the time; reach for `Channel` only when authoring a new operator.
 
-> **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
+> **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
 >
-> **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.2` release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than the tagged `4.0.5` release, so where they differ, this page and the tagged source win.
 
 ![Diagram: pull sources produce on demand; push sources feed a buffer with a capacity and overflow strategy; operators sit between sources and the sink, which pulls each element](/diagrams/stream-backpressure.svg)
 
@@ -35,6 +35,8 @@ _A stream runs on demand: the sink pulls, and each operator pulls from its sourc
 | Schedule outputs | `fromSchedule` |
 | Manual seed-and-step | `unfold` |
 | Counters / timers | `range` / `iterate` / `tick` |
+
+**Async iterator cancellation has a host boundary.** `fromAsyncIterable` calls the iterator's `return()` on early scope closure. If `next()` is still pending, it does not await that return: an async generator's own `finally` may not run until the pending pull settles. `Stream.timeout` / `timeoutOrElse` can therefore finish without hanging on an unresolved pull, but cannot force an arbitrary JavaScript Promise to settle. Make the iterator's underlying I/O independently abortable when cleanup must be prompt.
 
 ```ts
 import { Array, Cause, Clock, Effect, Option, Queue, Schedule, Schema, Stream } from "effect"
@@ -149,9 +151,9 @@ Official guide: [Creating Streams](https://effect.website/docs/v4/stream/creatin
 | Per element, pure | `map` / `as` / `filter` / `filterMap` | `as(value)` replaces every element with a constant. `filterMap` takes a `Filter` (returns a `Result`), not an `Option`-returning function. |
 | Per element, effectful | `mapEffect` / `tap` | `mapEffect` accepts `{ concurrency, unordered }`; ordered output is the default. |
 | Fan out per element | `flatMap` / `switchMap` / `flattenIterable` | `flatMap` runs every inner stream to completion. `switchMap` interrupts the previous inner stream when the outer emits again — stale work is cancelled, not queued. `flattenIterable` is the inverse of `grouped`. |
-| Carry state | `scan` / `mapAccum` (`scanEffect`, `mapAccumEffect`) | `scan(() => initial, f)` emits the seed and every intermediate value — for an empty stream, just the seed is emitted. Its seed (and `scanEffect`'s) is a thunk, like `mapAccum`'s. `mapAccum(() => initial, (state, a) => [next, outputs])` returns an *array* of outputs, so one input can emit zero, one, or many; `{ onHalt }` flushes leftover state at the end. Both keep bounded state. |
+| Carry state | `scan` / `mapAccum` (`scanEffect`, `mapAccumEffect`) | `scan(() => initial, f)` emits the seed and every intermediate value — for an empty stream, just the seed is emitted. Its seed (and `scanEffect`'s) is a thunk, like `mapAccum`'s. `mapAccum(() => initial, (state, a) => [next, outputs])` returns an *array* of outputs, so one input can emit zero, one, or many; `{ onHalt }` flushes leftover state at the end. Both keep one caller-supplied accumulator; memory is bounded only if that accumulator is bounded. |
 | Stop early | `take` / `takeWhile` / `takeUntil` / `takeRight` / `haltWhen` / `interruptWhen` | `takeWhile` stops *before* the first failing element; `takeUntil` *includes* the element that matched unless `{ excludeLast: true }`. `takeRight(n)` must see the end, so it buffers `n` and never emits on an infinite source. `haltWhen(effect)` stops before the next pull; `interruptWhen(effect)` also interrupts the pull in progress. |
-| Batch | `grouped(n)` / `groupedWithin(n, duration)` / `rechunk(n)` | `grouped` flushes only when `n` elements arrived or the stream ended. `groupedWithin` flushes on size **or** elapsed time, whichever is first — the right shape for live feeds. The schedule is paused while the stream is idle (no incoming elements), so quiet periods do not consume the time budget; when the schedule's own limit is reached, it emits the current partial batch and stops without further upstream pulls. `rechunk` resizes the internal chunks without changing the element type. |
+| Batch | `grouped(n)` / `groupedWithin(n, duration)` / `rechunk(n)` | `grouped` flushes only when `n` elements arrived or the stream ended. `groupedWithin` flushes on size **or** elapsed time, whichever is first — the right shape for live feeds. Its window starts with the first element of a batch: idle time before that element is excluded, but silence after a partial batch starts still advances its timer. For schedule-driven aggregation, schedule exhaustion can drain already-pulled leftovers into further batches without more upstream pulls. `rechunk` resizes the internal chunks without changing the element type. |
 | Rate control | `throttle` / `debounce(duration)` / `schedule(schedule)` | `throttle` is a token bucket charged per *chunk* via `cost(chunk)`: `"shape"` delays, `"enforce"` drops the whole over-budget chunk (`rechunk(1)` first for per-element dropping), `burst` raises the bucket to `units + burst`. `debounce` emits only the last value after a quiet period. `schedule` spaces every element by a `Schedule`. |
 | Keyed sub-streams | `groupByKey(f)` / `groupBy` | Emits `[key, Stream]` pairs; consume them with `flatMap(..., { concurrency: "unbounded" })` or a finite bound. Each key owns a queue (`bufferSize`, default 4096 elements); `idleTimeToLive` retires quiet keys, which matters when the key space is large. If a substream consumer stops early, the underlying queue is shut down so the source is not left hanging. |
 | Dedupe | `changes` | Drops consecutive elements that are `Equal.equals`. |
@@ -317,7 +319,7 @@ Official guide: [Consuming Streams](https://effect.website/docs/v4/stream/consum
 | Alternate deterministically | `interleave` | Unlike `merge`, the order does not depend on timing. |
 | Every combination | `cross` | Re-runs the right stream once per left element — expensive if the right side does I/O. |
 | Two branches by a rule | `partition(filter)` / `partitionEffect(filter)` | Returns a scoped `Effect` of two queue-backed streams. Both yield `[passes, fails]` (the passing branch first) and take a `capacity` option: default 16 for `partition`, 4096 for `partitionEffect`. Swapped names still type-check when both branches share a type, so double-check the destructuring order against the tuple position, not the variable name. A consumer that stops early shuts down its queue so the other branch and the source are not left hanging. |
-| Same elements to several consumers | `broadcastN({ n, capacity })` / `broadcast` / `share` | Running one `Stream` value twice runs its source twice. These run it once behind a `PubSub`: with the default `"suspend"` strategy the source advances at most `capacity` chunks ahead of the **slowest** consumer. `share` is the ref-counted variant: upstream starts with the first subscriber and is finalized after the last. |
+| Same elements to several consumers | `broadcastN({ n, capacity })` / `broadcast` / `share` | Running one `Stream` value twice runs its source twice. These run it once behind a `PubSub`: with the default `"suspend"` strategy the source advances at most `capacity` chunks ahead of the **slowest** consumer. `share` is the ref-counted variant: upstream starts with the first subscriber and is finalized after the last by default; configured `idleTimeToLive` retains it until expiry or owner-scope closure. |
 
 ```ts
 import { Effect, Filter, Stream } from "effect"
@@ -575,6 +577,8 @@ const _audit = Stream.make(
 
 **Leftovers are the rest of the chunk already pulled — not the rest of the stream.** A sink finishes with an `End` tuple `[result, leftover?]`. `Sink.mapEnd` can read and rewrite both halves, `Sink.ignoreLeftover` narrows `L` to `never`, and `Sink.flatMap` hands the first sink's leftovers to the second, so "parse a header, then fold the body" composes. Because leftovers depend on chunking, `Sink.take(3)` over `Stream.make(1, 2, 3, 4, 5)` (one chunk) leaves `[4, 5]`, but over chunks `[1, 2]`, `[3, 4]`, `[5]` it leaves `[4]`. Ignoring leftovers never pulls more input.
 
+`Sink.takeUntil(predicate)` and `takeUntilEffect` include the matching element, stop there immediately, and return the rest of that chunk as leftovers. They do not consume and drop an extra element after the match; this matters when composing parsers or repeatedly transducing a delimiter-based sink.
+
 **`Stream.transduce(sink)` re-applies a sink as an operator.** `Stream.run(sink)` applies it once; `transduce` runs it repeatedly, feeds each run's leftovers into the next, and emits every result — this is why `L` exists. `transduce(Sink.take(n))` is fixed-size batching; a `Sink.fold` whose predicate looks at accumulated cost gives **weighted** batching (there is no `Sink.foldWeighted`). Two edges: the element that crosses the limit is already in the batch, and an empty trailing result can be emitted when the input ends on a batch boundary, so filter empties.
 
 ```ts
@@ -593,16 +597,18 @@ const headerThenRowCount = Sink.take<string>(1).pipe(
   Sink.flatMap(([header]) => Sink.count.pipe(Sink.map((rows) => ({ header, rows }))))
 )
 
-// Weighted batching: flush once roughly 1 MiB of payload has accumulated.
+// Flush once roughly 1 MiB of UTF-8 row payload has accumulated.
+// The last row can overshoot the threshold; framing bytes are not counted.
+const encoder = new TextEncoder()
 const upToOneMiB = Sink.fold<{ readonly rows: ReadonlyArray<string>; readonly bytes: number }, string>(
   () => ({ rows: [], bytes: 0 }),
   (state) => state.bytes < 1_048_576,
-  (state, row) => Effect.succeed({ rows: [...state.rows, row], bytes: state.bytes + row.length })
+  (state, row) => Effect.succeed({ rows: [...state.rows, row], bytes: state.bytes + encoder.encode(row).byteLength })
 ).pipe(Sink.map((state) => state.rows))
 
 declare const exportRows: Stream.Stream<string>
 
-const byteBoundedBatches = exportRows.pipe(
+const byteWeightedBatches = exportRows.pipe(
   Stream.transduce(upToOneMiB),
   Stream.filter((batch) => batch.length > 0)
 )
@@ -845,7 +851,9 @@ const runEvents = payrollRunFeed.pipe(
 )
 ```
 
- Decoding limits the pending event to 10 MiB by default; set `{ maxEventSize }` on `decode` / `decodeDataSchema` when the protocol needs a different bound, and handle an oversized event as `SseError` with an `EventTooLarge` reason. Line endings may be `\n`, `\r\n`, or `\r`, mixed freely within one stream. Generated [`HttpApiClient`](../interfaces/http-api#httpapiclient) methods accept the same decode options per call as `sseOptions`.
+Decoding limits the pending event to 10 MiB of **string code units** by default, not UTF-8 bytes; set `{ maxEventSize }` on `decode` / `decodeDataSchema` when the protocol needs a different bound, and handle an oversized event as `SseError` with an `EventTooLarge` reason. Line endings may be `\n`, `\r\n`, or `\r`, mixed freely within one stream. Encoding also splits all three forms into separate `data:` lines, so a lone carriage return cannot discard the rest of the payload. Generated [`HttpApiClient`](../interfaces/http-api#httpapiclient) methods accept the same decode options per call as `sseOptions`.
+
+By default, a named event with **no `data:` line** is dropped, as in the WHATWG algorithm. Opt into `Sse.decode({ dispatchEmptyNamedEvents: true })` for protocols such as graphql-sse that use `event: complete\n\n`; it emits `{ event: "complete", data: "" }` (plus any inherited ID). This is distinct from an explicit empty `data:` line, which already dispatches an empty payload. Long unterminated lines split across chunks are accumulated and joined at the line ending rather than repeatedly rescanned; keep the size limit even with that parsing improvement.
 
 **Use when** consuming an SSE endpoint for live typed events with built-in reconnect signalling.
 

@@ -147,6 +147,7 @@ Options beyond the ones shown:
 | `loggerExcludeLogSpans` | `false` | Omits `Effect.withLogSpan` timings from exported records |
 | `maxBatchSize` | `1000` (logs and traces) | Buffer size that triggers an early export |
 | `headers` | none | Extra request headers on every export, for example collector authentication |
+| `compression` | `"none"` | Opt into `"gzip"` for JSON or protobuf; uses `HttpClientRequest.compressBody`'s default 1 KB minimum body size, so small batches remain uncompressed |
 
 Default export intervals are 1 second for logs, 5 seconds for traces, and 10 seconds for metrics. `Otlp.layerFromConfig` reads the endpoint, headers, schedule, and timeouts from the standard `OTEL_*` environment variables instead (an `OTEL_EXPORTER_OTLP_TIMEOUT` value becomes the `shutdownTimeout`), and installs no exporter when `OTEL_SDK_DISABLED=true` or no endpoint is set.
 
@@ -176,7 +177,7 @@ export const CompServiceLogLayer = OtlpLogger.layer({
 )
 ```
 
-Use `OtlpLogger.layerFromConfig()` to read endpoint URL and headers from `OTEL_EXPORTER_OTLP_*` environment variables.
+Use `OtlpLogger.layerFromConfig()` to read endpoint URL and headers from `OTEL_EXPORTER_OTLP_*` environment variables. All built-in signal exporters also accept `compression: "gzip" | "none"`; config-based layers read `OTEL_EXPORTER_OTLP_COMPRESSION`, with `OTEL_EXPORTER_OTLP_LOGS_COMPRESSION`, `OTEL_EXPORTER_OTLP_METRICS_COMPRESSION`, and `OTEL_EXPORTER_OTLP_TRACES_COMPRESSION` taking precedence for their signal. Batches are compressed once before HTTP retries, not on each retry; compression failures follow the same temporary-disable path as transport failures.
 
 **Reach for it when** exporting only logs, or assembling a custom observability stack per signal.
 
@@ -187,6 +188,8 @@ Use `OtlpLogger.layerFromConfig()` to read endpoint URL and headers from `OTEL_E
 Periodically reads the Effect metric registry and posts snapshots to an OTLP metrics endpoint. Supports `"cumulative"` and `"delta"` aggregation temporality.
 
 A `Metric.summary` is exported as one OTLP `Summary` metric named by its id (quantiles, count, and sum together), always cumulative regardless of `temporality`; common unit names such as `milliseconds` are mapped to UCUM units. Dashboards that matched separate `<id>_quantiles`, `<id>_count`, or `<id>_sum` series need updating.
+
+Delta histograms omit `min` and `max` after the initial export: the registry's cumulative extrema cannot describe a later delta interval.
 
 ```ts
 import { Layer } from "effect"
@@ -266,6 +269,8 @@ Builds the OTLP `Resource` object (service name, version, arbitrary attributes) 
 `effect/observability/OtlpSerialization` — unstable
 
 A `Context.Service` class with three methods — `traces(data)`, `metrics(data)`, `logs(data)` — that convert in-memory OTLP data structures to `HttpBody` instances. Two implementations: `OtlpSerialization.layerJson` (JSON, default) and `OtlpSerialization.layerProtobuf` (binary protobuf, `application/x-protobuf`).
+
+For custom OTLP payloads, the in-memory interfaces use `schemaUrl` on resource/scope records, and the JSON layer serializes those objects directly: it does **not** rename that property to `schemaURL`. Protobuf writes the numbered schema-URL field from `schemaUrl`. If a collector requires a different JSON spelling, supply an explicit custom `OtlpSerialization` rather than assuming a rewrite. Exported 64-bit trace ids are left-padded to 128 bits, consistently with outgoing `traceparent` headers.
 
 ```ts
 import { OtlpSerialization } from "effect/observability"
@@ -461,6 +466,8 @@ const MetricsLayer = OtelMetrics.layer(() => new PrometheusExporter({ port: 9464
 `@effect/opentelemetry — import { OtelLogger } from "@effect/opentelemetry"` — @effect/opentelemetry
 
 An Effect `Logger` that forwards log records to an OTel `LoggerProvider`. `OtelLogger.layer({ mergeWithExisting })` installs it alongside or instead of the default logger. `OtelLogger.layerLoggerProvider` builds and scopes the OTel `LoggerProvider` from one or more `LogRecordProcessor`s.
+
+Log records receive the current Effect span's OpenTelemetry span context, so the backend can link logs to their traces without copying trace ids into application annotations. This is correlation, not an audit-delivery guarantee.
 
 **Reach for it when** Effect logs (including structured annotations) need to flow through an existing OTel logging pipeline, e.g. a `BatchLogRecordProcessor` shipping to a vendor.
 

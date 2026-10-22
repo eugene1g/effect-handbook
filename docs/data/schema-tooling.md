@@ -180,7 +180,7 @@ const writeAotModule = build({
 // import "./generated/schemas.aot.js"
 ```
 
-The generated module installs and decodes correctly with `globalThis.Function` blocked, at a speed comparable to JIT. Regenerate the file whenever a schema definition or the Effect version changes; installation trusts that the ASTs match what was compiled. Bundler configurations that mark modules side-effect free must keep the generated import.
+The generated module installs and decodes with `globalThis.Function` blocked. Benchmark the actual workload rather than assuming a performance equivalence with JIT. Regenerate the file whenever a schema definition or the Effect version changes; installation trusts that the ASTs match what was compiled. Bundler configurations that mark modules side-effect free must keep the generated import.
 
 **Reach for it when** you want compiled decoders where `new Function` is unavailable (strict CSP, locked-down runtimes) or you want no code generation at startup. It trades a build step and a regenerate-on-change rule for that.
 
@@ -402,6 +402,8 @@ Official guide: [Error Formatters](https://effect.website/docs/v4/schema/error-f
 
 The public error wrapper used by the high-level `Schema.decode*` and `Schema.encode*` adapters. `Schema.SchemaError` is tagged `"SchemaError"` and carries the raw `SchemaIssue.Issue` in `.issue`; its `.message` applies the default formatter. `Schema.isSchemaError` safely recognizes it, including across duplicated package copies. It lives in the `Schema` namespace; there is no standalone `effect/SchemaError` module.
 
+JSON serialization and Node inspection expose only `{ _tag: "SchemaError", message }`, not the issue's schema AST. Access `.issue` explicitly for programmatic diagnostics; do not depend on `JSON.stringify(error)` to preserve the issue tree. The formatted message can still contain input data, so compact serialization is not secret redaction.
+
 ```ts
 import { Result, Schema, SchemaIssue, SchemaParser } from "effect"
 
@@ -449,9 +451,11 @@ console.log(JSON.stringify(doc.schema, null, 2))
 //   "properties": {
 //     "level": {
 //       "type": "integer",
+//       "minimum": -9007199254740991,
+//       "maximum": 9007199254740991,
 //       "description": "Job level, e.g. 5 for IC5"
 //     },
-//     "salaryMid": { "type": "integer" }
+//     "salaryMid": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
 //   },
 //   "required": ["level", "salaryMid"],
 //   "additionalProperties": true
@@ -465,7 +469,7 @@ const closed = Schema.toJsonSchemaDocument(CompBand, { onExcessProperty: "error"
 Two things to know about documents you generate yourself with `Schema.toJsonSchemaDocument`. (OpenAPI documents derived by `HttpApi` are a separate path: `OpenApi.fromApi` emits **closed** objects, `"additionalProperties": false` — see [HTTP API](../interfaces/http-api).)
 
 - **Objects are open by default.** Generation now mirrors Effect decoding, which ignores excess properties unless told otherwise, so a `Struct` emits `"additionalProperties": true`. The old `{ additionalProperties }` generation option is gone: use `{ onExcessProperty: "ignore" }` (the default) or `{ onExcessProperty: "error" }` for a closed object, and model a schema-valued "rest" with `Schema.Record` or `Schema.StructWithRest` rather than an option. If a consumer relied on the previous closed default — a strict validator, a generated client, a structured-output provider — opt back in explicitly.
-- **Check constraints and annotations are compacted** into the node when no keyword collides (`"type": "integer", "description": …`) instead of being wrapped in `allOf`. `allOf` still appears when merging would overwrite a keyword. Snapshot tests of generated documents need refreshing.
+- **Check constraints and annotations are compacted** into the node when possible (`"type": "integer", "description": …`) instead of being wrapped in `allOf`. Colliding numeric, length, item-count, and property-count bounds are tightened in place; redundant inclusive/exclusive bounds on the same side are removed. Other incompatible keyword collisions can still require `allOf`. `Schema.Int` / `isInt` emit exact JSON Schema integers with safe-integer bounds; composing a stricter bound keeps the tighter constraint, and exact integer union branches preserve `oneOf`. Snapshot tests of generated documents need refreshing.
 
 On the import side (`SchemaRepresentation.fromJsonSchemaDocument`), unsupported references, validation keywords, and object-valued `const`/`enum` are now **rejected with a path-qualified explanation** instead of being silently weakened.
 
@@ -499,7 +503,7 @@ const draft07 = JsonSchema.toDocumentDraft07(orgDoc) // also toDocumentDraft04, 
 
 **Which model owns which artifact.** A value schema knows a shape. It does not know methods, paths, parameter locations, status codes, per-endpoint errors, security, or media types; those facts live on the assembled `HttpApi`. So **derive JSON Schema from `Schema` for value contracts, and derive the OpenAPI document from the API** with [`OpenApi.fromApi`](../interfaces/http-api#openapi). Point a generator at the wrong model and its output silently lacks everything that only the other model records.
 
-Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) (it documents an `additionalProperties` generation option and closed-by-default output; 4.0.2 uses `onExcessProperty` and is open by default).
+Official guide: [Schema to JSON Schema](https://effect.website/docs/v4/schema/json-schema) (it documents an `additionalProperties` generation option and closed-by-default output; 4.0.5 uses `onExcessProperty` and is open by default).
 
 **Reach for it when** you need a machine-readable *value* contract for external consumers: JSON Schema config validation, cross-language codegen of a payload, or structured-output LLM prompting. For an HTTP API description, generate OpenAPI from `HttpApi` instead.
 
@@ -609,11 +613,11 @@ export class Employee extends Model.Class<Employee>("Employee")({
   level: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 })),
   baseSalary: Model.Sensitive(Schema.BigDecimal), // hidden from the JSON API
   createdAt: Model.DateTimeInsertFromDate,   // set when inserting
-  updatedAt: Model.DateTimeUpdateFromDate    // set when updating
+  updatedAt: Model.DateTimeUpdateFromDate    // defaults on insert and update
 }) {}
 
 Employee         // select schema (the default variant)
-Employee.insert  // insert schema — no `id`, `createdAt` required, no `updatedAt`
+Employee.insert  // insert schema — no `id`; both timestamps have constructor defaults
 Employee.update  // update schema
 Employee.json    // outward JSON API shape — no baseSalary
 Employee.jsonCreate

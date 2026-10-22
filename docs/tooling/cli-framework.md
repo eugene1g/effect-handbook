@@ -2,7 +2,7 @@
 
 The CLI modules define parsers, help, completions, prompts, and command handlers as typed values that compose with ordinary Effects and Layers. Import the barrel with `import { Argument, Command, Flag, Prompt } from "effect/cli"`, or use the module paths shown in each section.
 
-> **Warning:** The framework lives under `effect/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.0.2/ai-docs/src/70_cli) provides a compact runnable companion.
+> **Warning:** The framework lives under `effect/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/70_cli) provides a compact runnable companion.
 
 ## CliConfig
 
@@ -336,6 +336,24 @@ const _ = [approver, planSource, planSourceTagged, optionalPlanSource]
 | A value begins with `-` but is not numeric, such as a string flag value of `-x` | write it inline: `--label=-x`. The spaced form `--label -x` reads `-x` as another flag and fails with `UnrecognizedOption` |
 | A boolean flag is omitted | `MissingOption`, unless the flag has a default, is optional, or has a fallback |
 
+### GNU-style optional flag values
+
+`Flag.withOptionalValue(rawValue)` lets a **present** flag omit its value. The raw string is parsed and validated by the original flag. It does not make the flag itself optional; add `Flag.optional` or `withDefault` for absence.
+
+```ts
+import { Flag } from "effect/cli"
+
+const color = Flag.Literals("color", ["auto", "always", "never"]).pipe(
+  Flag.withOptionalValue("auto"),
+  Flag.optional
+)
+// --color        -> Some("auto")
+// --color=never  -> Some("never")
+// absent         -> None
+```
+
+Explicit values **must use `=`**, including a short alias (`-c=never`). `--color never` leaves `never` for positional/subcommand parsing; the flag never consumes the next token. Help renders an optional-value form such as `--color [=choice]`.
+
 Use when you need named `--` options for type-safe command configuration.
 
 ## Argument
@@ -359,10 +377,10 @@ const outFile = Argument.String("output-file").pipe(
   Argument.optional   // yields Option<string>
 )
 
-// Variadic — collect 1+ employee IDs for a bulk operation
+// Variadic — collect zero or more employee IDs for a bulk operation
 const employeeIds = Argument.String("employee-ids").pipe(
   Argument.variadic,
-  Argument.withDescription("One or more employee IDs to process")
+  Argument.withDescription("Employee IDs to process")
 )
 
 // Read a comp-plan JSON file directly from a positional path
@@ -453,6 +471,8 @@ Interactive terminal prompts. A `Prompt<A>` is an Effect that runs a TUI render 
 
 Each prompt has three phases: render (write ANSI), process (receive keypress, return next state or final value), clear (erase frame). The CLI connection is `Flag.withFallbackPrompt`: when a required flag is absent, the prompt runs automatically. Pass the `Prompt` or an `Effect` yielding one directly.
 
+Prompts and the command wizard respect `NO_COLOR`, suppressing color/style escapes but retaining cursor and redraw controls: this is not a plain non-interactive transcript mode. Terminal input is acquired only when a prompt needs user input, so constant fallback prompts leave piped stdin untouched.
+
 ```ts
 import { Effect } from "effect"
 import { Flag, Prompt } from "effect/cli"
@@ -523,7 +543,7 @@ Key APIs: Prompt.String, Prompt.Password, Prompt.Hidden, Prompt.Confirm, Prompt.
 
 ### Theming prompts
 
-Prompt symbols and colors come from one `Prompt.Theme` — a `Context.Reference` whose default is built by `Prompt.makeTheme()` from platform-appropriate glyphs (ASCII fallbacks on Windows). Provide it once to restyle every prompt in the application; pass a partial `theme` to a single prompt to override it there. The per-prompt option wins over the context value.
+Prompt symbols and colors come from one `Prompt.Theme` — a `Context.Reference` whose default is built by `Prompt.makeTheme()` from platform-appropriate glyphs (Windows-specific fallbacks, not exclusively ASCII). Provide it once to restyle every prompt in the application; pass a partial `theme` to a single prompt to override it there. The per-prompt option wins over the context value.
 
 ```ts
 import { Effect } from "effect"
@@ -628,7 +648,7 @@ Use when implementing a custom `CliOutput.Formatter`, generating Markdown docume
 
 `effect/cli/Completions` — unstable
 
-Shell completion script generator. Given a `CommandDescriptor`, `Completions.generate` returns a static completion script string for Bash, Zsh, or Fish.
+Shell completion script generator. Given a `CommandDescriptor`, `Completions.generate` returns a static completion script string for Bash, Zsh, Fish, or PowerShell (`"powershell"`). The built-in `--completions` flag also accepts `pwsh` as an alias for `powershell`; use the canonical name for programmatic generation.
 
 Rarely called directly. `GlobalFlag.Completions` wires it automatically: `comp --completions bash` prints a script users can source. Completion-aware types (`choice`, `path`, `file`, `directory`) produce richer tab-completion suggestions automatically.
 
@@ -638,6 +658,8 @@ comp --completions bash >> ~/.bash_completion
 comp --completions zsh  >> ~/.zshrc
 comp --completions fish > ~/.config/fish/completions/comp.fish
 ```
+
+For PowerShell, save `comp --completions powershell > comp-completion.ps1` and dot-source the script from your profile (`. ./comp-completion.ps1`). Regenerate scripts after changing the command tree.
 
 To generate completions programmatically (e.g. in a build script or test):
 
@@ -719,7 +741,7 @@ What the built-in `--completions` flag derives for you — and what a hand-writt
 | --- | --- |
 | Subcommand aliases complete like the canonical name | the generated descriptor lists an aliased subcommand a second time under its alias, with the same flags and nested commands |
 | Shared flags reach every descendant | flags declared with `Command.withSharedFlags` are included in each descendant's flag list |
-| Choice values survive quoting | values containing quotes, spaces, word-break characters, Unicode, or shell metacharacters are escaped for Bash (including Bash 3.2, without associative arrays), Zsh, and Fish |
+| Choice values survive supported quoting contexts | values containing quotes, spaces, word-break characters, Unicode, or shell metacharacters are escaped for Bash (including Bash 3.2, without associative arrays), Zsh, and Fish; Bash still has partial-quote limitations for `!` inside an already-open double quote and apostrophes inside a mid-word single quote |
 | Positional arguments and subcommands coexist in Zsh | a command that has both completes correctly |
 | `--completions sh` | accepted as an alias for `bash` |
 
@@ -787,7 +809,7 @@ const grantWithGlobals = grantCmd.pipe(
 | `--help / -h` | Action | Renders help doc and exits |
 | `--version / -v` | Action | Prints `name version` and exits |
 | `--wizard` | Action | Runs the interactive wizard for the selected command |
-| `--completions <bash\|zsh\|fish\|sh>` | Action | Prints completion script and exits (`sh` is an alias for `bash`) |
+| `--completions <bash\|zsh\|fish\|powershell\|sh\|pwsh>` | Action | Prints completion script and exits (`sh` aliases `bash`; `pwsh` aliases `powershell`) |
 | `--log-level <level>` | Setting | Sets runtime minimum log level |
 
 > **Note:** `GlobalFlag.BuiltIns` is ordered `Help`, `Version`, `Wizard`, `Completions`, `LogLevel`; the first present action wins. `Command.withGlobalFlags` attaches application-specific actions or settings to a command and its descendants.
@@ -868,6 +890,8 @@ Use when embedding a CLI runner in a larger Effect program and needing to distin
 The formatting service for CLI output — help pages, error messages, version strings. `CliOutput.Formatter` is a `Context.Reference` service with a `defaultFormatter`; override with `CliOutput.layer(myFormatter)` to customise all CLI output.
 
 `HelpDoc` is the data; `CliOutput.Formatter` is the renderer. Swap the formatter for colourless output in CI, Markdown in a doc generator, or JSON for machine-readable help.
+
+`CliOutput.displayWidth(text)` exposes the built-in help/table terminal-cell measurement for custom formatters. It ignores ANSI escapes, handles combining/zero-width characters, and accounts for wide graphemes: use it rather than `text.length` or `padEnd` when aligning terminal columns.
 
 ```ts
 import { Effect } from "effect"

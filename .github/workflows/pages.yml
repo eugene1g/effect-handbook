@@ -85,6 +85,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install pnpm and Node
+        id: setup
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+        with:
+          runtime: node@26
+          cache: true
+          cache-dependency-path: pnpm-lock.yaml
+          install: false
+
+      - name: Back off before retrying setup
+        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
+        run: sleep 5
+
+      - name: Retry pnpm and Node setup
+        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
+        timeout-minutes: 3
         uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
         with:
           runtime: node@26
@@ -115,6 +132,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install pnpm and Node
+        id: setup
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+        with:
+          runtime: node@26
+          cache: true
+          cache-dependency-path: pnpm-lock.yaml
+          install: false
+
+      - name: Back off before retrying setup
+        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
+        run: sleep 5
+
+      - name: Retry pnpm and Node setup
+        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
+        timeout-minutes: 3
         uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
         with:
           runtime: node@26
@@ -143,6 +177,23 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install pnpm and Node
+        id: setup
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+        with:
+          runtime: node@26
+          cache: true
+          cache-dependency-path: pnpm-lock.yaml
+          install: false
+
+      - name: Back off before retrying setup
+        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
+        run: sleep 5
+
+      - name: Retry pnpm and Node setup
+        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
+        timeout-minutes: 3
         uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
         with:
           runtime: node@26
@@ -177,6 +228,23 @@ jobs:
           fetch-depth: 0
 
       - name: Install pnpm and Node
+        id: setup
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+        with:
+          runtime: node@26
+          cache: true
+          cache-dependency-path: pnpm-lock.yaml
+          install: false
+
+      - name: Back off before retrying setup
+        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
+        run: sleep 5
+
+      - name: Retry pnpm and Node setup
+        if: ${{ !cancelled() && steps.setup.outcome == 'failure' }}
+        timeout-minutes: 3
         uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
         with:
           runtime: node@26

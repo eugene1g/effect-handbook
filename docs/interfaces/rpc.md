@@ -6,7 +6,7 @@ Effect 4's RPC is schema-first and transport-agnostic. One contract — a group 
 
 ## Rpc
 
-`effect/rpc` — unstable
+`effect/rpc/Rpc` — unstable
 
 One procedure. `Rpc.make(tag, options)` records a tag plus four Schemas: `payload` (request), `success` (happy result), `error` (typed recoverable failures), and optional `defect` for unexpected deaths.
 
@@ -51,7 +51,7 @@ class ProposeRaise extends Rpc.make("ProposeRaise", {
 
 ## RpcGroup
 
-`effect/rpc` — unstable
+`effect/rpc/RpcGroup` — unstable
 
 A collection of `Rpc` definitions keyed by tag, forming the service contract. `RpcGroup.make(...rpcs)` builds it; `.add`, `.merge`, `.omit`, `.prefix`, `.middleware`, and `.annotateRpcs` shape it. Hand this single value to both server and client.
 
@@ -145,7 +145,7 @@ The group *is* the wire protocol. Everything a peer can observe — the final ta
 
 ## RpcServer
 
-`effect/rpc` — unstable
+`effect/rpc/RpcServer` — unstable
 
 The runtime that takes a group, its handler layer, a serialization layer, and a transport, and serves requests. Decodes incoming payloads with the procedure's Schema, runs the matching handler (and any middleware), tracks in-flight requests, honours acks and interrupts, encodes the result back to the client.
 
@@ -198,7 +198,8 @@ Choosing a transport is choosing what you must prove before shipping it:
 | `concurrency` | `"unbounded"` | Every request starts its handler immediately. A number creates one server-wide `Semaphore`, so at most that many handlers run and the rest wait for a permit. |
 | `Rpc.fork(effect)` in a handler | — | **Skips that semaphore entirely** (probed: with `concurrency: 1`, four plain calls ran one at a time and four forked calls ran all at once). Audit every use; reserve it for cheap control-plane calls (health, cancel) that must not queue behind slow work. |
 | `streamBufferSize` (`layerHttp`, `layerProtocolHttp`) | `16` | A framed HTTP response stream buffers at most 16 encoded messages ahead of the socket and then backpressures the handler. `"unbounded"` disables the limit. Unframed `layerJson` responses are collected whole. |
-| `disableFatalDefects` | `false` | A handler defect is sent as a connection-level `Defect`: **every in-flight call multiplexed on that client fails with it** (probed with `RpcTest`). `true` confines it to the failing request and encodes it with the procedure's `defect` schema. Over the HTTP protocol each POST is its own client, so the blast radius is that request batch; over a WebSocket, socket, or worker it is the connection. |
+| `disableFatalDefects` | `false` | A handler defect is sent as a connection-level `Defect`: **every in-flight call multiplexed on that client fails with it** (probed with `RpcTest`). `true` confines it to the failing request and encodes it with the procedure's `defect` schema; a handler that throws synchronously is treated as a defect of that request too. Over the HTTP protocol each POST is its own client, so the blast radius is that request batch; over a WebSocket, socket, or worker it is the connection. |
+| `onDisconnect` | none | `(clientId) => Effect<void>`, called per disconnect the `Protocol` reports, after the server has requested interruption of that client's in-flight requests (it does not wait for them). Each call runs in its own fiber; failures are logged, not propagated. Use it instead of taking from `Protocol.disconnects`, which would stop the server from interrupting the disconnected client's work. Not called for a clean end of input or for clients still connected at shutdown. |
 | `disableTracing`, `spanPrefix`, `spanAttributes` | tracing on, no prefix | One span per call named by the RPC method tag (e.g. `GetComp`); pass `spanPrefix: "RpcServer"` to restore the old `RpcServer.GetComp` form. Spans record `rpc.system.name: "effect_rpc"` and `rpc.method`. The socket, WebSocket, stdio, and worker protocols carry the caller's trace context in the RPC envelope. |
 
 Five mechanisms are easy to conflate and do not substitute for each other: **handler concurrency** (`concurrency`), **stream acks** (the client acknowledges each chunk, pacing a streaming handler — on the socket, WebSocket, stdio, and worker protocols, not HTTP), **transport backpressure** (`streamBufferSize`, the socket), **JSON-RPC batching** (several messages in one frame), and **`RequestResolver` batching** inside a handler ([Caching and batching](../operations/caching-batching)). A capacity plan names a finite value for each of: body and frame bytes (`maxFrameSize`, `maxBufferSize`, and [`MaxBodySize`](http-server#edge-policy-checklist) for HTTP), connections and their maximum lifetime, in-flight calls, per-principal rate, stream queue depth, a server-side deadline for every call and stream (`Effect.timeout` in the handler or a middleware — a browser tab that closes cannot be relied on to send `Interrupt`), and the shutdown drain. It also states the overload behavior in one word: reject, queue, shed, or close.
@@ -211,7 +212,7 @@ Response-encoding failures are server failures too: the server records them on t
 
 ## RpcClient
 
-`effect/rpc` — unstable
+`effect/rpc/RpcClient` — unstable
 
 The mirror of the server, derived from the same group. `RpcClient.make(group)` returns an object with one method per procedure; calling `client.GetComp({ employeeId })` returns an `Effect` with exactly the success and error types the group declared. No codegen, no duplicated types.
 
@@ -252,6 +253,8 @@ const program = Effect.gen(function*() {
 ```
 
 > **Tip:** Attach per-call headers with `RpcClient.withHeaders(effect, { authorization: token })` — they merge with `CurrentHeaders` and ride on outgoing requests, readable by the handler via `headers`. Pass `{ flatten: true }` to `RpcClient.make` to get a single `client(tag, payload)` function instead of a method-per-procedure object — useful for generic wrappers. Matching client transports: `layerProtocolHttp`, `layerProtocolSocket`, `layerProtocolWorker`. Socket clients accept `pingInterval` and `pingTimeout` options (both default to 5 seconds); any decoded server frame counts as liveness, so only a genuinely quiet connection triggers a ping.
+
+**`discard: true` waits for an acknowledgement.** A non-streaming call made with `{ discard: true }` completes once the server acknowledges it as its handler starts (after middleware has run), not when the request is written; the result and the handler's error are not returned, but transport errors, middleware errors, and failures before the handler starts still fail the call. Over HTTP and workers it completes after the handler finishes. `layerProtocolHttp` / `makeProtocolHttp` also accept an opt-in `batch: { window, maxSize? }` that sends concurrent requests from one client in a single HTTP request.
 
 ### Retried mutations need a ledger
 
@@ -324,7 +327,7 @@ The transaction boundary and the post-commit side of this pattern are covered by
 
 ## RpcClientError
 
-`effect/rpc` — unstable
+`effect/rpc/RpcClientError` — unstable
 
 The error a derived client raises for a transport or protocol failure rather than a declared remote error. Its `reason` is a union of transport failures — HTTP client errors, socket errors, worker errors — plus `RpcClientDefect` for protocol violations and decode failures (e.g. empty or malformed response).
 
@@ -361,7 +364,7 @@ Collapsing these — mapping every failure to one "RPC failed" error, or retryin
 
 ## RpcMiddleware
 
-`effect/rpc` — unstable
+`effect/rpc/RpcMiddleware` — unstable
 
 Cross-cutting concerns — auth, logging, rate limiting — modeled as a typed service attached to procedures. `RpcMiddleware.Service<Self, { provides, requires }>()(name, { error })` declares middleware that can fail with a typed `error` and `provides` a service to the handlers behind it.
 
@@ -504,7 +507,7 @@ For browsers, the HTTP edge in front of the RPC route still needs a CORS allow-l
 
 ## RpcSchema
 
-`effect/rpc` — unstable
+`effect/rpc/RpcSchema` — unstable
 
 Schema helpers specific to RPC — chiefly `RpcSchema.Stream(success, error)`, the success type that turns a procedure into a streaming response. A handler for a streaming RPC returns a `Stream` (or `Queue.Dequeue`); the client receives a `Stream` of decoded values.
 
@@ -542,7 +545,7 @@ A stream is **request-owned and ephemeral**. Decide, per streaming procedure: wh
 
 ## RpcSerialization
 
-`effect/rpc` — unstable
+`effect/rpc/RpcSerialization` — unstable
 
 The pluggable wire format. `RpcSerialization` is a service describing how messages are framed and parsed; provide one of its layers and both client and server use it. Swapping formats is a single layer change with zero impact on contract or handlers.
 
@@ -552,13 +555,13 @@ Serialization is **schema-aware**: each `RpcSerialization` carries a `codecFor(s
 
 - **layerJson** — Plain JSON. Unframed — best for one-request-per-HTTP-call.
 
-- **layerNdjson** — Newline-delimited JSON. Framed; ideal for streaming and sockets.
+- **layerNdjson** — Newline-delimited JSON. Framed; ideal for streaming and sockets. Its content type is `application/x-ndjson`; empty LF/CRLF lines are skipped and a malformed non-empty line fails with `NdjsonDecodeError` instead of being dropped.
 
 - **layerNdjsonWith({ maxBufferSize })** — NDJSON with an explicit bound on a retained incomplete frame. The default is 16 MiB; `"unbounded"` disables it. Exceeding it fails with `MaxBufferSizeExceeded`.
 
 - **layerSchemaBinary({ maxFrameSize?, fingerprintPayloads? })** — Compact binary frames derived from the RPC schemas (see [SchemaBinary](../concurrency/streaming-channels#schemabinary)). Framed; great for workers, TCP, and high-throughput links. Envelopes are fingerprinted; payload fingerprints are **off** by default so peers can evolve payload schemas compatibly. Frames default to a 16 MiB maximum. It is also what the platform cluster layers (`NodeClusterSocket`, `NodeClusterHttp`, and their Bun/Deno equivalents) select by default — `serialization: "binary"` — with `serialization: "ndjson"` as the explicit alternative.
 
-- **layerJsonRpc / layerNdJsonRpc** — JSON-RPC 2.0 framing for interop with non-Effect peers (e.g. LSP/MCP tooling). Request ids are echoed exactly as sent, including `0` and `""`.
+- **layerJsonRpc / layerNdJsonRpc** — JSON-RPC 2.0 framing for interop with non-Effect peers (e.g. LSP/MCP tooling). Request ids are echoed exactly as sent, including `0` and `""`, and stream chunks of a request sent inside a JSON-RPC batch keep their order. Pass `controlMessages: false` when the peer is a plain JSON-RPC implementation, so its `@effect/rpc/*` method names are not decoded as Effect control messages (MCP servers do this).
 
 ```ts
 import { RpcSerialization } from "effect/rpc"
@@ -578,13 +581,15 @@ const wireJsonRpc = RpcSerialization.layerJsonRpc()
 
 > **Warning:** `layerSchemaBinary()` is the binary wire format; it compiles the codec for every payload, chunk, exit, and defect hole directly from the RPC group's own schemas, so it needs no runtime schema registry or format-specific dependency. Nothing negotiates the format, though: changing it is a two-sided deploy, and two binary formats (or a binary and a text format) are not wire-compatible with each other. A rolling upgrade across that boundary needs a format both versions speak — NDJSON, or a second endpoint — as the bridge. Rehearse it in staging: this handbook has not verified mixed-version NDJSON interoperability.
 
+**Migration:** the request envelope gained a `discard` field, which changes the SchemaBinary envelope fingerprint. Upgrade every SchemaBinary peer (including cluster runners using `serialization: "binary"`) together; mixed versions do not share an envelope fingerprint. JSON-based serializations carry no fingerprint.
+
 Serialization is chosen independently of the transport, and **both peers must provide the same one** — nothing negotiates it. Every framed format needs a finite bound on an unterminated frame (`maxBufferSize`, `maxFrameSize`); leave `"unbounded"` to trusted, in-process peers.
 
 **Reach for it when** you need to choose or change the on-the-wire encoding — for size, streaming framing, or interop.
 
 ## RpcMessage
 
-`effect/rpc` — unstable
+`effect/rpc/RpcMessage` — unstable
 
 The protocol envelope types — messages that flow between client and server once payloads are wrapped for transport. Client-to-server: `Request`, `Ack`, `Interrupt`, `Eof`, `Ping`. Server-to-client: response exits, stream chunks, defects, `Pong`. Also defines branded `RequestId`.
 
@@ -600,7 +605,7 @@ Key APIs: Request, Ack, Interrupt, Eof, Ping, ResponseChunk, ResponseExit, Reque
 
 ## RpcWorker
 
-`effect/rpc` — unstable
+`effect/rpc/RpcWorker` — unstable
 
 Glue for running an RPC group over a Worker. Pair `RpcClient.layerProtocolWorker` on the main thread with `RpcServer.layerProtocolWorkerRunner` inside the worker to make a typed group drive a typed worker pool — same contract as HTTP, different pipe.
 
@@ -628,7 +633,7 @@ Combine with `RpcSerialization.layerSchemaBinary()` — binary framing plus tran
 
 ## RpcTest
 
-`effect/rpc` — unstable
+`effect/rpc/RpcTest` — unstable
 
 In-memory harness that wires a derived client straight to handlers — no transport, no serializer, no HTTP server. `RpcTest.makeClient(group)` connects client and server through the no-serialization path; requests, responses, stream chunks, acks, interrupts, headers, and middleware all flow through the real machinery without bytes on a wire.
 
@@ -653,13 +658,15 @@ const test = Effect.gen(function*() {
 }).pipe(Effect.scoped, Effect.provide(CompLive))
 ```
 
+`RpcTest.makeClient(group, { disableFatalDefects: true })` mirrors the server option, so a handler defect fails only its own request instead of every pending call on the test client.
+
 **What it proves, and what it does not.** `RpcTest.makeClient` runs the real request machinery — handlers, middleware, typed exits, stream chunks, acks, interruption — and the client still validates each payload against the procedure's schema when it builds the request. It skips serialization and transport entirely, so it proves nothing about the encoded form, framing, a serializer mismatch, version skew, frame limits, or what a disconnect does. Cover those in a second ring with a real serializer and listener (an `RpcServer.layerHttp` route on port `0`, see [HTTP Server](http-server#own-the-listener-acquire-late-bind-port-0-prove-release)), and add hostile protocol cases that a typed client can never produce: a frame split across chunks, several frames in one chunk, an unknown tag, an oversized or never-terminated frame, deeply nested JSON, and prototype-pollution-shaped keys (`__proto__`, `constructor`).
 
 **Reach for it when** you want fast, deterministic tests of a whole group's behaviour without standing up a server.
 
 ## Utils
 
-`effect/rpc` — unstable
+`effect/rpc/Utils` — unstable
 
 Plumbing for transport authors. `withRun` and `withRunClient` build protocol services that expose a stable `send`/`write` handle before the receive loop starts, buffering early messages (with their `Context`) and replaying them once `run` installs the real receiver. The built-in HTTP/socket/worker protocols are built with these.
 

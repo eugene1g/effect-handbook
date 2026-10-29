@@ -2,7 +2,7 @@
 
 > **Note:** The query API, schema adapters, resolvers, models, and migrator live in the `effect` package itself, under `effect/sql` (tagged `@stability unstable`). They are database-agnostic. A driver package like `@effect/sql-pg` contributes one thing: a `Layer` producing the `SqlClient` service wired to a real connection pool and the correct dialect compiler. Write your service against `SqlClient`; swap the driver layer to change databases.
 
-> **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
+> **Official example:** The release-matched [`ai-docs` SQL example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/40_sql) defines a `Model.Class`, runs migrations, and exposes a derived repository through a service.
 
 ## Where SQL belongs in an application
 
@@ -95,9 +95,24 @@ const addEmployee = Effect.fn("addEmployee")(
 )
 ```
 
-Additional helpers: `sql.insert([...])` for bulk rows, `sql.update(record, [omitKeys])` for a single-row `SET` clause, `sql.updateValues([...], "alias")` for multi-row updates (not on sqlite), `sql.or`, and `sql.csv("order by", [...])` for comma lists.
+Additional helpers: `sql.insert([...])` for bulk rows, `sql.update(record, [omitKeys])` for a single-row `SET` clause, `sql.updateValues([...], "alias")` for multi-row updates (not on sqlite), `sql.or`, and `sql.csv("order by", [...])` for comma lists. `sql.updateValues` escapes its alias as an identifier without applying name transforms, so pass a bare alias (not pre-quoted SQL) and quote a mixed-case PostgreSQL alias where the query references it.
 
-> **Note:** Prefer the two-argument `sql.in("level", levels)`: with an empty array it compiles to `1=0` (no rows). The one-argument form `level in ${sql.in(levels)}` compiles an empty array to `in ()`, which PostgreSQL rejects as a syntax error. Bulk `sql.insert([...])` and long `IN` lists bind one parameter per value, so chunk large inputs to stay under the driver's parameter and statement-size limits.
+**Bulk helpers take a non-empty array.** `sql.insert` and `sql.updateValues` require `NonEmptyReadonlyArray` rows at the type level; narrow a runtime array first and skip the statement when it is empty.
+
+```ts
+import { Array, Effect } from "effect"
+import { SqlClient } from "effect/sql"
+
+export const insertBands = Effect.fn("insertBands")(
+  function*(rows: ReadonlyArray<{ readonly level: string; readonly mid: number }>) {
+    const sql = yield* SqlClient.SqlClient
+    if (!Array.isReadonlyArrayNonEmpty(rows)) return
+    yield* sql`insert into comp_bands ${sql.insert(rows)}`
+  }
+)
+```
+
+> **Note:** An empty list is safe in both `sql.in` forms. The two-argument `sql.in("level", levels)` compiles to `1=0` (no rows). The one-argument form `level in ${sql.in(levels)}` matches no rows with `IN` and every row with `NOT IN` when the keyword directly precedes the helper; on PostgreSQL it compiles to `= ANY('{}')`, so a comparison on the left of `IN` must be parenthesized (`a = (b in ${sql.in([])})`), and array-typed columns are not supported there. Bulk `sql.insert([...])` and long `IN` lists bind one parameter per value, so chunk large inputs to stay under the driver's parameter and statement-size limits (PostgreSQL allows 65,535 bound parameters per statement).
 
 ### Fragments compose
 
@@ -197,6 +212,26 @@ Transaction rules:
 - **Savepoints release once a nested transaction settles.** The PostgreSQL, PGlite, MySQL, libSQL, and Node/Bun/React Native/WASM SQLite clients release a savepoint as soon as the nested `withTransaction` succeeds or successfully rolls back, freeing PostgreSQL's transaction locks before the outer transaction completes. A custom client built with `SqlClient.makeWithTransaction` opts in with its own `releaseSavepoint` option.
 - **Retry the whole transaction, never an inner statement.** After a `DeadlockError` or `SerializationError` the database has already aborted the transaction, so retry `sql.withTransaction(unit)` as a unit, with a bounded schedule, and only when `unit` is database-only.
 - **Commit errors can be typed too.** Acquisition, `BEGIN`, and `SAVEPOINT` failures surface as `SqlError`. A failed `COMMIT` preserves its typed error if commit-failure cleanup succeeds; if cleanup fails too, the combined failures become defects. `ROLLBACK` and savepoint-release failures are defects. Observe both channels on `sql.transaction` spans, and never infer from the error channel alone that a write definitely did not commit.
+
+**Isolation level and post-commit hooks.** Provide `SqlClient.BeginTransaction` (a `Context.Reference<string | undefined>`) to replace the statement that starts a *top-level* transaction, such as `"BEGIN ISOLATION LEVEL SERIALIZABLE"`, saving a separate `SET TRANSACTION` round trip; nested transactions still use savepoints. `sql.afterCommit(effect)` runs a `never`-failing effect once the outermost transaction commits (immediately outside a transaction) and drops it on rollback; `Reactivity` invalidations inside a transaction are deferred the same way. Callbacks run uninterruptibly after `COMMIT` and `withTransaction` waits for them, so keep them short and fork long work. It is an in-process hook, not a durable outbox: a crash after commit, or an unknown `COMMIT` outcome, loses it.
+
+```ts
+import { Effect } from "effect"
+import { SqlClient } from "effect/sql"
+
+export const closeCycle = (cycleId: number) =>
+  Effect.gen(function*() {
+    const sql = yield* SqlClient.SqlClient
+    return yield* sql.withTransaction(
+      Effect.gen(function*() {
+        yield* sql`update merit_cycles set closed = true where id = ${cycleId}`
+        yield* sql.afterCommit(Effect.logInfo("merit cycle closed"))
+      })
+    ).pipe(Effect.provideService(SqlClient.BeginTransaction, "BEGIN ISOLATION LEVEL SERIALIZABLE"))
+  })
+```
+
+A queued `withTransaction` or `sql.reserve` waiting for a connection can be interrupted (respecting the caller's interruptibility), and an interrupted or failed acquisition always returns the connection and its permits.
 
 ### External effects after commit (outbox)
 
@@ -555,6 +590,8 @@ const headcount = Effect.gen(function*() {
 }).pipe(Effect.scoped)
 ```
 
+Driver authors: `SqlClient.make` requires a `driver` name (`"pg"`, `"sqlite-node"`, …, exposed as `sql.driver`), and hand-written `SqlClient` implementations must provide that field. With the unstable `SqlClient.makeWithTransaction`, `acquireConnection` receives the interruption mask's `restore` and returns a scoped connection effect instead of a `[scope, connection]` tuple, and `begin` receives the `BeginTransaction` statement as its second argument.
+
 **Reach for it when** implementing a new driver, or needing a pinned raw connection for operations the statement API does not model.
 
 ## Migrator
@@ -590,13 +627,13 @@ export default Effect.gen(function*() {
 import { Layer } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { PgClient, PgMigrator } from "@effect/sql-pg"
-import { Migrator } from "effect/sql"
+import * as MigratorFileSystem from "effect/sql/MigratorFileSystem"
 
 const SqlLive = PgClient.layer({ database: "comp", username: "comp" })
 
 const MigratorLive = PgMigrator.layer({
-  // Migrator is part of the unstable effect/sql module.
-  loader: Migrator.fromFileSystem("migrations"),
+  // MigratorFileSystem is part of the unstable effect/sql module.
+  loader: MigratorFileSystem.fromFileSystem("migrations"),
   schemaDirectory: "migrations" // optional: dump schema via pg_dump after success
 }).pipe(
   Layer.provide(SqlLive),
@@ -604,7 +641,9 @@ const MigratorLive = PgMigrator.layer({
 )
 ```
 
-Loaders: `fromFileSystem(dir)` imports numbered `.js`/`.ts`/`.mjs`/`.mts` files, requires both `FileSystem` and a host-aware `Path`, and converts absolute paths to file URLs for Windows-safe ESM loading. Aggregate host layers satisfy both requirements—do not pair it with core's POSIX-only `Path.layer` on Windows. `fromGlob(importMap)` is the bundler-friendly route; `fromRecord` / `fromBabelGlob` cover in-code or transpiled setups. `MigrationError` carries a `kind` of `BadState | ImportError | Failed | Duplicates | Locked`, but the kinds do not all travel in the same channel: `ImportError` and `Duplicates` are typed failures; a migration whose own effect fails is wrapped as `kind: "Failed"` and raised as a **defect** (`Effect.die`), so it bypasses `Effect.catchTag("MigrationError", ...)`; `Locked` is handled internally and turns the run into a no-op that returns an empty list.
+Loaders: `fromFileSystem(dir)` lives in `effect/sql/MigratorFileSystem` (also re-exported by every driver migrator, such as `PgMigrator.fromFileSystem`, except `@effect/sql-sqlite-react-native`) and imports numbered `.js`/`.ts`/`.mjs`/`.mts` files, requires both `FileSystem` and a host-aware `Path`, and converts absolute paths to file URLs for Windows-safe ESM loading. Aggregate host layers satisfy both requirements—do not pair it with core's POSIX-only `Path.layer` on Windows. `fromGlob(importMap)` is the bundler-friendly route; `fromRecord` / `fromBabelGlob` cover in-code or transpiled setups. `MigrationError` carries a `kind` of `BadState | ImportError | Failed | Duplicates | Locked`, and every kind except `Locked` is a typed failure: a migration whose own effect fails is wrapped as `kind: "Failed"` with the original error as `cause`, so `Effect.catchTag("MigrationError", ...)` and retries see it. `Locked` is handled internally and turns the run into a no-op that returns an empty list.
+
+**Migration:** `Migrator.fromFileSystem` and the `effect/sql` barrel's `fromFileSystem` were removed so React Native's Metro bundler can import `effect/sql`; import it from `effect/sql/MigratorFileSystem` or from the driver's migrator module.
 
 > **Tip:** All pending migrations run inside **one** `sql.withTransaction`. On PostgreSQL the migrator first takes an `ACCESS EXCLUSIVE` lock on the migrations table, so a concurrent instance waits and then finds nothing pending; on other dialects the loser's conflicting insert into the migrations table is reported as `Locked` and swallowed. Either way nothing is applied twice.
 
@@ -625,6 +664,12 @@ PostgreSQL migrations-table discovery uses `to_regclass` without intentionally f
 | **Test the schema, not the ledger.** | Run migrations from empty *and* from a representative prior snapshot; assert constraints, indexes, defaults, and backfilled values — not merely rows in `effect_sql_migrations`. |
 
 **Reach for it when** you need reproducible, ordered schema evolution checked into the repo and applied automatically on deploy.
+
+## MigratorFileSystem
+
+`effect/sql/MigratorFileSystem` — unstable
+
+The directory loader for [Migrator](#migrator), kept out of `effect/sql/Migrator` and the `effect/sql` barrel because its dynamic `import()` breaks React Native's Metro bundler. `MigratorFileSystem.fromFileSystem(directory)` returns a `Loader<FileSystem | Path>` that imports `<id>_<name>` `.js`/`.ts`/`.mjs`/`.mts` files sorted by id. Import it by its subpath (`effect/sql/MigratorFileSystem`) or through a driver's migrator (`PgMigrator.fromFileSystem`, `SqliteMigrator.fromFileSystem`, …); `@effect/sql-sqlite-react-native` deliberately does not re-export it, so bundle migrations there with `Migrator.fromRecord` or `fromGlob`.
 
 ## SqlModel
 
@@ -688,6 +733,7 @@ Pass `softDeleteColumn` and deletes flip that column to `CURRENT_TIMESTAMP` whil
 - **Know what *holds* a connection.** A transaction, a `.stream`, `sql.reserve`, and a `listen` subscription keep one for their whole lifetime; an ordinary statement borrows one briefly. With `@effect/sql-pg`'s `multiplex`, plain statements share connections, but transactions, streams, and listeners still reserve one each.
 - **Result streaming is driver-dependent.** The native PostgreSQL client streams incrementally on a pinned session and cancels the statement when the stream is abandoned; PGlite's `.stream` runs the query to completion and then emits the rows. Consume streams inside a scope, keep buffers bounded, and prefer keyset pagination over a stream that would hold a connection for hours.
 - **Interruption expresses cancellation intent; the driver decides what reaches the server.** `@effect/sql-pg` sends a PostgreSQL `CancelRequest` for an interrupted statement, except on an unpinned multiplexed connection, where cancelling could hit another fiber's query. For other drivers, verify whether server-side work is cancelled or merely abandoned.
+- **Watch the pool, and bound the wait.** `PgClient.poolStats` (and `PgPool.stats`) sample `{ idle, used, pending, min, max }` for exporting pool metrics; a single-session client from `makeClient` always reports one used connection. `acquireTimeout` on `PgClient` / `PgPool` fails a borrower with a `ConnectionError` reason when the pool stays exhausted, and `onAcquire` runs an effect in the borrowing fiber after each checkout (per checkout, not per socket); its requirements become requirements of the client layer.
 - **Give readiness probes a short deadline and their own headroom.** A probe that queues behind a saturated pool turns overload into a restart loop. Keep liveness independent of the database.
 
 ### Logging and telemetry safety

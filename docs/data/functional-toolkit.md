@@ -56,7 +56,7 @@ reviewNote({ _tag: "Below", pipPlan: "Q3-improvement" })
 
 **Structural patterns.** `when` accepts any predicate or literal pattern — match by shape, not just tag:
 
-For a known object input, `Match.when`, `whenOr`, `whenAnd`, and `not` reject pattern keys absent from every input variant, catching misspelled fields at compile time. Tuple patterns match a **prefix**, not an exact array length: matching `[1]` against a variadic array narrows the first element but preserves the remaining elements' original type.
+For a known object input, `Match.when`, `whenOr`, `whenAnd`, and `not` reject pattern keys absent from every input variant, catching misspelled fields at compile time. Tuple patterns match a **prefix**, not an exact array length: matching `[1]` against a variadic array narrows the first element but preserves the remaining elements' original type. An array shorter than the pattern never matches.
 
 ```ts
 import { Match, pipe } from "effect"
@@ -77,6 +77,31 @@ Key APIs: `Match.tag`, `Match.tags`, `Match.tagsExhaustive`, `Match.tagStartsWit
 Built-in predicates (usable at the top level or nested inside an object pattern): `Match.string`, `Match.nonEmptyString`, `Match.number`, `Match.boolean`, `Match.bigint`, `Match.symbol`, `Match.date`, `Match.record`, `Match.null`, `Match.undefined`, `Match.defined`, `Match.any`, `Match.is(...literals)`, `Match.instanceOf(Class)`. Any `(value) => boolean` also works as a field pattern: `{ level: (n) => n >= 3 }`.
 
 `Match.tag("Exceeds", "Meets", handler)` handles multiple tags in one arm. `Match.not(pattern, handler)` matches everything that does NOT match the pattern. `Match.tagStartsWith("Comp", handler)` useful for namespaced tags. `Match.withReturnType<R>()` pins the return type of every arm — **it must be the first step of the pipeline**; placed later, TypeScript does not enforce the return type correctly.
+
+**Literal unions as a handler table.** `Match.literals({ ... })` (unstable) maps finite string or number literals to handlers, each receiving its literal; handled literals leave the remaining input, so close the matcher with `orElse` or another arm. `Match.literalsExhaustive({ ... })` (unstable) requires a handler for every remaining member and closes the matcher, so a new literal, a widened `string`/`number`, or any non-literal member is a compile error. Keys that are not members of the input are rejected, and so is a union holding both a number and its string spelling (`1 | "1"`), since they share one runtime key.
+
+```ts
+import { Match } from "effect"
+
+type ReviewStatus = "draft" | "submitted" | "calibrated" | "final"
+
+const isEditable = Match.type<ReviewStatus>().pipe(
+  Match.literals({ draft: () => true, submitted: () => true }),
+  Match.orElse(() => false)
+)
+
+const statusLabel = Match.type<ReviewStatus>().pipe(
+  Match.literalsExhaustive({
+    draft: () => "Draft",
+    submitted: () => "Awaiting calibration",
+    calibrated: () => "Calibrated",
+    final: () => "Final"
+  })
+)
+
+isEditable("calibrated") // false
+statusLabel("submitted") // "Awaiting calibration"
+```
 
 **Matching on several arguments.** `Match.fn` builds a reusable matcher from a selector over the function's arguments; handlers receive the narrowed selected value first, then the original arguments:
 
@@ -103,6 +128,7 @@ The finalizers of a `Match.value(x)` pipeline (`orElse`, `option`, `result`, `ex
 | --- | --- | --- |
 | `Match.exhaustive` | Compile error while cases remain | The input is a closed union and every member has a policy |
 | `Match.tagsExhaustive({ ... })` | Compile error for a missing or unknown tag | The same, written as one handler table |
+| `Match.literalsExhaustive({ ... })` | Compile error for a missing or unknown literal | The same table over a string/number literal union |
 | `Match.orElse(fallback)` | The fallback's value | A deliberate default exists; never as a way to silence `exhaustive` |
 | `Match.option` | `Option.none()` | A partial matcher feeding `Option` combinators |
 | `Match.result` | `Result.fail(input)` — the unmatched input | The caller should see what was not handled |
@@ -254,6 +280,8 @@ Equal.equals(emp1, emp3) // false — different id
 
 - **Structural is the default in Effect 4.** Plain objects, arrays, `Map`, `Set`, `Date`, and instances of ordinary classes all compare by content, and `NaN` equals `NaN`. `Data` classes are about ergonomics — constructors, tags, yieldable errors — not about obtaining value equality. The comparison looks at keys and values, not at the constructor: prototype keys such as methods take part, so two instances of one class are equal when their fields are, while an instance with methods is not equal to a bare literal carrying the same fields. If exactly one operand implements `Equal`, the result is `false`.
 - **Hidden own fields count too.** Default record equality compares own string and symbol keys, including non-enumerable ones. An incidental field such as a request id or a fetched-at timestamp makes two records of the same entity unequal. When identity is a subset of the shape, implement `[Equal.symbol]` and `[Hash.symbol]` over the identifying fields only, as `Employee` does above.
+- **Binary data compares by content.** Typed arrays, `ArrayBuffer`s, and `SharedArrayBuffer`s compare and hash by their bytes; an `ArrayBuffer` never equals a `SharedArrayBuffer`, and a detached buffer is equal only to itself. Use [`Bytes.Equivalence`](#bytes) when you only need a byte comparison.
+- **Mutable cells compare by identity.** A [`Ref`](../concurrency/state-mutable-references#ref) or [`MutableRef`](../concurrency/state-mutable-references#mutableref) equals only itself, whatever it holds, so two cells with equal contents are distinct `HashMap` keys and `HashSet` members.
 - **Native collections ignore `Equal`.** `new Set([{ id: "e1" }, { id: "e1" }]).size` is `2`; only Effect's hash collections ([HashMap](./data-structures#hashmap), [HashSet](./data-structures#hashset)) dedupe structurally.
 - **Compared values must stay frozen.** Hashes are cached per object and comparison results per object pair, so mutating a value after its first comparison or first use as a key leaves stale answers behind. Build a new value instead.
 - **Opting out.** `Equal.byReference(obj)` returns a proxy that compares by identity and leaves `obj` untouched; `Equal.byReferenceUnsafe(obj)` marks `obj` itself, permanently and without a proxy.
@@ -847,6 +875,80 @@ BudgetDiffer.patch(500_000, combined)                  // 380_000 remaining
 
 Use when building patch-sourced state propagation that needs to compute, merge, and replay incremental changes rather than replacing values wholesale.
 
+## TextDiff
+
+`effect/TextDiff` — experimental
+
+Minimal edit scripts for arrays and text (Myers' algorithm in linear space). `diff(before, after)` compares array items with `Equal.equals` and `diffWith(isEquivalent)` with a custom equivalence; `lines` diffs text line by line, keeping each `\n` so line-ending changes are visible; `codePoints` diffs by Unicode code point, never splitting a surrogate pair. A script is an array of `Equal` / `Delete` / `Insert` runs. `apply` and `applyText` replay a script and return `Result` — `applyText` rejects a script made for different text with a `TextDiffError` — and `invert` reverses it. `unified(edits, { context?, fromFile?, toFile? })` formats a line script as a unified diff.
+
+```ts
+// @effect-diagnostics experimentalApiUsage:off
+import { TextDiff } from "effect"
+
+const before = "level: 3\nband: B\n"
+const after = "level: 4\nband: B\n"
+
+const edits = TextDiff.lines(before, after)
+// [{ _tag: "Delete", items: ["level: 3\n"] }, { _tag: "Insert", items: ["level: 4\n"] }, { _tag: "Equal", items: ["band: B\n"] }]
+
+TextDiff.unified(edits, { fromFile: "before.yaml", toFile: "after.yaml" })
+// "--- before.yaml\n+++ after.yaml\n@@ -1,2 +1,2 @@\n-level: 3\n+level: 4\n band: B\n"
+
+TextDiff.applyText(before, edits)                  // Result.succeed(after)
+TextDiff.applyText(after, TextDiff.invert(edits))  // Result.succeed(before)
+```
+
+> **Warning:** Without a cap, work grows with input size times the number of differences — quadratic for unrelated inputs. Pass `maxEdits` for large or untrusted inputs; past the cap the script stays valid but may no longer be minimal.
+
+Use for audit trails, review screens, and change previews over text or lists. For patching typed state, use [Differ](#differ).
+
+## SemVer
+
+`effect/SemVer` — unstable
+
+Immutable [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) values: numeric `major`, `minor`, `patch`, optional `prerelease` identifiers, and optional `build` metadata. Parsing is strict — `SemVer.parse(text)` returns `Result<SemVer, SemVerError>` and rejects partial versions (`"1.2"`) and a `v` prefix; `parseUnsafe` throws, and `make(components)` / `fromInput` build from fields. `format` prints the canonical string.
+
+`SemVer.Order` follows spec precedence (a pre-release sorts before its release) and **ignores build metadata**, while `Equal.equals` and hashing **include** it — so `1.0.0+a` and `1.0.0+b` are not `Equal` but compare as `0`. Comparison helpers (`isLessThan`, `between`, `min`, `max`, `clamp`), `release` (drop the pre-release), `bumpMajor` / `bumpMinor` / `bumpPatch`, the `bumpPre*` family, `bump(version, releaseType, identifier?)`, and `difference(a, b)` (an `Option<ReleaseType>` naming the bump between two versions) cover release tooling.
+
+```ts
+import { Result, SemVer } from "effect"
+
+const current = SemVer.parseUnsafe("1.4.2-rc.1+build.7")
+SemVer.isPrerelease(current)              // true
+SemVer.format(SemVer.release(current))    // "1.4.2"
+
+const stable = SemVer.parseUnsafe("1.4.2")
+SemVer.format(SemVer.bump(stable, "minor"))          // "1.5.0"
+SemVer.format(SemVer.bump(stable, "premajor", "rc")) // "2.0.0-rc.0"
+SemVer.difference(stable, SemVer.parseUnsafe("1.5.0")) // Option.some("minor")
+
+Result.isFailure(SemVer.parse("v1.2.3")) // true — no `v` prefix, no partial versions
+```
+
+`Schema.SemVer` validates `SemVer` values and `Schema.SemVerFromString` decodes the version string form, for config, manifests, and API payloads.
+
+## SemVerRange
+
+`effect/SemVerRange` — unstable
+
+npm-style version ranges over `SemVer`: comparators, `^` caret, `~` tilde, `x`/`*` wildcards, hyphen ranges (`1.2.3 - 2.3.4`), and `||` alternatives. `SemVerRange.parse(text)` returns `Result<SemVerRange, SemVerError>`; constructors (`exact`, `caret`, `tilde`, `greaterThan`, `lessThanOrEqualTo`, `between({ minimum, maximum })`, `any`) build ranges directly. `matches(range, version, options?)`, `maxSatisfying`, and `minSatisfying` accept a `SemVer` or a version string and throw `SemVerError` on an invalid one.
+
+```ts
+import { Option, SemVer, SemVerRange } from "effect"
+
+const supported = SemVerRange.parseUnsafe("^1.4.0")
+
+SemVerRange.matches(supported, "1.9.3")      // true
+SemVerRange.matches(supported, "2.0.0")      // false
+SemVerRange.matches(supported, "1.5.0-rc.1") // false — pre-releases need opting in
+
+SemVerRange.maxSatisfying(supported, ["1.4.0", "1.6.1", "2.0.0", "1.7.0-rc.1"]).pipe(
+  Option.map(SemVer.format)
+) // Option.some("1.6.1")
+```
+
+Pre-releases follow node-semver: a pre-release version matches only a comparator set that names a pre-release of the same `major.minor.patch`, unless `{ includePrerelease: true }` is passed. One deliberate difference: `||` alternatives always form a union, so a `*` alternative does not discard pre-releases another alternative admits. `Schema.SemVerRange` and `Schema.SemVerRangeFromString` cover the schema side.
+
 ## Newtype
 
 `effect/Newtype` — unstable
@@ -1100,6 +1202,23 @@ UndefinedOr.match(managerId, {
 })
 ```
 
+## Bytes
+
+`effect/Bytes` — unstable
+
+Small helpers for `Uint8Array`: `Bytes.concat(chunks)` joins chunks into one **new** array (it never aliases an input, even for zero or one chunk), `Bytes.Equivalence` compares byte by byte, and `Bytes.Order` sorts lexicographically by unsigned byte with a prefix before any longer sequence. Text and Base64/hex conversions stay in `TextEncoder`/`TextDecoder` and the `effect/encoding` modules below.
+
+```ts
+import { Array as Arr, Bytes } from "effect"
+
+const frame = Bytes.concat([new Uint8Array([0x01, 0x02]), new Uint8Array([0x03])]) // Uint8Array [1, 2, 3]
+Bytes.Equivalence(frame, new Uint8Array([1, 2, 3])) // true
+
+const sorted = Arr.sort([new Uint8Array([1, 0]), new Uint8Array([1])], Bytes.Order) // [[1], [1, 0]]
+```
+
+> **Warning:** `Bytes.Equivalence` returns at the first differing byte, so it is not constant-time. Never compare MACs, tokens, or other secrets with it; use the verification operations in [Cryptography](../interfaces/cryptography).
+
 ## Base64
 
 `effect/encoding/Base64` — stable
@@ -1125,20 +1244,23 @@ const bytes = Base64.decode(encoded)                 // Result<Uint8Array, Encod
 
 `effect/encoding/Base64Url` — stable
 
-The URL- and filename-safe alphabet (`-` and `_` instead of `+` and `/`, no padding), with the same `encode` / `decode` / `decodeString` trio. Use it for values that travel in query strings, cookies, or path segments.
+The URL- and filename-safe alphabet (`-` and `_` instead of `+` and `/`, no padding), with the same `encode` / `decode` / `decodeString` trio. Use it for values that travel in query strings, cookies, or path segments. `Base64Url.encodePadded` keeps the `=` padding for consumers that require it, such as Go's `base64.URLEncoding`; `SchemaGetter.encodeBase64Url` takes the matching `padding` option. Decoding accepts unpadded (`Zg`) and fully padded (`Zg==`) input but rejects partial padding (`Zg=`) with an `EncodingError`.
 
 ```ts
 import { Base64Url } from "effect/encoding"
 
 const token = Base64Url.encode(new Uint8Array([0xfb, 0xff, 0xbf]))  // "-_-_"
 const back = Base64Url.decode(token)                                 // Result<Uint8Array, EncodingError>
+
+Base64Url.encodePadded("fo") // "Zm8="
+Base64Url.decode("Zg=")      // Result.fail(EncodingError) — partially padded
 ```
 
 ## Hex
 
 `effect/encoding/Hex` — stable
 
-Lowercase hexadecimal with the same trio, plus `Hex.random(length)`, which returns a random lowercase hex string for identifiers such as correlation ids. `random` draws from `Math.random()`, so it is **not cryptographically secure** — never use it for tokens, secrets, or anything an attacker must not guess; for those, take bytes from the platform [`Crypto`](../interfaces/platform-runtime-hosts#crypto) service and pass them to `Hex.encode`. `length` is not validated: it is rounded *down* to a multiple of 8, so `Hex.random(10)` has 8 characters and `Hex.random(3)` is the empty string.
+Lowercase hexadecimal with the same trio, plus `Hex.random(length)`, which returns a random lowercase hex string for identifiers such as correlation ids. `random` draws from `Math.random()`, so it is **not cryptographically secure** — never use it for tokens, secrets, or anything an attacker must not guess; for those, draw bytes with `randomBytes` from the [`SecureRandom`](../interfaces/cryptography#securerandom) service and pass them to `Hex.encode`. `length` is not validated: it is rounded *down* to a multiple of 8, so `Hex.random(10)` has 8 characters and `Hex.random(3)` is the empty string.
 
 ```ts
 import { Hex } from "effect/encoding"

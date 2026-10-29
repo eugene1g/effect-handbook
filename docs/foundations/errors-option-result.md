@@ -4,13 +4,13 @@ Effect treats failure as a typed value, not an exception. `Option` models absenc
 
 `Option<A>`, `Result<A, E>`, and `Effect<A, E, R>`'s `E` channel are the same idea at increasing power levels. Learn to move between them fluently.
 
-> **Official examples:** Effect's release-matched [`ai-docs` error-handling examples](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/04_errors) cover tagged errors, `catchTag`/`catchTags`, and reason-based errors.
+> **Official examples:** Effect's release-matched [`ai-docs` error-handling examples](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/01_effect/04_errors) cover tagged errors, `catchTag`/`catchTags`, and reason-based errors.
 
 > **Official guides:** [Expected Errors](https://effect.website/docs/v4/error-management/expected-errors), [Two Types of Errors](https://effect.website/docs/v4/error-management/two-error-types). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ![Diagram: an Exit is a Success or a Failure carrying a Cause; a Cause holds Fail, Die, and Interrupt reasons, and each is handled by different combinators](/diagrams/cause-classification.svg)
 
-_A failed `Exit` carries a `Cause` with one or more reasons. Only `Fail(E)` is in the typed error channel; defects and interruptions travel in the `Cause`, and `Effect.retry` does not retry a `Cause` that contains them._
+_A failed `Exit` carries a `Cause` with one or more reasons. Only `Fail(E)` is in the typed error channel; defects and interruptions travel in the `Cause`, and `Effect.retry` does not retry a `Cause` that contains a defect._
 
 ## Designing the error model
 
@@ -280,13 +280,15 @@ const bandMidpoint = Effect.firstSuccessOf([fromHris, fromReplica, fromSnapshot]
 - **`Effect.orElseSucceed(() => value)` replaces every typed failure.** The function receives the error (`(error) => ...`), matching `Stream.orElseSucceed`, so the fallback can depend on it; a zero-argument function still works. If only "not found" should default, narrow with `catchTag` first and keep the rest typed.
 - **`Effect.firstSuccessOf(effects)`** tries different effects in order; an empty iterable is a defect. When the *same* effect should run under different provided services, use [`ExecutionPlan`](core-runtime-execution#executionplan) instead.
 - **`Effect.option` discards the error value**, so use it only when every typed failure of that effect genuinely means "absent"; otherwise use `Effect.result`. Both leave defects and interruption as fiber failures.
-- **`Effect.ignore` discards typed failures only** — a defect or interruption still fails the fiber. `Effect.ignoreCause` also discards defects and interruption and can therefore hide bugs; reserve it for best-effort cleanup. Both accept `{ log: true | severity, message }` to log the `Cause` while ignoring it.
+- **`Effect.ignore` discards typed failures only** — a defect or interruption still fails the fiber. `Effect.ignoreCause` also discards defects and interruption and can therefore hide bugs; reserve it for best-effort cleanup. Both accept `{ log: true | severity | "Unhandled", message }` to log the `Cause` while ignoring it. `log: "Unhandled"` reads `References.UnhandledLogLevel` when the failure happens and logs nothing when that reference is `undefined`, so the application decides centrally how loudly swallowed failures are reported; the same option exists on the `Stream` and `Channel` variants.
 
-### Recovery replaces the whole Cause
+### Recovery and mixed causes
 
 A [`Cause`](fibers-scopes-runtimes#cause) is a flat list of reasons and may hold a typed failure *and* a defect or interruption at once: a failing operation whose finalizer dies, a concurrent sibling whose cleanup dies while being interrupted, or a `race` in which every contender fails.
 
-**Typed recovery operators look for the first `Fail` reason; when it is handled, the handler's result becomes the entire outcome and the other reasons are dropped.** That covers `catch`, `catchTag(s)`, `catchIf`, `catchFilter`, `catchReason(s)`, `mapError`, `orDie`, `orElseSucceed`, `firstSuccessOf`, `match`, `matchEffect`, `result`, `option`, and `ignore`. With no `Fail` reason, or when the selector does not match, the original `Cause` passes through untouched. `tapError` and `tapCause` re-raise the original `Cause`, so they lose nothing. **Retry is different:** `Effect.retry` and `retryOrElse` only retry causes consisting entirely of `Fail` reasons; any `Die` or `Interrupt` makes the cause propagate unchanged.
+**A defect wins over a typed failure.** When the runtime combines a typed failure with a defect — a finalizer that dies after the operation failed, or a sibling that dies — the typed failure is recorded as a defect too, so the cause reads `[Die(error), Die(defect)]`. And when a cause that still holds a `Fail` beside a `Die` reaches a typed recovery operator — `catch`, `catchTag(s)`, `catchIf`, `catchFilter`, `catchReason(s)`, `orElseSucceed`, `firstSuccessOf`, `match`, `matchEffect`, `result`, `option`, `ignore`, `orDie`, or `retry` — the operator does **not** recover: it converts every typed error to a defect, keeps the reason order and any interruptions, and propagates the cause. A crashing finalizer or dying sibling therefore cannot be swallowed by `catchTag`. Only `catchCause`, `catchDefect`, `Effect.exit`, and `Effect.sandbox` see such a cause as recoverable.
+
+**An interruption beside a typed failure does not block recovery.** With reasons `[Fail(e), Interrupt]`, the typed operators handle `e` and the handler's result becomes the whole outcome — the interruption is dropped, and `retry` retries. Typed recovery inspects only the **first** `Fail` reason, so `catchTag("B")` does not fire for `[Fail(A), Fail(B)]`, and `orDie` keeps only `Die(A)`. `mapError` is different from recovery: it maps **every** typed error in place and preserves defects, interruptions, and reason order. `tapError` and `tapCause` re-raise the original `Cause`, so they lose nothing.
 
 ```ts
 import { Cause, Effect, Schema } from "effect"
@@ -295,17 +297,17 @@ class ExportFailed extends Schema.TaggedError<ExportFailed>()("ExportFailed", {
   batchId: Schema.String
 }) {}
 
-// A typed failure whose finalizer then dies: one Cause, reasons [Fail, Die].
+// A typed failure whose finalizer then dies: reasons [Die(ExportFailed), Die(Error)].
 const exportBatch = Effect.fail(new ExportFailed({ batchId: "b-7" })).pipe(
   Effect.ensuring(Effect.die(new Error("ledger handle already closed")))
 )
 
-// Succeeds with "skipped": the Die reason is gone.
-const lossy = exportBatch.pipe(
+// Does not recover: the defect takes precedence, so the handler never runs.
+const stillDies = exportBatch.pipe(
   Effect.catchTag("ExportFailed", () => Effect.succeed("skipped"))
 )
 
-// Recovers only when typed failures are the whole story; otherwise re-fails with every reason.
+// Recover deliberately only through the full Cause, and only for what you own.
 const careful = exportBatch.pipe(
   Effect.catchCause((cause) =>
     Cause.hasDies(cause) || Cause.hasInterrupts(cause)
@@ -315,7 +317,9 @@ const careful = exportBatch.pipe(
 )
 ```
 
-Only the *first* `Fail` is inspected, so `catchTag("B")` does not fire for reasons `[Fail(A), Fail(B)]`. The failure deep dive shows the guarded `catchCause`, reason inspection, and `Effect.sandbox` variants in full: [Typed recovery replaces the whole Cause](../deep-dives/failure-retry-fallback-and-interruption#typed-recovery-replaces-the-whole-cause).
+> **Migration:** In earlier 4.0 releases a typed handler on a `[Fail, Die]` cause succeeded and dropped the defect. Code that relied on `catchTag` to absorb a failure whose cleanup also crashed now sees the crash; handle it with `catchDefect` or a guarded `catchCause` where that is genuinely intended.
+
+The failure deep dive covers reason inspection and the `Effect.sandbox` route: [Inspect the full Cause without flattening it](../deep-dives/failure-retry-fallback-and-interruption#inspect-the-full-cause-without-flattening-it).
 
 Official guides: [Error Channel Operations](https://effect.website/docs/v4/error-management/error-channel-operations), [Matching](https://effect.website/docs/v4/error-management/matching), [Error Accumulation](https://effect.website/docs/v4/error-management/error-accumulation), [Fallback](https://effect.website/docs/v4/error-management/fallback).
 

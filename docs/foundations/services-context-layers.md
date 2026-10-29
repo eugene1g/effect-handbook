@@ -2,7 +2,7 @@
 
 The `R` in `Effect<A, E, R>` is a typed set of required services. **Context** holds those services, **Layer** is the recipe for constructing them (with dependencies and lifecycles), and the runtime blocks execution until every requirement is satisfied.
 
-> **Official examples:** Effect's release-matched [`ai-docs` service examples](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/03_services) cover `Context.Service`, `Context.Reference`, Layer composition, and dynamically constructed Layers.
+> **Official examples:** Effect's release-matched [`ai-docs` service examples](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/01_effect/03_services) cover `Context.Service`, `Context.Reference`, Layer composition, and dynamically constructed Layers.
 
 > **Official guides:** [Managing Services](https://effect.website/docs/v4/requirements-management/services). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
@@ -18,7 +18,7 @@ A type-safe, immutable map from service tags to implementations. Declare service
 
 **Mental model.** A `Map<Tag, Impl>` whose keys are tracked at the type level, so requirements accumulate in `R` until provided.
 
-Contexts are implemented as immutable overlays: `Context.add` is constant-time and later bindings shadow earlier ones; `Context.get` also resolves a `Context.Reference`'s default. Compose through public `add`, `merge`, `pick`, and `omit` operations—the old mutation and unsafe-reference internals are not public APIs.
+Contexts are implemented as immutable overlays: `Context.add` is constant-time and later bindings shadow earlier ones; `Context.get` also resolves a `Context.Reference`'s default. After a bounded number of `add` overlays (8 by default) the context is rebased into one flat map; `Context.makeUnsafe(map, { maxDepth })` tunes that bound for a context built from a raw `Map` — lower makes lookups cheaper, higher makes additions to a large base cheaper — and contexts derived with `add`, `pick`, `omit`, and `merge` keep it. Layers combine contexts with `mergeAll`, which uses the default, so set it on a final context rather than inside a layer. Compose through public `add`, `merge`, `pick`, and `omit` operations—the old mutation and unsafe-reference internals are not public APIs.
 
 ```ts
 import { Context, Effect, Layer, Schema } from "effect"
@@ -356,6 +356,7 @@ Every `Effect.provide(layer)` builds with a memo map **forked from the fiber's c
 | `Effect.provide(PoolLive)` nested inside a region whose enclosing build already built `PoolLive`: an outer `Effect.provide`, a `ManagedRuntime`, or a chained `.pipe(Effect.provide(A), Effect.provide(B))` | 1 | The inner build finds the live entry in the parent map — even when the outer graph kept the pool private with `Layer.provide`. |
 | The same nested provide with `{ local: true }` | 2 | A brand-new memo map: the whole provided graph, dependencies included, is rebuilt and then released when that effect ends. |
 | `Layer.fresh(layer)` inside a build | one more | The wrapped layer is built with a new memo map, so it and its dependencies are private to that branch. |
+| One *composed* layer value (the result of `Layer.provide`, `provideMerge`, `merge`, or `mergeAll`) referenced from several parents | 1 | Composed layers are memoized by identity like any other layer value, so the composition — including any `Layer.fresh` inside it — runs once per memo map. Write the composition once and reuse the value; calling a function that recomposes it each time creates new identities. |
 
 ```ts
 import { Context, Effect, Layer } from "effect"

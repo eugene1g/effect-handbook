@@ -324,9 +324,9 @@ const makeProcessor = Effect.gen(function*() {
 })
 ```
 
-Use one semaphore value shared by all callers that participate in the limit. Constructing a semaphore inside every job gives each job its own permits and enforces nothing. Hold the permit around the scarce call only — `callHris`, not the parsing and mapping around it — so that work which does not consume the quota never waits for it.
+Use one semaphore value shared by all callers that participate in the limit. Constructing a semaphore inside every job gives each job its own permits and enforces nothing. Hold the permit around the scarce call only — `callHris`, not the parsing and mapping around it — so that work which does not consume the quota never waits for it. Waiters are served in order: a later `take` does not overtake an eligible queued request, though a smaller request may still go ahead of a larger one that cannot be satisfied yet.
 
-Use `PartitionedSemaphore` when tenants or keys share one permit pool but must take fair turns at it: released permits go round-robin to the waiting partitions, so one busy department cannot starve the rest. It does not give each key its own ceiling; for independent per-tenant limits keep one `Semaphore` per key.
+Use `PartitionedSemaphore` when tenants or keys share one permit pool but must take fair turns at it: released permits go round-robin to the waiting partitions, completing one waiter before rotating to the next, so one busy department cannot starve the rest and multi-permit waiters in different partitions cannot deadlock each other. It does not give each key its own ceiling; for independent per-tenant limits keep one `Semaphore` per key.
 
 ## Coordinate state at the right level
 

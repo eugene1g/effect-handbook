@@ -333,7 +333,7 @@ if (firstCode) {
 }
 ```
 
-`fromRepresentation(document, { revivers })` reconstructs a runtime schema; no declaration/check revivers are installed implicitly. The multi-root twin is `fromRepresentations`. Persisted documents using an older representation format are not wire-compatible; regenerate them or perform an explicit migration before loading them with the current pipeline. That includes older documents containing a `oneOf` union, whose mode now lives at `{ options: { mode: "oneOf" } }` (`SchemaAST.Union.options?.mode`, not a top-level field); the public `Schema.Union(members, { mode })` call is unaffected. Importing external JSON Schema patterns also requires an explicit trust choice: the default is to reject them, `{ patterns: "apply" }` evaluates patterns from a trusted document, and `{ patterns: "ignore" }` knowingly weakens validation.
+`fromRepresentation(document, { revivers })` reconstructs a runtime schema; no declaration/check revivers are installed implicitly — schemas such as `Schema.SemVer`, `Schema.SemVerRange`, and the `Schema.isAscii` check need their revivers (`SemVerReviver`, `SemVerRangeReviver`, `isAsciiReviver`) passed explicitly. The multi-root twin is `fromRepresentations`. Persisted documents using an older representation format are not wire-compatible; regenerate them or perform an explicit migration before loading them with the current pipeline. That includes older documents containing a `oneOf` union, whose mode now lives at `{ options: { mode: "oneOf" } }` (`SchemaAST.Union.options?.mode`, not a top-level field); the public `Schema.Union(members, { mode })` call is unaffected. Importing external JSON Schema patterns also requires an explicit trust choice: the default is to reject them, `{ patterns: "apply" }` evaluates patterns from a trusted document, and `{ patterns: "ignore" }` knowingly weakens validation.
 
 **Reach for it when** you need code generation, JSON Schema compilation/import, or a deliberately persisted schema representation with shared references.
 
@@ -471,7 +471,7 @@ Two things to know about documents you generate yourself with `Schema.toJsonSche
 - **Objects are open by default.** Generation now mirrors Effect decoding, which ignores excess properties unless told otherwise, so a `Struct` emits `"additionalProperties": true`. The old `{ additionalProperties }` generation option is gone: use `{ onExcessProperty: "ignore" }` (the default) or `{ onExcessProperty: "error" }` for a closed object, and model a schema-valued "rest" with `Schema.Record` or `Schema.StructWithRest` rather than an option. If a consumer relied on the previous closed default — a strict validator, a generated client, a structured-output provider — opt back in explicitly.
 - **Check constraints and annotations are compacted** into the node when possible (`"type": "integer", "description": …`) instead of being wrapped in `allOf`. Colliding numeric, length, item-count, and property-count bounds are tightened in place; redundant inclusive/exclusive bounds on the same side are removed. Other incompatible keyword collisions can still require `allOf`. `Schema.Int` / `isInt` emit exact JSON Schema integers with safe-integer bounds; composing a stricter bound keeps the tighter constraint, and exact integer union branches preserve `oneOf`. Snapshot tests of generated documents need refreshing.
 
-On the import side (`SchemaRepresentation.fromJsonSchemaDocument`), unsupported references, validation keywords, and object-valued `const`/`enum` are now **rejected with a path-qualified explanation** instead of being silently weakened.
+On the import side (`SchemaRepresentation.fromJsonSchemaDocument`), unsupported references, validation keywords, and object-valued `const`/`enum` are now **rejected with a path-qualified explanation** instead of being silently weakened. `$ref` pointers may target locations below a top-level definition (`#/$defs/Note/properties/title`), including shared and recursive schemas; circular pointer aliases are rejected. `includeAnnotationKey` on `fromJsonSchemaDocument` / `fromJsonSchemaMultiDocument` keeps selected custom keywords (such as `x-*` extensions) as schema annotations.
 
 **What the document describes.** Four rules explain most surprising output:
 
@@ -537,7 +537,7 @@ if (!(result instanceof Promise) && result.issues) {
 }
 ```
 
-Only decoding is exposed — Standard Schema has no encode direction — and a schema that requires decoding services cannot be converted. `Schema.toStandardJSONSchemaV1` targets a still-experimental extension of the spec; treat it as unstable.
+Only decoding is exposed — Standard Schema has no encode direction — and a schema that requires decoding services cannot be converted. `Schema.toStandardJSONSchemaV1` targets a still-experimental extension of the spec; treat it as unstable. Its `draft-07` and `draft-2020-12` outputs carry the root `$schema`. Both converters return fresh copies, so hooks and parse options from one call never leak into another.
 
 Integration facts: the vendor string is `"effect"`; the adapter collects **all** issues by default (pass `{ parseOptions: { errors: "first" } }` to change that); `leafHook` / `checkHook` are the same hooks [`SchemaIssue`](#schemaissue) formatters take; and a **defect** raised while decoding is not thrown but reported as one issue without a `path`, whose message is the rendered cause — stack trace included — so never show a path-less issue to an end user verbatim.
 
@@ -549,7 +549,7 @@ Official guide: [Schema to Standard Schema](https://effect.website/docs/v4/schem
 
 `effect/JsonPatch` — stable
 
-Compute and apply deterministic diffs over JSON values. A `JsonPatch` is an ordered list of `add`/`remove`/`replace` operations addressed by JSON Pointer paths (deterministic subset of RFC 6902). `get(oldValue, newValue)` produces the patch; `apply(patch, value)` replays it without mutating the input.
+Compute and apply deterministic diffs over JSON values. A `JsonPatch` is an ordered list of `add`/`remove`/`replace` operations addressed by JSON Pointer paths (deterministic subset of RFC 6902). `get(oldValue, newValue)` produces the patch; `apply(patch, value)` replays it without mutating the input. `apply` throws on a malformed JSON Pointer escape (`/a~2`, or a trailing `~`) rather than treating it as a literal key. For line- or character-level diffs of text, see [TextDiff](functional-toolkit#textdiff).
 
 ```ts
 import { JsonPatch } from "effect"

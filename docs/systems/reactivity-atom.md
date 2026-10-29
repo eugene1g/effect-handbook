@@ -71,7 +71,7 @@ With `{ concurrent: true }`, two overlapping calls that both resolve synchronous
 
 Other high-value combinators stay on the same graph: `debounce(duration)` delays noisy publications; `withRefresh(duration)` schedules a refresh; `swr({ staleTime, ... })` adds stale-while-revalidate behavior, deferring a stale refresh until after the triggering read and skipping it outright if the source has since become fresh or the atom was disposed — so a one-shot unmounted read never kicks off a refresh for a source it no longer needs; `withFallback(fallback)` supplies an async result (marked `waiting`) while the primary is `Initial` — when the primary is writable the combined atom stays writable and **forwards every write and refresh to the primary**, never to the fallback; and `optimistic` / `optimisticFn` model provisional mutation state with refresh or rollback. `batch(fn)` coalesces synchronous writes, including writes that a batch commit listener itself queues — those are processed rather than dropped. Persistence and URL helpers include platform-neutral `kvs` (schema-typed `KeyValueStore` persistence), browser-oriented `searchParam` (preserves the URL hash and omits empty query strings), and `refreshOnWindowFocus` (safe to use on the server — no window means no focus events, so it simply never fires); on the server, `withServerValue`, `withServerValueInitial`, and `getServerValue` provide deterministic reads. The Reactivity deep dive shows these in a connected application.
 
-**Where services come from.** An effectful atom that needs services can't conjure a Layer out of thin air. `Atom.runtime(layer)` builds an `AtomRuntime` — itself an atom holding the built `Context` — and gives you `runtime.atom(...)`, `runtime.fn(...)`, and `runtime.pull(...)` constructors that run Effects with that layer provided. By default its `Layer.MemoMap` is registry-scoped: derived atoms share built services inside one `AtomRegistry`, while separate SSR requests and tests build isolated instances. Use `Atom.context({ memoMap })` only when you intentionally need custom or cross-registry sharing.
+**Where services come from.** An effectful atom that needs services can't conjure a Layer out of thin air. `Atom.runtime(layer)` builds an `AtomRuntime` — itself an atom holding the built `Context` — and gives you `runtime.atom(...)`, `runtime.fn(...)`, and `runtime.pull(...)` constructors that run Effects with that layer provided. By default its `Layer.MemoMap` is registry-scoped: derived atoms share built services inside one `AtomRegistry`, while separate SSR requests and tests build isolated instances. Use `Atom.context({ memoMap })` only when you intentionally need custom or cross-registry sharing. Replacing a runtime atom's layer through registry initial values (for example to inject a test layer) keeps the `Reactivity` and global layers, so invalidation stays shared. When an atom is disposed, a failing scope finalizer is logged at `References.UnhandledLogLevel` through the runtime's logger; interruption-only cleanup is not logged.
 
 ```ts
 import { Effect } from "effect"
@@ -186,7 +186,7 @@ const ui = AsyncResult.matchWithWaiting(result, {
 })
 ```
 
-> **Tip:** `AsyncResult.value(r)` returns an `Option<A>` of the latest success and, while a `Failure` is showing, falls back to its `previousSuccess`. `getOrElse` supplies a default, `map`/`flatMap` transform the success, and guards `isSuccess`/`isFailure`/`isInitial`/`isWaiting` let you branch directly. Because `Failure` holds a full `Cause`, `matchWithError` and `matchWithWaiting` are preferred over a raw three-way match when defects and typed errors should render differently. `AsyncResult.Schema` encodes results across the wire — used by `AtomHttpApi`/`AtomRpc` for hydration.
+> **Tip:** `AsyncResult.value(r)` returns an `Option<A>` of the latest success and, while a `Failure` is showing, falls back to its `previousSuccess`. `getOrElse` supplies a default, `map`/`flatMap` transform the success, and guards `isSuccess`/`isFailure`/`isInitial`/`isWaiting` let you branch directly. Because `Failure` holds a full `Cause`, `matchWithError` and `matchWithWaiting` are preferred over a raw three-way match when defects and typed errors should render differently. `AsyncResult.Schema` encodes results across the wire — used by `AtomHttpApi`/`AtomRpc` for hydration. `AsyncResult.isInterrupted` returns a plain `boolean` and does not narrow; branch with `isFailure` first. Two results are equal only when their contents are equal, so unrelated `Equal` values that share a tag and hash no longer compare equal. When an effect atom's asynchronous run fails, the last exposed success (an `initialValue` or a value published with `get.setSelf`) stays available as the failure's `previousSuccess`.
 
 `AsyncResult.all` combines records or iterables (and plain values) into one result. The first non-success determines the result; an all-success result is waiting if any input success is waiting. When that first non-success is a failure, `previousSuccess` is rebuilt in the **combined record or tuple shape**, using each input's current or previous value. If any input has no value, the combined previous success is absent. Never render a single failed input's old value as though it were the whole combined view.
 
@@ -250,6 +250,8 @@ Query atoms preserve endpoint and middleware errors in the typed error channel. 
 
 - **`timeToLive: 0` is an explicit opt-out.** Omitting `timeToLive` leaves the query under the registry's `defaultIdleTTL`; passing `0` (or `0n`) sets a zero idle TTL, so an unmounted query is disposed as soon as it is unused and fetched again on remount. A finite duration keeps it that long; an infinite one keeps it alive.
 - **Per-call SSE decoding options.** A request may carry `sseOptions` (native `Sse.DecodeOptions`); they are part of the query key, so two queries that differ only in `sseOptions` are distinct atoms.
+- **Mutations are isolated per service.** Two `AtomHttpApi` (or `AtomRpc`) services that share an endpoint name or RPC tag each invoke their own client with their own arguments.
+- **Literal and union `responseMode` values infer** the corresponding success types.
 - **Top-level groups work.** Endpoints of an `HttpApiGroup` declared with `topLevel: true` are dispatched on the client root rather than under a group property; you still pass the group identifier to `query` / `mutation`.
 - **Only `"decoded-only"` results are serializable.** `serializationKey` has no effect in the other response modes, and a `Stream` is not a value a hydration packet can carry — do not give streaming queries a serialization key.
 
@@ -302,6 +304,7 @@ const vested = CompRpcClient.query(
 - **RPCs whose middleware declares `requires` are queryable.** `query` infers the same types as `mutation` for them rather than resolving to `never`.
 - **Tag-selected flat clients infer correctly.** `AtomRpc.query` and `AtomRpc.mutation` built from a flat (union-of-tag) RPC client infer the selected RPC's actual payload and result types instead of `never`.
 - **`timeToLive: 0` opts out of idle retention**, exactly as in `AtomHttpApi`; omit the option to inherit the registry default.
+- **Stream-backed mutations invalidate on success only.** Reactivity keys of an atom `Stream` mutation are invalidated after successful completion, not on failure, defect, interruption, or replacement by a newer write.
 - **Mutations cannot target streaming RPCs** (the type is `never`); use `query` and pull.
 
 **Reach for it when** your backend speaks Effect RPC and you want the frontend to consume it as atoms — including streaming procedures surfaced as incremental pull atoms.
@@ -325,9 +328,14 @@ const packet = Hydration.dehydrate(serverRegistry)
 Hydration.hydrate(clientRegistry, packet)
 ```
 
+- **Seeded atoms still run by default.** A hydrated (or `Atom.initialValue`-seeded) effect or stream atom builds on first read or mount and runs its effect, because the dependencies it reads are only known once it has run. Pass `skipInitialRun: true` to `Atom.serializable({ key, schema, skipInitialRun })` or `Atom.initialValue(atom, value, { skipInitialRun: true })` to keep the seeded value until the atom is refreshed or a dependency changes; `get(...)` calls in the factory and `withReactivity` keys are still tracked, and an `Initial` seed never skips the run.
+- **Newer client results are kept.** For an atom already in the registry, `hydrate` does not overwrite a non-`Initial` `AsyncResult` with an `Initial` one, or a `Success` with an older `Success` (compared by the results' timestamps). Plain values and failures are always applied, and the packet's `dehydratedAt` is not consulted. Existing subscribers are notified immediately.
+- **Decode failures fall back to client computation.** If hydration data fails schema decoding, or a streamed initial result cannot be encoded, the atom computes on the client instead of throwing or waiting forever.
+- **`Atom.Serializable` encodes to and decodes from `Schema.Json`**, matching the JSON codec `Atom.serializable` uses at runtime. Code that reads the encoded value directly may need to narrow it.
+
 **One bad atom does not abort the packet.** If a serializable atom's current value cannot be encoded by its schema (a `SchemaError`), `dehydrate` skips that atom and encodes the rest; any other exception still propagates. The skipped atom simply refetches on the client, so treat a missing key as "not hydrated", not as an error — and log encode failures in development, because the usual cause is a schema that does not cover the atom's whole value.
 
-For custom serializable atoms, the codec covers the atom's complete value. In particular, an effectful atom needs an `AsyncResult.Schema(...)`, not just its success schema; the release-matched [comprehensive upstream Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/SCHEMA.md) covers codecs and serialization in depth.
+For custom serializable atoms, the codec covers the atom's complete value. In particular, an effectful atom needs an `AsyncResult.Schema(...)`, not just its success schema; the release-matched [comprehensive upstream Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.1.0/packages/effect/SCHEMA.md) covers codecs and serialization in depth.
 
 **Reach for it when** you do SSR or static rendering and want fetched atom state to survive the trip to the browser instead of refetching on mount.
 
@@ -353,7 +361,10 @@ const recordRaise = (rec: RaiseRecommendation) =>
 
 - **`Reactivity.Reactivity` is both the Context key and the branded service type.** There is no `Reactivity.Service` alias; annotate a dependency as `Reactivity.Reactivity`, and build a custom instance with `Reactivity.make` (it adds the `[Reactivity.TypeId]` brand) rather than an object literal.
 - **Keys may repeat.** A `query` or `stream` whose key list names the same key twice (or a record form that expands to a key you also listed) stores its handler once per key, and its scope cleanup does not fail on the repeat.
-- **Reruns are serialized and coalesced.** While one rerun is in flight, further invalidations collapse into a single pending rerun.
+- **Reruns are serialized and coalesced.** While one rerun is in flight, further invalidations collapse into a single pending rerun, and a query matched by several invalidated keys reruns once per invalidation or batch flush.
+- **A failed query stops rerunning.** When a `query` (or `SqlClient.reactiveMailbox`) run fails, later invalidations do not rerun it and pending reruns are discarded.
+- **Invalidations inside a SQL transaction wait for the outermost commit** and are dropped on rollback.
+- **Keys can be typed.** Augment `Reactivity.Keys` (`declare module "effect/reactivity/Reactivity" { interface Keys { readonly employee: number } }`) and the public reactivity APIs — `Reactivity.mutation` / `query` / `invalidate`, `Atom` reactivity options, `AtomHttpApi`, `AtomRpc`, `SqlClient.reactive`, and `EventLog.groupReactivity` — reject undeclared key names and mismatched ids. With no keys declared, any keys are accepted. Methods on the `Reactivity` service instance still accept any key, for keys known only at runtime.
 
 **Reach for it when** you need key-based invalidation outside the atom layer (e.g. a SQL repo), or to understand what `reactivityKeys` are doing.
 
@@ -361,11 +372,13 @@ const recordRaise = (rec: RaiseRecommendation) =>
 
 The core above is framework-agnostic. Each binding (1) provides an `AtomRegistry` through the framework's context and (2) exposes hooks/primitives that subscribe a component to that registry.
 
-- **pkg @effect/atom-react** — React hooks + `RegistryProvider`. Peer range: `react >=19.0.0 <20.0.0` and `scheduler >=0.25.0 <0.28.0` (relaxed from `react >=19.2.7`, so any React 19 works). `useAtomValue(atom)` reads, `useAtom(writable)` returns `[value, set]`, `useAtomSet` / `useAtomRefresh` / `useAtomMount` give write/refresh/keep-alive without subscribing, and `useAtomSuspense` reads an `AsyncResult` atom through React Suspense. `HydrationBoundary` applies dehydrated state; `ScopedAtom.make` makes a subtree-local atom.
+- **pkg @effect/atom-react** — React hooks + `RegistryProvider`. Peer range: `react >=19.0.0 <20.0.0` and `scheduler >=0.25.0 <0.28.0` (relaxed from `react >=19.2.7`, so any React 19 works). `useAtomValue(atom)` reads, `useAtom(writable)` returns `[value, set]`, `useAtomSet` / `useAtomRefresh` / `useAtomMount` give write/refresh/keep-alive without subscribing, and `useAtomSuspense` reads an `AsyncResult` atom through React Suspense. `HydrationBoundary` applies dehydrated state; `ScopedAtom.make` makes a subtree-local atom. `RegistryProvider`'s `initialValues` accepts `[atom, value, { skipInitialRun }]` tuples. Atom writes triggered while React renders (for example an atom whose initializer sets another atom) are deferred, so other components do not update during render.
 
 - **pkg @effect/atom-solid** — The Solid binding. `useAtomValue(() => atom)` returns an accessor, `useAtom(() => writable)` returns an accessor/setter tuple, and `useAtomResource` bridges an `AsyncResult` atom to a Solid resource. Its `RegistryProvider` may leave `defaultIdleTTL` undefined, matching React: unused atoms are then cleaned up immediately instead of lingering for a provider-imposed TTL.
 
 - **pkg @effect/atom-vue** — The Vue binding. `useAtomValue(() => atom)` returns a readonly `Ref`, while `useAtom(() => writable)` returns a readonly `Ref` plus a setter through Vue's provide/inject registry.
+
+In every binding, a setter in `promise` or `promiseExit` mode resolves with the atom's *next settled* result, not a result tied to that write; serialize writes when each caller needs its own result.
 
 ## @effect/atom-react in practice
 

@@ -50,6 +50,8 @@ const claimBudget = Effect.fn("claimBudget")(function*(
 
 `Ref.makeUnsafe(value)` creates a `Ref` synchronously without wrapping in an Effect — for use inside class constructors or module top-levels before concurrent fibers have started.
 
+A `Ref` is a cell, not a value: `Equal.equals` compares two refs by identity, so distinct refs holding equal contents are not equal and are separate `HashMap` keys or `HashSet` members. Compare what they hold with `Ref.get` instead.
+
 ### One transition, one call
 
 **Each `Ref` operation is atomic; a sequence of them is not.** `Ref.get` followed by `Ref.set` is two transitions, and any suspension between them — an HRIS call, a log line, a `sleep`, even `Effect.yieldNow` — lets every fiber compute its write from the same stale read. Express the whole read-compute-write as one call and pick the call by what you need back:
@@ -297,7 +299,7 @@ Official guide: [SubscriptionRef](https://effect.website/docs/v4/state-managemen
 
 `effect/MutableRef` — stable
 
-A tiny synchronous mutable box. Exposes a `.current` field for direct read/write plus a pipeable API: `get`, `set`, `update`, `compareAndSet`, numeric helpers `increment`/`decrement`, and `toggle` for booleans. No Effects, no fiber scheduler involvement. This is the backing store for `Ref` — `Ref` allocates a `MutableRef` internally.
+A tiny synchronous mutable box. Exposes a `.current` field for direct read/write plus a pipeable API: `get`, `set`, `update`, `compareAndSet`, numeric helpers `increment`/`decrement`, and `toggle` for booleans. No Effects, no fiber scheduler involvement. This is the backing store for `Ref` — `Ref` allocates a `MutableRef` internally. Like `Ref`, a `MutableRef` equals only itself under `Equal.equals`, whatever it currently holds.
 
 ```ts
 import { MutableRef } from "effect"
@@ -336,7 +338,7 @@ Use inside a synchronous, single-fiber algorithm when the pipeable Effect style 
 
 `effect/MutableList` — stable
 
-A mutable linked-list-of-buckets optimised for high-throughput append/prepend and front-draining. Uses chunked arrays (buckets) internally: append is amortised O(1), batch takes are nearly free. Tracks `.length`. Supports `append`, `prepend`, `take`, `takeN`, `takeAll`, `appendAll`, `prependAll`, `filter`, `remove`, `clear`. `take` returns the special `MutableList.Empty` symbol (not `null` or `undefined`) when the list is empty. There is no `modify` — `filter(list, predicate)` prunes in place, and `toArray` / `toArrayN` copy without draining. Counts passed to `takeN` / `toArrayN` are normalised: a fractional count is floored, and `NaN` or a non-positive count takes nothing. This is the buffer Effect itself uses inside `Queue` and `PubSub`.
+A mutable linked-list-of-buckets optimised for high-throughput append/prepend and front-draining. Uses chunked arrays (buckets) internally: append is amortised O(1), batch takes are nearly free. Tracks `.length`. Supports `append`, `prepend`, `take`, `takeN`, `takeAll`, `appendAll`, `prependAll`, `filter`, `remove`, `clear`. `take` returns the special `MutableList.Empty` symbol (not `null` or `undefined`) when the list is empty. There is no `modify` — `filter(list, predicate)` prunes in place, and `toArray` / `toArrayN` copy without draining. Counts passed to `takeN` / `toArrayN` are normalised: a fractional count is floored, and `NaN` or a non-positive count takes nothing. `appendAll` and `prependAll` copy the values they receive, so later changes to the caller's array do not reach the list. This is the buffer Effect itself uses inside `Queue` and `PubSub`.
 
 ```ts
 import { MutableList } from "effect"

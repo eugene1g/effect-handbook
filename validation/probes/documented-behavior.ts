@@ -308,4 +308,4 @@ const checked = (claim: string) => checks.push(claim)
   checked("software-transactional-memory: take drains final work before Done and Done-only recovery preserves external cancellation")
 }
 
-console.log(JSON.stringify({ target: "effect@4.0.5", probes: checks.length, checks }))
+console.log(JSON.stringify({ target: "effect@4.1.0", probes: checks.length, checks }))

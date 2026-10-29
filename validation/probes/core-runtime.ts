@@ -284,14 +284,16 @@ assert.equal(ini.enabled, true)
 assert.equal(Object.getPrototypeOf(ini), null)
 assert.equal((ini.database as Record<string, Record<string, unknown>>).pool?.size, "10")
 
-const toml = Toml.parse("title = \"Merit\"\n[database]\nenabled = true")
+const toml = Result.getOrThrow(Toml.parse("title = \"Merit\"\n[database]\nenabled = true"))
 assert.equal(toml.title, "Merit")
 assert.equal(Object.getPrototypeOf(toml), null)
 assert.equal((toml.database as Record<string, unknown>).enabled, true)
 
 const yaml = Yaml.parse("name: merit\nenabled: true\nports: [3000, 3001]")
 assert.deepEqual(yaml, { name: "merit", enabled: true, ports: [3000, 3001] })
-checked("INI, TOML, and YAML parser behavior")
+const invalidToml = Toml.parse("title = ")
+assert.equal(Result.isFailure(invalidToml) && invalidToml.failure._tag, "EncodingError")
+checked("INI, TOML, and YAML parser behavior; Toml.parse returns a Result")
 
 assert.equal(McpProtocol.v2025_06_18.protocolVersion, "2025-06-18")
 const cliConfig = CliConfig.make({ builtIns: [GlobalFlag.Help] })
@@ -474,7 +476,7 @@ assert.equal(rpcResult.failure.reason.message, "Received empty HTTP response fro
 checked("RpcClientError can occur after sending a request and receiving an HTTP response")
 
 console.log(JSON.stringify({
-  effect: "4.0.5",
+  effect: "4.1.0",
   nodeNativeTypeScript: true,
   checks
 }, null, 2))

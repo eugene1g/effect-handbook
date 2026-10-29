@@ -109,6 +109,10 @@ const roundTrip = Schema.decodeUnknownSync(GrantFromJsonText)(
 )
 ```
 
+**Go services.** `Schema.toCodecGoJson(schema)` (unstable) wraps the canonical JSON codec for responses written by Go's `encoding/json`, which writes nil slices and maps as `null`: a `null` optional key decodes as a missing key, and a `null` required array or record decodes as an empty collection; schemas that already accept `null` are left alone. It covers only those `null` rules — durations, base64 bytes, and numbers-as-strings still belong in the field schemas.
+
+The JSON Schema and schema representation of `fromJsonString(schema)` keep the inner schema as `contentSchema` with `contentMediaType: "application/json"`, so tools and OpenAPI (including SSE event data) see what the string contains.
+
 Do not use the internal `Schema.UnknownFromJsonString`; compose `Schema.fromJsonString(Schema.Unknown)` when the JSON value is intentionally unknown. The JSON forms of `Option`, `Result`, `Exit`, collections, and `Duration` are tabulated in [Effect data types at the boundary](#7-effect-data-types-at-the-boundary).
 
 ## 3. Recursive and custom schemas
@@ -341,6 +345,7 @@ Schema.decodeUnknownSync(MeritBudgetsJson)([["eng", "100"]]) // HashMap with "en
 | `Schema.DurationFromMillis` | `number` | a nanosecond-precision duration beyond 2^53 ns does not round-trip |
 | `Schema.DurationFromNanos` | `bigint` | lossless for finite durations |
 | `Schema.DurationFromString` | `string` | decodes anything `Duration.fromInput` parses (`"250 millis"`), encodes parseable text (`"2000 millis"`); it is what `Config.Duration` uses |
+| `Schema.DurationFromIsoString` | `string` | ISO 8601 (`"PT1H30M"`, `"P1W2D"`) via [`Duration.fromIso` / `formatIso`](../concurrency/scheduling-time#duration); rejects years and months; encoding fails for infinite durations |
 
 The general lesson: when the encoded carrier is narrower than the `Type`, either constrain the `Type` with a check (which also constrains the derived arbitrary) or exclude that field from generic round-trip properties and test it with explicit values.
 
@@ -352,7 +357,9 @@ The general lesson: when the encoded carrier is narrower than the `Type`, either
 | Sizes | `Schema.ByteSize`, `ByteSizeFromString`, `ByteSizeFromBigInt`, `ByteSizeFromNumber` | the string form requires a unit (`"5 MiB"`) and encodes the exact count as `"5242880 bytes"`; see [ByteSize](functional-toolkit#bytesize) |
 | Graphs | `Schema.Graph("directed" \| "undirected", node, edge)` | immutable [Graph](data-structures#graph) values; derive `toCodecJson` for a `{ type, nodes, edges }` snapshot |
 | Network (unstable) | `Schema.IpAddressFromString`, `Ipv4AddressFromString`, `Ipv6AddressFromString`, `IpNetworkFromString`, `InetAddressFromString`, `MacAddressFromString` | text to `effect/net` values; malformed text fails with a specific message |
-| HTTP (unstable) | `Schema.UrlParams`, `Schema.Headers`, `Schema.Cookies`, `Schema.RecordFromUrlParams`, `Schema.RecordFromCookies`, `Schema.JsonFromUrlParamsField(field)` | live in `effect/Schema`, not the HTTP modules; usage lives with [UrlParams](../interfaces/http-server#urlparams) |
+| Versions (unstable) | `Schema.SemVer`, `Schema.SemVerFromString`, `Schema.SemVerRange`, `Schema.SemVerRangeFromString` | strict SemVer 2.0.0 and npm-style ranges; see [SemVer](functional-toolkit#semver) |
+| Crypto keys (unstable) | `Schema.AeadKey`, `MacKey`, `SignaturePrivateKey`, … with `*FromBytes` / `*FromFormat` codecs | opaque key values for the `effect/crypto` services; the byte and format codecs for secret or private keys only decode unless constructed with `{ allowEncode: true }` — see [Cryptography](../interfaces/cryptography) |
+| HTTP (unstable) | `Schema.UrlParams`, `Schema.Headers`, `Schema.Cookies`, `Schema.RecordFromUrlParams`, `Schema.RecordFromCookies`, `Schema.JsonFromUrlParamsField(field)`, `Schema.DateTimeUtcFromHttpDate`, `Schema.RetryAfterFromString` | live in `effect/Schema`, not the HTTP modules; usage lives with [UrlParams](../interfaces/http-server#urlparams) |
 
 Official guide: [Effect Data Types](https://effect.website/docs/v4/schema/effect-data-types).
 

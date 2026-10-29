@@ -2,7 +2,7 @@
 
 _Effect provides a composable time stack: typed duration values, a testable clock-aware date/time system, a cron parser, an effect-native PRNG, and `Schedule`, the algebraic policy engine powering retry and repeat._
 
-> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/07_datetime) examples.
+> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/07_datetime) examples.
 
 > **Official guides:** [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules) introduces `Effect.repeat`, `Effect.schedule`, and `Effect.retry`; [Choosing and combining schedules](https://effect.website/docs/v4/scheduling/choosing-and-combining-schedules) walks through the constructors, limiters, and combinators; the [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook) has complete retry and polling programs. Section-specific guides are linked where they apply. These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
@@ -45,6 +45,7 @@ const exactlyOnce = Schedule.once
 const expBackoff = Schedule.exponential("200 millis")
 
 // Fibonacci growth — slower than exponential, gentler on stressed backends.
+// The base delay repeats once: 100, 100, 200, 300, 500 ms, ...
 const fibBackoff = Schedule.fibonacci("100 millis")
 
 // An elapsed-time budget. It adds no delay by itself, so combine it with a
@@ -314,7 +315,7 @@ Interruption stops both the running attempt and the pending delay, so a retried 
 
 ### Scheduled repeat via Schedule.cron
 
-`Schedule.cron` parses a standard 5-field (or 6-field with seconds) cron expression and builds a schedule sleeping until the next matching wall-clock time. Accepts an optional IANA timezone string. DST transitions are handled correctly: `Cron.next` will not return a past occurrence or exhaust its search limit when the current time falls inside a repeated DST interval.
+`Schedule.cron` parses a standard 5-field (or 6-field with seconds) cron expression and builds a schedule sleeping until the next matching wall-clock time. Accepts an optional IANA timezone string and an optional `{ onDstOverlap }` policy (see [Cron](#cron)); a pre-parsed `Cron` value keeps its own policy. DST transitions are handled correctly: `Cron.next` will not return a past occurrence or exhaust its search limit when the current time falls inside a repeated DST interval.
 
 ```ts
 import { Effect, Schedule } from "effect"
@@ -409,7 +410,7 @@ The complete harness is in [Recipe: Typed Retry with TestClock](../recipes/retry
 | `duration(d)` | Recur exactly once after `d` |
 | `once` | Recur immediately once, with no delay; outputs `void` |
 | `exponential(base)` | Exponential delay, 2× factor by default |
-| `fibonacci(one)` | Fibonacci delay growth |
+| `fibonacci(one)` | Fibonacci delay growth: `one`, `one`, `2·one`, `3·one`, `5·one`, … |
 | `during(d)` | Stop after this much elapsed time; adds no delay |
 | `forever` | Recur without end and without delay; outputs the recurrence count |
 | `identity<A>()` | Recur without end; output equals input |
@@ -477,7 +478,14 @@ Duration.toSeconds(Duration.minutes(15)) // 900
 
 // Human-readable formatting — useful in review-deadline notifications
 Duration.format(Duration.sum(Duration.days(30), Duration.hours(4)))  // "30d 4h"
+
+// ISO 8601 durations for wire formats that require them
+Duration.formatIso(Duration.minutes(90))  // Option.some("PT1H30M")
+Duration.fromIso("P1W2D")                 // Option.some(Duration.days(9))
+Duration.fromIso("P1M")                   // Option.none() — months have no fixed length
 ```
+
+`Duration.formatIso` balances into days (24 hours), hours, minutes, and seconds with up to nine fractional digits, writes `"PT0S"` for zero and a leading `-` for negative values, and returns `Option.none()` for an infinite duration. `Duration.fromIso` accepts weeks, days, hours, minutes, and seconds (a fraction only on the last time component) and rejects years and months. `Duration.toMicros` joins `toMillis`, `toSeconds`, and the other numeric converters.
 
 > **Tip:** `Duration.Input` accepts strings like `"500 millis"`, `"5 seconds"`, `"2 minutes"`, `"1 hour"`, `"3 days"`, and `"1 week"`. You never need to multiply by 1000 to pass a duration to `Effect.sleep`, `Schedule.spaced`, or `Effect.timeout` — just write the human name.
 
@@ -489,6 +497,7 @@ Duration.format(Duration.sum(Duration.days(30), Duration.hours(4)))  // "30d 4h"
 | --- | --- | --- |
 | Environment / config provider | `Config.Duration("HRIS_TIMEOUT")` | Typed `ConfigError` at startup |
 | JSON, HTTP payloads, database text | `Schema.DurationFromString` inside the boundary schema | `SchemaError` from decoding |
+| A wire format that mandates ISO 8601 (`"PT1H30M"`) | `Schema.DurationFromIsoString` | `SchemaError` from decoding; encoding fails for infinite durations |
 | A value already typed as `Duration.Input` | `Duration.fromInput(input)` | `Option.none()` |
 | A literal you control | `Duration.fromInputUnsafe("5 seconds")`, or a constructor | Throws — never feed it external text |
 
@@ -849,7 +858,26 @@ Cron.format(nightly)                                  // "0 1 * * *"
 Cron.format(nightly, { includeSeconds: true })        // "0 0 1 * * *"
 ```
 
-`Cron.format` serializes the calendar fields, not the whole semantic value: it drops timezone information and the special day/weekday `and` restriction. Consequently `Cron.parse(Cron.format(cron))` is not always equivalent to `cron`; persist the missing metadata separately when it matters.
+`Cron.format` serializes the calendar fields, not the whole semantic value: it drops timezone information, the `onDstOverlap` policy, and the special day/weekday `and` restriction. Consequently `Cron.parse(Cron.format(cron))` is not always equivalent to `cron`; persist the missing metadata separately when it matters.
+
+### Repeated local times when clocks fall back
+
+When a zone's clocks fall back, an hour of local time happens twice. `Cron.parse`, `Cron.parseUnsafe`, `Cron.make`, and `Schedule.cron` take `{ onDstOverlap }` to choose which occurrences count: `"earlier"` (the default) keeps the first, `"later"` the second, and `"both"` both, in chronological order. Zones without repeated times (UTC, fixed offsets) behave the same under every policy. The policy does not govern times *skipped* when clocks spring forward: a matching time inside that gap resolves to the instant after it.
+
+```ts
+import { Cron } from "effect"
+
+// Europe/Berlin repeats 02:00–02:59 on 2026-10-25: first at +02:00 (00:30Z), then at +01:00 (01:30Z).
+const earlier = Cron.parseUnsafe("30 2 * * *", "Europe/Berlin")
+const later = Cron.parseUnsafe("30 2 * * *", "Europe/Berlin", { onDstOverlap: "later" })
+const both = Cron.parseUnsafe("30 2 * * *", "Europe/Berlin", { onDstOverlap: "both" })
+
+Cron.next(earlier, "2026-10-24T12:00:00Z") // 2026-10-25T00:30:00.000Z
+Cron.next(later, "2026-10-24T12:00:00Z")   // 2026-10-25T01:30:00.000Z
+Cron.next(both, "2026-10-25T00:30:00Z")    // 2026-10-25T01:30:00.000Z — the second occurrence also fires
+```
+
+Pick `"earlier"` or `"later"` for a job that must run once a day, and `"both"` for an hourly sampler that must not lose an hour of local time.
 
 ### Building a Cron from structured fields
 
@@ -957,7 +985,7 @@ const deterministicDraw = drawRating.pipe(Random.withSeed("merit-sim-v1"))
 // expect(result).toEqual([1, 4, 3])  // pinned by this audited PRNG implementation
 ```
 
-The generator object supplied by one `Random.withSeed` region is mutable and inherited by child fibers. Concurrent children in the same region therefore draw from one shared sequence, so scheduling can affect which child receives which value. For independently reproducible branches, wrap each branch separately with its own `Random.withSeed`.
+Each evaluation of an effect wrapped with `Random.withSeed` restarts the sequence from the seed, so running the same wrapped effect twice draws the same values. Within one evaluation, the generator object is mutable and inherited by child fibers. Concurrent children in the same region therefore draw from one shared sequence, so scheduling can affect which child receives which value. For independently reproducible branches, wrap each branch separately with its own `Random.withSeed`.
 
 ### Jitter without coupling to Math.random
 

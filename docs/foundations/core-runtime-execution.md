@@ -4,7 +4,7 @@
 
 **This page covers building and combining Effects.** How they run — `Exit` and `Cause`, fibers and their handles, `Scope`, the scheduler and clock, `Deferred`, `Latch`, and `ManagedRuntime` — is on [Fibers, Scopes & Runtimes](fibers-scopes-runtimes).
 
-> **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/04_integration).
+> **Official examples:** The release-matched `ai-docs` corpus has runnable examples for [Effect basics](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/01_effect/01_basics), [resource safety](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/01_effect/05_resources), [running programs](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/01_effect/06_running), and [ManagedRuntime integration](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/04_integration).
 
 > **Official guides:** [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (its `runFork` text still names a `RuntimeFiber` return type; `Effect.runFork` returns `Fiber`). These guides track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
@@ -127,7 +127,7 @@ export const drawDownBudget = Effect.fn("drawDownBudget")(
 )
 ```
 
-> **Tip:** **gen vs. fn vs. fnUntraced.** Use `Effect.gen` for one-off inline composition. Use `Effect.fn("name")` for any function called from elsewhere — the span name is valuable in traces. Drop to `Effect.fnUntraced` only on genuinely hot paths where per-call span overhead shows up in a profile.
+> **Tip:** **gen vs. fn vs. fnUntraced.** Use `Effect.gen` for one-off inline composition. Use `Effect.fn("name")` for any function called from elsewhere — the span name is valuable in traces. Drop to `Effect.fnUntraced` only on genuinely hot paths where per-call span overhead shows up in a profile. Like `Effect.fn`, `Effect.fnUntraced` (and `fnUntracedEager`) accepts `{ self }` before the generator body to bind `this` for a method defined as a class field.
 
 **Pipeline combinators have different jobs.** Each is dual, so `Effect.map(self, f)`, `pipe(self, Effect.map(f))`, and `self.pipe(Effect.map(f))` are the same thing. Use a pipeline when every step can be named inline, and switch to `Effect.gen` once several intermediate values are needed — the execution model is identical.
 
@@ -588,7 +588,7 @@ The finalizer of `Effect.acquireRelease`, `Effect.ensuring`, `Effect.onError`, a
 | Escalate to a defect | `close.pipe(Effect.orDie)` | a failed close is a bug, or leaves state you cannot reason about |
 | Report to the caller | `Effect.acquireUseRelease` or `Effect.onExit`, whose cleanup may fail in `E` | the caller must see it — a commit or flush whose failure means lost data |
 
-Whatever you choose, **the original outcome is not overwritten.** When `use` fails and the release fails too, both reasons are present in the resulting `Cause`; a finalizer that dies next to a typed failure yields a `Fail` and a `Die` reason. This is not "last error wins", so tests should assert through `Effect.exit` and inspect `cause.reasons` rather than expect one error to replace the other. Remember that `Effect.ignore` absorbs typed failures only; use `Effect.ignoreCause` to absorb defects as well.
+Whatever you choose, **the original outcome is not overwritten.** When `use` fails and the release fails too, both reasons are present in the resulting `Cause`. This is not "last error wins", so tests should assert through `Effect.exit` and inspect `cause.reasons` rather than expect one error to replace the other. A finalizer that **dies** next to a typed failure also takes precedence: the typed failure is recorded as a defect too (`[Die(error), Die(defect)]`), so the caller's `catchTag` no longer handles it — which is why "escalate to a defect" is a real decision, not a tidy-up ([Recovery and mixed causes](errors-option-result#recovery-and-mixed-causes)). Remember that `Effect.ignore` absorbs typed failures only; use `Effect.ignoreCause` to absorb defects as well.
 
 ```ts
 import { Effect } from "effect"

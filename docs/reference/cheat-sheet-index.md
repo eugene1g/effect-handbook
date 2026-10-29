@@ -46,7 +46,7 @@ const program = Effect.gen(function*() {
 | Choosing between primitives that all look plausible | [Choosing Effect Primitives](choosing-effect-primitives) |
 | Looking at a symptom, or checking generated code against known mistakes | [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns) |
 | Reviewing a design or a diff | [Review Checklists](review-checklists) |
-| Coming from Effect 3 | [Migration guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/MIGRATION.md) |
+| Coming from Effect 3 | [Migration guide](https://github.com/Effect-TS/effect/blob/effect%404.1.0/MIGRATION.md) |
 | Moving an existing Promise codebase over, one leaf at a time | [Adopting Effect in an Existing TypeScript Codebase](../deep-dives/adopting-effect-in-an-existing-codebase) |
 | Wanting a connected walkthrough rather than a lookup | [Deep Dives](../deep-dives/) |
 
@@ -256,7 +256,7 @@ The companion [Choosing Effect Primitives](choosing-effect-primitives) page is t
 | You want to… | Reach for |
 | --- | --- |
 | Test effects deterministically | [`@effect/vitest` + `TestClock`](../tooling/testing-dev-tooling) and [Testing an Effect Application](../deep-dives/testing-an-effect-application) |
-| Seed random bytes and IDs without faking digests | [`TestCrypto`](../tooling/testing-dev-tooling#testcrypto) over a platform `Crypto` service |
+| Seed random bytes and IDs without faking digests | A seeded [`SecureRandom`](../tooling/testing-dev-tooling#deterministic-crypto-in-tests) layer beside the host digest layer |
 | Property-test from a Schema | [`Arbitrary`](../tooling/testing-dev-tooling#arbitrary) (`effect/Arbitrary`; the fast-check bridge was removed) |
 | Know what an in-memory harness does *not* prove | [In-memory test runtimes shipped with Effect](../tooling/testing-dev-tooling#in-memory-test-runtimes-shipped-with-effect) |
 | Test laziness and the exact `E` and `R` | [Prove laziness and the static contract](../tooling/testing-dev-tooling#prove-laziness-and-the-static-contract) |

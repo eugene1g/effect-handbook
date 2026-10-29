@@ -87,7 +87,7 @@ Official guides: [Expected Errors](https://effect.website/docs/v4/error-manageme
 | Discard a best-effort failure | `Effect.ignore` (typed failures only), `Effect.ignoreCause` (defects and interruption too) | `never` | anything but best-effort cleanup or telemetry |
 | Promote to a defect | `Effect.mapError` then `Effect.orDie` | `never` | the goal is only a tidier error union |
 
-Typed recovery operators look at the **first `Fail` reason** and replace the whole `Cause` with the handler's result, so a defect or interruption recorded beside a typed failure disappears. Where mixed causes are possible and the other reasons matter, use a guarded `catchCause`. Details: [Effect error handling](../foundations/errors-option-result#effect-error-handling), [Recovery replaces the whole Cause](../foundations/errors-option-result#recovery-replaces-the-whole-cause), [Classifying an error union](../foundations/errors-option-result#classifying-an-error-union).
+Typed recovery operators look at the **first `Fail` reason**. A defect beside it takes precedence — the operator does not recover and propagates the error as a defect — while an interruption beside it is dropped when the handler's result replaces the `Cause`. Where an interruption or a second failure matters, use a guarded `catchCause`. Details: [Effect error handling](../foundations/errors-option-result#effect-error-handling), [Recovery and mixed causes](../foundations/errors-option-result#recovery-and-mixed-causes), [Classifying an error union](../foundations/errors-option-result#classifying-an-error-union).
 
 ## Fail fast or accumulate
 
@@ -324,7 +324,7 @@ Pick the tool by the claim you need to prove; each is evidence for that claim an
 | A delay, timeout, retry spacing, or TTL behaves as specified | `TestClock` inside `it.effect`: fork, adjust, join | that a real driver or OS timer honors the same timing |
 | Orchestration, typed failures, interruption, cleanup | `it.effect` plus replacement Layers; assert on `Exit` | the real adapter's behavior |
 | `Console.*` output / `Effect.log*` records | `TestConsole` / a capturing test `Logger` | each other |
-| Reproducible crypto-service random bytes and UUIDs | `TestCrypto` over a platform `Crypto` layer | cryptographic security of the seeded test generator; `Random` operations use a separate seed |
+| Reproducible crypto-service random bytes and UUIDs | A seeded [`SecureRandom`](../tooling/testing-dev-tooling#deterministic-crypto-in-tests) layer beside the host [crypto](../interfaces/cryptography) layers | cryptographic security of the seeded test generator; `Random` operations use a separate seed |
 | A rule holds for every valid input | `Arbitrary.schema` via `it.effect.prop` | rejection of malformed wire input; generated values are already valid |
 | A codec decodes, encodes, and round-trips | `TestSchema` | cross-field rules the schema does not state |
 | HTTP or RPC contract, routing, middleware, status mapping | `HttpApiTest.groups`, `RpcTest.makeClient` | sockets, malformed wire input, and for `RpcTest` serialization |

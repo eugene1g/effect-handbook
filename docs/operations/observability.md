@@ -4,7 +4,7 @@ _Effect ships structured logging, spans, and metrics as first-class runtime citi
 
 This page covers instrumentation. Getting signals out of the process — OTLP, Prometheus, DevTools, and the OpenTelemetry SDK bridge — is on [Telemetry Export](telemetry-export).
 
-> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/08_observability) cover production logging and OTLP tracing.
+> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/08_observability) cover production logging and OTLP tracing.
 
 ## Designing signals
 
@@ -451,6 +451,8 @@ The runtime and the exporters record several things without any code from you, s
 | Failure or defect → status ERROR with the first error's message, plus one `exception` event per error (type, message, stack trace) | `OtlpTracer` and `@effect/opentelemetry` |
 | Interruption only → status `Unset` with attribute `effect.fiber.interrupted: true` (no error event) | `OtlpTracer` and `@effect/opentelemetry` |
 
+**A span is frozen once it ends.** Later `end`, `attribute`, `event`, and `addLinks` calls are ignored, so logs and `Effect.annotateCurrentSpan` from a fiber that outlives its span (one forked with `Effect.forkDetach`, say) do not modify it, `OtlpTracer` never exports a span twice, and the DevTools tracer sends nothing more for it. Attach such work to its own span. Interrupting a fiber inside `Effect.withSpan` or `Effect.fn` records the interruption once.
+
 A failing child marks every enclosing span as failed too unless something in between recovers, because each span ends with the `Exit` of the effect it wraps. A span proves that an effect ran and how it exited; it proves neither that a transaction committed nor that cleanup finished.
 
 ### Span and correlation rules
@@ -458,7 +460,8 @@ A failing child marks every enclosing span as failed too unless something in bet
 - **Span stable operations**: a normalized route, a use case, a transaction, a queue publish or consume, an external call.
 - **Parentage expresses causality.** For batch and fan-in work use `links` rather than inventing a parent — `RequestResolver.withSpan` does exactly this for [batched requests](./caching-batching#requestresolver).
 - **Fiber context reaches forked fibers, not serialized boundaries.** Queues that carry plain data, workers, child processes, message buses, and third-party callbacks do not inherit the parent span: carry a standard trace header explicitly (`HttpTraceContext.toHeaders` / `fromHeaders`, see [HttpTraceContext](../interfaces/http-server#httptracecontext)) and rebuild the parent with `Tracer.externalSpan`. Inject trace headers only toward destinations you trust.
-- **Malformed inbound trace context is dropped, never rejected**: `HttpTraceContext.fromHeaders` returns `Option.none()` for a missing or invalid header, and the built-in HTTP server middleware then creates the server span without a remote parent. Apply the same rule in custom adapters — bad trace headers must not fail otherwise valid traffic.
+- **Malformed inbound trace context is dropped, never rejected**: `HttpTraceContext.fromHeaders` returns `Option.none()` for a missing or invalid header — including uppercase hex trace or span ids in `traceparent`, `b3`, and `X-B3-*`, and `traceparent` flags that are not two lowercase hex digits — and the built-in HTTP server middleware then creates the server span without a remote parent. Apply the same rule in custom adapters — bad trace headers must not fail otherwise valid traffic.
+- **Server spans do not carry query values in failures.** `HttpServerError` messages contain only the request path, and the failure `HttpMiddleware.tracer` records for a `5xx` uses the redacted URL, so exporters that read the message after the response do not see query strings or URL credentials. The full request is still on the error object, so do not log that whole.
 - **Correlate logs through the active trace**; keep a separate request or job id only when operators need one that survives sampling.
 - **Expected business rejections, cancellations, defects, and transport failures need not share one error status** — decide which of them page someone.
 - **Close a streaming span however the stream stops** (it drains, fails, or is interrupted) by wrapping the entire stream effect rather than only the success path.
@@ -508,6 +511,8 @@ Typed, composable metrics registry. Define counters, gauges, histograms, summari
 **Mental model.** Metrics are pull-based: declare them, update as side-effects, then an exporter (Prometheus scrape, OTLP push, DevTools request) reads the registry at its own cadence. No push-on-update hot path by default — the registry is an in-memory map.
 
 The registry is itself a `Context.Reference`, `Metric.MetricRegistry` (a `Map`; its type is exported as `Metric.MetricRegistry`). Every context that does not override it shares one default map, which is what makes metrics feel global. Provide a fresh map — `Effect.provideService(Metric.MetricRegistry, new Map())` — to isolate a test or an embedded program: the same metric value then reads and updates the active registry, and each registry keeps its own state.
+
+Series can also be removed: `Metric.remove(metric)` (unstable) deletes the series for the current `Metric.CurrentMetricAttributes` from the active registry, and `Metric.registerUnsafe(metric, context, state)` registers a series whose value is read at snapshot time and returns a handle with `remove()`. Use them for per-resource series (one per pool, per entity) so they disappear with the resource; the OTLP and OpenTelemetry exporters drop delta state for series that are no longer registered.
 
 ### The five metric types
 

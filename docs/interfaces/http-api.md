@@ -4,7 +4,7 @@ Describe the API once as data: groups of endpoints, each with Schema-typed path 
 
 > **Tip:** Keep the API *definition* (`HttpApi`, groups, endpoints, error schemas, middleware interfaces) in a module with **no server code**. The server implements handlers against it; clients derive from it. This lets a frontend import the exact same contract the backend serves, with zero server code crossing the boundary.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
+> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
 
 ![Diagram: an HttpApi request passes middleware and decoding, then the handler; invalid input is a 400, declared errors use their declared status, defects and encoding failures are 500s, and a disconnect interrupts the request fiber](/diagrams/httpapi-request-lifecycle.svg)
 
@@ -210,6 +210,31 @@ const page = HttpApiSchema.withHeaders({
 
 In `StreamSse({ data })` mode each event is `{ id?, event, data }`: the `id` is optional in the TypeScript type and in the OpenAPI schema, and a decoded event without an `id` omits the key rather than carrying `id: undefined`. A custom `events` schema should declare the id as `Schema.optional(Schema.String)`, not `Schema.UndefinedOr(Schema.String)`. The event name `"effect/http-api/stream/failure"` is reserved: it's how a mid-stream handler failure is encoded to the client, and defining your own `events` schema with that literal fails at endpoint-construction time.
 
+`StreamUint8Array` and `StreamNdjson` accept one content type or a list (`contentType: ["application/x-ndjson", "application/jsonl"]`): the first is the default response type, request streams are accepted under every entry, and OpenAPI lists each.
+
+### Streaming request payloads
+
+An endpoint can declare `HttpApiSchema.StreamUint8Array({ maxBytes? })` or `HttpApiSchema.StreamNdjson({ schema, maxBytes?, maxElementBytes? })` as its `payload`. The handler receives a lazy `Stream` that reads the body as it pulls (a decoded element stream for NDJSON). A malformed NDJSON line fails the stream with `HttpApiSchemaError` (400); exceeding `maxBytes` or `maxElementBytes` (1 MiB by default) fails it with `HttpApiPayloadTooLarge` (413), and a `content-length` over `maxBytes` is rejected before the handler runs. `HttpApiClient` sends a `Stream` payload without buffering it, `HttpApiTest` passes it through, and `OpenApi.fromApi` marks the body with `x-effect-stream`. `StreamNdjson` also works as a success response.
+
+```ts
+import { Schema } from "effect"
+import { HttpApiEndpoint, HttpApiSchema } from "effect/http-api"
+
+const Punch = Schema.Struct({ employeeId: Schema.String, at: Schema.String })
+
+// Bulk time-clock import: one JSON object per line, never buffered whole.
+export const importPunches = HttpApiEndpoint.post("importPunches", "/punches/import", {
+  payload: HttpApiSchema.StreamNdjson({ schema: Punch, maxBytes: "100 MiB" }),
+  success: Schema.Struct({ imported: Schema.Number })
+})
+```
+
+### Upgrades
+
+`HttpApiSchema.Upgrade({ protocol, headers? })` declares a raw HTTP/1.1 upgrade (not WebSocket, which it rejects). Requests without matching `Connection: Upgrade` / `Upgrade` headers get `426 Upgrade Required` before the payload is decoded. The endpoint may declare a buffered payload (not a streaming one), which is read before the `101`, and may list ordinary successes next to the upgrade, for a server that declines. The handler receives an `upgrade` function rather than a socket: `upgrade()`, or `upgrade({ headers })` when `headers` are declared, which yields the `Socket`; returning a success value after calling it is a defect. The client returns `{ headers, socket }` for a `101`, and `HttpApiClient.isUpgraded(result)` tells it apart from an ordinary success. The client closes the connection if the `101` headers fail to decode or the call is interrupted while taking it. Bun and Deno servers support only WebSocket upgrades.
+
+**Migration:** handlers that read `socket` from the request now call `upgrade()`. Hand-built `HttpApiClient.Upgraded` values (for example in client mocks) must include `[HttpApiClient.UpgradedTypeId]: HttpApiClient.UpgradedTypeId`, and third-party `HttpServerRequest` implementations must add `upgradeWith`.
+
 **Reach for it when** an endpoint needs a specific status, non-JSON content type, empty body, file upload, or streaming response.
 
 ## HttpApiError
@@ -236,13 +261,61 @@ const handler = Effect.gen(function*() {
 
 > **Note:** **Status codes on your own errors.** Define the status on the class: `class EmployeeNotFound extends Schema.TaggedError<EmployeeNotFound>()("EmployeeNotFound", {}, { httpApiStatus: 404 }) {}`. The third options argument is where HttpApi reads the code from.
 
+### Problem Details (RFC 9457)
+
+Problem Details is opt-in; without it, built-in errors and decode failures produce the same responses as before.
+
+- `HttpApiError.Problem<Self>()(tag, { type, status, title }, fields?)` declares a typed problem as a yieldable `Schema.Error` class rendered, documented, and decoded as `application/problem+json`. Its `_tag` stays local (`Effect.catchTag` works without `_tag` on the wire); problems that share a status are told apart by `type`; extension `fields` are validated on both sides and cannot replace `type`, `status`, or `title`. Statuses below 500 are not reported to error reporters.
+- `HttpApiSchema.asProblem({ title, type? })` renders a built-in error such as `HttpApiError.NotFound` as a problem (`type` defaults to `about:blank`).
+- `HttpApiMiddleware.ProblemDetails`, provided with `HttpApiMiddleware.layerProblemDetails({ includeDetails? })`, renders request decoding failures as a generic `400` `BadRequestProblem` (with per-field `errors` only when `includeDetails: true`) and response encoding failures as a `500` `InternalServerErrorProblem`, and declares both in OpenAPI and the client.
+
+```ts
+import { Effect, Layer, Schema } from "effect"
+import {
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiError,
+  HttpApiGroup,
+  HttpApiMiddleware,
+  HttpApiSchema
+} from "effect/http-api"
+
+class BudgetExceeded extends HttpApiError.Problem<BudgetExceeded>()("BudgetExceeded", {
+  type: "https://comp.acme.internal/problems/budget-exceeded",
+  status: 409,
+  title: "The raise exceeds the remaining merit budget."
+}, {
+  remaining: Schema.Number
+}) {}
+
+const Raises = HttpApiGroup.make("raises").add(
+  HttpApiEndpoint.post("approve", "/raises/:id/approve", {
+    params: { id: Schema.String },
+    success: Schema.Struct({ approved: Schema.Boolean }),
+    error: [BudgetExceeded, HttpApiError.NotFound.pipe(HttpApiSchema.asProblem({ title: "Raise not found" }))]
+  })
+)
+
+const Api = HttpApi.make("comp").add(Raises).middleware(HttpApiMiddleware.ProblemDetails)
+
+const RaisesLive = HttpApiBuilder.group(Api, "raises", (handlers) =>
+  handlers.handle("approve", () => Effect.fail(new BudgetExceeded({ remaining: 1200 })))
+)
+
+export const ApiLive = HttpApiBuilder.layer(Api).pipe(
+  Layer.provide(RaisesLive),
+  Layer.provide(HttpApiMiddleware.layerProblemDetails())
+)
+```
+
 ### Status mapping is part of the contract
 
 An HTTP status is a claim about what happened. Map every member of the public error union to the status that tells the truth, and let nothing else through.
 
 | Situation | Status | Produced by |
 | --- | --- | --- |
-| A path, query, header, or payload value fails its Schema, or a JSON body does not parse | `400`, empty body | HttpApi, before the handler runs |
+| A path, query, header, or payload value fails its Schema, or a JSON body does not parse | `400`, empty body (a `400` problem with [Problem Details](#problem-details-rfc-9457) opted in) | HttpApi, before the handler runs |
 | The request `Content-Type` matches no declared payload encoding | `415`, plain-text body | HttpApi, before the handler runs |
 | No route matches | `404`, empty body | `HttpRouter` |
 | Credential absent, malformed, expired, or revoked | `401` | your authentication middleware |
@@ -306,6 +379,24 @@ export const approveRaiseHandler = (raiseId: string) =>
 ```
 
 **Reach for it when** an endpoint needs a standard HTTP error without hand-rolling the status mapping.
+
+## ProblemDetails
+
+`effect/http/ProblemDetails` — unstable
+
+The RFC 9457 value layer underneath HttpApi's [problem support](#problem-details-rfc-9457), usable from a plain `HttpRouter` too. `ProblemDetails.contentType` is `application/problem+json`, `blankType` is `about:blank`, `ProblemDetails.Schema` is a lenient codec for a problem object (`type`, `status`, `title`, `detail`, `instance`, plus extension members) that follows RFC 9457 when decoding (a missing `type` becomes `about:blank`, wrong-typed standard members are dropped, unknown members are kept as extensions), and `ProblemDetails.toResponse(problem)` builds the `application/problem+json` response with the problem's `status` (or `500` when absent).
+
+```ts
+import { Effect } from "effect"
+import { HttpRouter, ProblemDetails } from "effect/http"
+
+export const MaintenanceRoute = HttpRouter.add("POST", "/payroll/run", () =>
+  Effect.succeed(ProblemDetails.toResponse({
+    type: "https://comp.acme.internal/problems/maintenance",
+    status: 503,
+    title: "Payroll runs are paused for maintenance."
+  })))
+```
 
 ## HttpApiSecurity
 
@@ -554,6 +645,8 @@ const ServerLayer = HttpRouter.serve(Layer.mergeAll(ApiRoutes, DocsRoute)).pipe(
 Layer.launch(ServerLayer).pipe(NodeRuntime.runMain)
 ```
 
+`HttpApiBuilder.layer` rejects two endpoints with the same method and path, naming both; declare request variants of one operation as a single endpoint with a payload union. An undeclared error that implements `HttpServerRespondable` renders its own response when error-schema encoding fails (oversized multipart streaming uploads answer `413`), while declared error schemas keep precedence.
+
 ### Handlers are lazy adapters
 
 A handler translates one decoded request into one use-case call and returns the Effect. Keep everything else out.
@@ -624,9 +717,12 @@ Options and per-call controls worth knowing:
 | The status or headers as well as the decoded value | pass `responseMode: "decoded-and-response"` (a `[value, response]` tuple) or `"response-only"` in the call's request object; the default is `"decoded-only"` |
 | A link or redirect target without executing a request | `HttpApiClient.urlBuilder(Api, { baseUrl })` mirrors the client's shape and returns strings: `urls.comp.getComp({ params, query })`. Params and query are encoded through the endpoint schemas, and a base URL's pathname is kept |
 | Stricter or exhaustive decoding of responses | the same [`HttpApi.ParseOptions`](#httpapi) annotation (or its per-slot variants) the server reads also configures the client's request encoders and response decoders |
+| Decode a raw response later, for example after `responseMode: "response-only"` | `HttpApiClient.decodeResponse(Api, { group, endpoint })` builds a reusable decoder that applies the endpoint's declared success and error schemas (undeclared statuses fail with a `DecodeError` described as `undeclared status code`); build it once and run it inside the scope that owns the response |
 | A larger SSE event budget for one `StreamSse` endpoint | `sseOptions: { maxEventSize }` in that call's request object; the default cap is 10 MiB per pending event |
 
 The client decodes JSON, text, bytes, and form-urlencoded responses according to the endpoint's declared encoding. Request values are encoded through the endpoint schemas *before* anything is sent, so a value that violates a check fails locally with `SchemaError`: **a typed client cannot produce malformed wire input**, which is why boundary tests need a raw request ([HttpApiTest](#httpapitest)).
+
+Path parameters equal to `.` or `..` are rejected so they cannot rewrite the request path through URL normalization, and path-parameter regex constraints are not emitted into client URLs or OpenAPI paths.
 
 **Reach for it when** consuming an `HttpApi` from another service or frontend and wanting a typed client that can never silently drift from the server.
 
@@ -634,7 +730,7 @@ The client decodes JSON, text, bytes, and form-urlencoded responses according to
 
 `effect/http-api/OpenApi` — unstable
 
-OpenAPI 3.1 generator and annotation toolkit. `OpenApi.fromApi(api)` returns a complete spec object derived from endpoints, schemas, errors, and security. `OpenApi.annotations({ title, version, description, license, ... })` attaches metadata; services (`OpenApi.Title`, `Version`, `Servers`, `Summary`, `Deprecated`, `Exclude`, `Transform`) override anything down to a single parameter.
+OpenAPI 3.1 generator and annotation toolkit. `OpenApi.fromApi(api)` returns a complete spec object derived from endpoints, schemas, errors, and security. `OpenApi.annotations({ title, version, description, license, ... })` attaches metadata; services (`OpenApi.Title`, `Version`, `Servers`, `Summary`, `Deprecated`, `Exclude`, `Transform`) override anything down to a single parameter. When several security middlewares are stacked on an endpoint, the document requires all of them (one combined security requirement), matching the server; optional parameters and headers are not marked nullable, and `includeAnnotationKey` copies selected custom schema annotations (such as `x-*` vendor extensions) into the output.
 
 **Mental model.** Docs are a *projection* of the same definition — not a parallel artifact kept in sync by hand. Because the spec comes from live Schemas, request/response shapes in the docs are always correct. Results are fresh clones even when the compiler cache is hit, so mutating one returned spec does not contaminate a later `fromApi` call.
 

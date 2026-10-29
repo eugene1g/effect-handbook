@@ -1,6 +1,6 @@
 # Exposing an Effect Application over MCP
 
-`McpServer`, `McpProtocol`, `McpSchema`, `Tool`, and `Toolkit` are all tagged `@stability unstable`: pin Effect, and re-check this guide when you upgrade.
+`McpServer`, `McpProtocol`, `McpSchema`, `McpTest`, `Tool`, and `Toolkit` are all tagged `@stability unstable`, and `McpClient` is `@stability experimental`: pin Effect, and re-check this guide when you upgrade.
 
 The Model Context Protocol (MCP) lets an agent host discover what your application can do and call it: tools to act, resources to read, prompts to start a task. `effect/ai/McpServer` turns a `Toolkit` and a few Layers into a server. It handles JSON-RPC framing, protocol negotiation, JSON Schema generation, argument decoding, and result encoding. Everything that makes the server safe to expose is still yours: who the caller is, which tenant they act for, what they are allowed to change, and what happens when a call arrives twice.
 
@@ -12,6 +12,7 @@ This guide builds that server for a compensation platform. It assumes you alread
 - runs over stdio for desktop clients and over Streamable HTTP for remote agents, serving the stateless `2026-07-28` revision and the session-based `2025-11-25` revision from one endpoint;
 - acts as an OAuth resource server: a public metadata route, a bearer-token middleware that provides a `Principal`, and scope checks inside handlers;
 - asks the user to confirm a submission, by elicitation on session clients and by a sealed `InputRequired` round trip on stateless clients;
+- reads the caller through request-level dependencies that the compiler will not let you forget;
 - collapses retried writes with idempotency keys, reports internal faults, and is tested in-process without opening a socket.
 
 ## MCP is a boundary, not your agent loop
@@ -26,7 +27,7 @@ The same `Toolkit` value serves both surfaces. Define each tool once with `Tool.
 
 **What Effect does not ship.** Say this plainly in design reviews so nobody waits for it:
 
-- **No MCP client.** There is no module for connecting to a remote MCP server and calling its tools. If your agent consumes remote tools, fetch and snapshot their schemas yourself and wrap them with `Tool.dynamic`, following the rules for [dynamic and MCP-sourced tools](building-a-production-ai-capability#adjacent-capabilities-same-discipline).
+- **Only a minimal MCP client.** [`McpClient`](../systems/mcp#mcpclient) (experimental) discovers and calls a remote server's tools, prompts, and resources on `2025-11-25` or `2026-07-28`, and `McpClient.toolkit` hands the remote tools to a model. It has no OAuth, retries, sampling, elicitation, or subscriptions, and remote tools still follow the rules for [dynamic and MCP-sourced tools](building-a-production-ai-capability#adjacent-capabilities-same-discipline).
 - **No OAuth helpers.** Nothing verifies tokens, serves protected-resource metadata, or issues challenges. You write a middleware and a route; this guide shows both.
 - **No Tasks extension helpers.** Long-running work has no built-in task handle. Return a job id from a tool and expose its status as a tool or resource. The server's `extensions` option advertises extension capabilities, but implementing an extension is your code.
 - **No full legacy HTTP transport.** `layerHttp` implements the single-endpoint Streamable HTTP topology only: no standalone GET event stream, no event resumption, and no session expiry. Client-initiated session termination is available as an opt-in: pass `allowSessionTermination: true` and DELETE on the session path interrupts active requests and returns `404` for subsequent ones.
@@ -40,7 +41,7 @@ Pick the transport by who launches the process.
 - **stdio** (`McpServer.layerStdio`) — the client starts your server as a subprocess and speaks newline-delimited JSON-RPC over stdin/stdout. Use it for desktop assistants and IDEs on the user's machine. The process runs as the user, so authentication is the operating system's job. Stdout carries protocol frames only: route logs to stderr, or the first log line corrupts the stream.
 - **Streamable HTTP** (`McpServer.layerHttp`) — your server listens and remote clients POST JSON-RPC to one path. Use it for shared, multi-tenant deployments. You must authenticate every request.
 
-`layerHttp` returns `Layer<McpServer | McpServerClient, Cause.IllegalArgumentError, HttpRouter.HttpRouter>`: it registers a POST route at `path` on whatever router is in context, and answers GET, PUT, PATCH, and OPTIONS on that path with `405`. DELETE also returns `405` unless session termination is explicitly enabled. Its boundary checks are strict:
+`layerHttp` provides `McpServer`, can fail to build with `Cause.IllegalArgumentError`, and requires `HttpRouter.HttpRouter` plus whatever its `registrations` still need per request (next section): it registers a POST route at `path` on whatever router is in context, and answers GET, PUT, PATCH, and OPTIONS on that path with `405`. DELETE also returns `405` unless session termination is explicitly enabled. Its boundary checks are strict:
 
 - a request that carries an `Origin` header gets `403` unless that exact origin is in `allowedOrigins`; requests without `Origin` (command-line agents, server-to-server calls) pass;
 - POST requires `Content-Type: application/json` (`415` otherwise) and an `Accept` header listing both `application/json` and `text/event-stream` (`406` otherwise);
@@ -67,18 +68,45 @@ For a serverless host such as Cloudflare Workers, choose `McpServer.layerHttpReq
 - **Cancellation is a closed stream.** On stateless HTTP, `notifications/cancelled` is accepted and ignored; the client cancels by closing the response stream, which interrupts your handler's fiber. Interruption can land anywhere before your commit, so make writes atomic and idempotent.
 - **Logging and progress follow the request.** A per-request log level in `_meta` sets `References.CurrentLogLevel` for the handler, and progress notifications reach the client only for the `progressToken` its request carried.
 
+### Registrations and request-level services
+
+Capabilities are registration Layers that require `McpServer`; hand them to the transport as its `registrations` option, so they are registered before the first request is read. Every service a handler reads is a [request-level dependency](../systems/mcp#request-level-dependencies-middleware-and-visibility): it stays in the Layer's type as `McpServer.McpRequest<"Requires", S>` until MCP middleware or the transport discharges it, and `Layer.provide(Layer.succeed(S, ...))` does not. `layerHttp` turns the markers it cannot discharge into `HttpRouter` requirements, so the same bearer-token route middleware that answers `401` also supplies the caller to handlers; on stdio an MCP middleware has to. A composition that forgets either one does not compile.
+
+> **Migration:** 4.0 code provided the transport to the capabilities (`CompCapabilities.pipe(Layer.provide(McpServer.layerHttp(...)))`) and read the caller with `Effect.serviceOption` to keep it out of the toolkit Layer's requirements. Pass `registrations` instead, and declare the caller as a tool `dependency`.
+
 **Runnable.** One set of capabilities, two transports. `CompCapabilities` is the Layer the next section builds; both transports share the same identity and protocol list.
 
 ```ts
 import { NodeHttpServer, NodeRuntime, NodeStdio } from "@effect/platform-node"
-import { Layer, Logger } from "effect"
+import { Context, Effect, Layer, Logger } from "effect"
 import { McpProtocol, McpServer } from "effect/ai"
 import { HttpRouter } from "effect/http"
 import { createServer } from "node:http"
 
-// Toolkit, resources, and prompts — built in "Shape the catalog". Low-level
-// registrations need the McpServer service, which the transport Layer provides.
-declare const CompCapabilities: Layer.Layer<never, never, McpServer.McpServer>
+class Principal extends Context.Service<Principal, {
+  readonly tenantId: string
+  readonly subject: string
+  readonly scopes: ReadonlySet<string>
+}>()("acme/Principal") {}
+
+// Toolkit, resources, and prompts — built in "Shape the catalog". Registrations need
+// the McpServer service, and their handlers read the caller per request.
+declare const CompCapabilities: Layer.Layer<
+  never,
+  never,
+  McpServer.McpServer | McpServer.McpRequest<"Requires", Principal>
+>
+// Verifies the bearer token for HTTP requests (see "Authorize as an OAuth resource server").
+declare const BearerAuth: HttpRouter.Middleware<{
+  provides: Principal
+  handles: never
+  error: never
+  requires: never
+  layerError: never
+  layerRequires: never
+}>
+// The OS user who launched the stdio process.
+declare const localPrincipal: Principal["Service"]
 
 const identity = {
   name: "acme-comp",
@@ -92,19 +120,26 @@ const identity = {
   protocols: [McpProtocol.v2026_07_28, McpProtocol.v2025_11_25]
 } as const
 
-// Streamable HTTP: one POST endpoint on the router that `HttpRouter.serve` builds.
-export const HttpMcp = CompCapabilities.pipe(
-  Layer.provide(McpServer.layerHttp({
-    ...identity,
-    path: "/mcp",
-    // Browser-originated requests must come from these exact origins, or get 403.
-    allowedOrigins: ["https://comp.acme.example"]
-  }))
+// Streamable HTTP: one POST endpoint on the router that `HttpRouter.serve` builds. The
+// per-request Principal becomes an HttpRouter requirement that BearerAuth satisfies.
+export const HttpMcp = McpServer.layerHttp({
+  ...identity,
+  path: "/mcp",
+  // Browser-originated requests must come from these exact origins, or get 403.
+  allowedOrigins: ["https://comp.acme.example"],
+  registrations: CompCapabilities
+}).pipe(Layer.provide(BearerAuth.layer))
+
+// stdio has no HTTP request, so an MCP middleware supplies the Principal for every request.
+const LocalUser = McpServer.middleware<{ provides: Principal }>()((effect) =>
+  Effect.provideService(effect, Principal, localPrincipal)
 )
 
 // stdio: the client launches this process; stdout carries protocol frames only.
-export const StdioMcp = CompCapabilities.pipe(
-  Layer.provide(McpServer.layerStdio(identity)),
+export const StdioMcp = McpServer.layerStdio({
+  ...identity,
+  registrations: CompCapabilities.pipe(Layer.provide(LocalUser.layerGlobal))
+}).pipe(
   Layer.provide(NodeStdio.layer),
   Layer.provide(Layer.succeed(Logger.LogToStderr)(true))
 )
@@ -149,19 +184,18 @@ Annotations become MCP tool hints: `Tool.Title` → `title`, `Tool.Readonly` →
 
 `Tool.Strict` changes validation, not just advertising. A strict tool advertises `additionalProperties: false` and the server rejects undeclared argument keys; a non-strict tool advertises `additionalProperties: true` and drops them. Use strict mode on writes, where a misspelled argument should fail rather than be ignored. Parameters must encode to an object-root JSON Schema (a `Schema.Struct`); use `Tool.EmptyParams` for a tool without parameters.
 
-**Contextual.** `CompData` is the tenant-scoped application port and `currentPrincipal` comes from the authorization section; both are declared so the block compiles alone.
+**Contextual.** `CompData` is the tenant-scoped application port and `Principal` is the service the authorization section's middleware provides; both are declared so the block compiles alone.
 
 ```ts
 import { Context, Effect, Layer, Schema } from "effect"
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai"
 
 // The verified caller of the current request (see "Authorize as an OAuth resource server").
-interface Principal {
+class Principal extends Context.Service<Principal, {
   readonly tenantId: string
   readonly subject: string
   readonly scopes: ReadonlySet<string>
-}
-declare const currentPrincipal: Effect.Effect<Principal>
+}>()("acme/Principal") {}
 
 class BandNotFound extends Schema.TaggedError<BandNotFound>()("BandNotFound", {
   message: Schema.String
@@ -215,7 +249,8 @@ const GetSalaryBand = Tool.make("comp_get_salary_band", {
     level: Schema.String.annotate({ description: 'Level code, e.g. "L5"' })
   }),
   success: SalaryBand,
-  failure: BandNotFound // declared: the client sees its message as an isError result
+  failure: BandNotFound, // declared: the client sees its message as an isError result
+  dependencies: [Principal] // request-level: supplied by middleware for every call
 })
   .annotate(Tool.Title, "Get salary band")
   .annotate(Tool.Readonly, true)
@@ -230,7 +265,8 @@ const SearchEmployees = Tool.make("comp_search_employees", {
     managerId: Schema.optional(Schema.String),
     limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 })))
   }),
-  success: Schema.Struct({ employees: Schema.Array(EmployeeSummary) })
+  success: Schema.Struct({ employees: Schema.Array(EmployeeSummary) }),
+  dependencies: [Principal]
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Idempotent, true)
@@ -245,7 +281,8 @@ const DraftProposal = Tool.make("comp_draft_proposal", {
     employeeId: Schema.String,
     increasePct: Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 25 }))
   }),
-  success: DraftedProposal
+  success: DraftedProposal,
+  dependencies: [Principal]
 })
   .annotate(Tool.Destructive, false) // replaces only the caller's own draft
   .annotate(Tool.Idempotent, true) // same arguments, same draft
@@ -261,11 +298,11 @@ export const CompToolkitHandlers = CompToolkit.toLayer(Effect.gen(function*() {
   const data = yield* CompData
   return CompToolkit.of({
     comp_get_salary_band: Effect.fn("comp_get_salary_band")(function*({ jobFamily, level }) {
-      const principal = yield* currentPrincipal
+      const principal = yield* Principal
       return yield* data.band(principal.tenantId, jobFamily, level)
     }),
     comp_search_employees: Effect.fn("comp_search_employees")(function*({ cycleId, managerId, limit }) {
-      const principal = yield* currentPrincipal
+      const principal = yield* Principal
       const employees = yield* data.searchEmployees(principal.tenantId, {
         cycleId,
         managerId,
@@ -274,13 +311,15 @@ export const CompToolkitHandlers = CompToolkit.toLayer(Effect.gen(function*() {
       return { employees }
     }),
     comp_draft_proposal: Effect.fn("comp_draft_proposal")(function*(input) {
-      const principal = yield* currentPrincipal
+      const principal = yield* Principal
       return yield* data.draftProposal(principal.tenantId, principal.subject, input)
     })
   })
 }))
 
-// The same CompToolkit can be passed to LanguageModel.generateText in-process.
+// The same CompToolkit can be passed to LanguageModel.generateText in-process, where
+// the caller provides Principal like any other service. Here it stays a request-level
+// requirement of CompTools until the transport's middleware supplies it.
 export const CompTools = McpServer.toolkit(CompToolkit).pipe(Layer.provide(CompToolkitHandlers))
 ```
 
@@ -299,13 +338,10 @@ A resource template turns typed URI parameters into a read; completions help the
 **Contextual.** The store functions are declared; the API reference for `resource` and `prompt` options is in the [McpServer section](../systems/mcp#mcpserver).
 
 ```ts
-import { Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { McpSchema, McpServer } from "effect/ai"
 
-interface Principal {
-  readonly tenantId: string
-}
-declare const currentPrincipal: Effect.Effect<Principal>
+class Principal extends Context.Service<Principal, { readonly tenantId: string }>()("acme/Principal") {}
 declare const bandRowJson: (tenantId: string, jobFamily: string, level: string) => Effect.Effect<string>
 
 const jobFamily = McpSchema.param("jobFamily", Schema.String)
@@ -320,7 +356,8 @@ export const BandResource = McpServer.resource`comp://bands/${jobFamily}/${level
     level: (prefix) => Effect.succeed(["L3", "L4", "L5", "L6", "L7"].filter((l) => l.startsWith(prefix)))
   },
   content: Effect.fn("BandResource")(function*(_uri, jobFamily, level) {
-    const principal = yield* currentPrincipal
+    // Reading a service in a resource handler makes it request-level, like a tool dependency.
+    const principal = yield* Principal
     return yield* bandRowJson(principal.tenantId, jobFamily, level)
   })
 })
@@ -347,9 +384,9 @@ export const CompContent = Layer.mergeAll(BandResource, ReviewPrompt)
 
 Resource and prompt content is data the model will read, so it is untrusted on the way back in: a manager's free-text justification inside a resource can carry instructions aimed at the model. Label such fields as user-authored text in descriptions and keep them out of anything your server interprets.
 
-Serviceful schemas stay serviceful here: resource-template registration requires its parameter decoding **and encoding** services, plus completion callback requirements (including context-taking callbacks). Prompts require parameter decoding services, plus encoding services for parameters with completions. Supply these when composing capability Layers; only `McpRequestContext` is automatically excluded. Compilation catching a missing codec service is a real wiring failure, not a reason to cast away the Layer's requirements.
+Serviceful schemas stay serviceful here: resource-template and prompt registration require their parameter decoding services, plus the encoding services of parameters with completions, as ordinary registration-time requirements. Supply these when composing capability Layers. What `content` and completion handlers read is request-level instead. Compilation catching a missing service is a real wiring failure, not a reason to cast away the Layer's requirements.
 
-Merge all capabilities into one Layer — `Layer.mergeAll(CompTools, CompContent, WriteTools, SubmitProposals)`, built in the sections below — and that is the `CompCapabilities` the bootstrap provides with a transport. Registration across separate capability Layers follows Layer build order, so if the order of `tools/list` matters to you, put the tools of one surface in one toolkit (`Toolkit.merge` combines toolkits).
+Merge all capabilities into one Layer — `Layer.mergeAll(CompTools, CompContent, WriteTools, SubmitProposals)`, built in the sections below — and that is the `CompCapabilities` the bootstrap passes as `registrations`. Registration across separate capability Layers follows Layer build order, so if the order of `tools/list` matters to you, put the tools of one surface in one toolkit (`Toolkit.merge` combines toolkits).
 
 ## Exposure strategy: curated tools, query tools, code mode
 
@@ -400,7 +437,11 @@ export class TokenVerifier extends Context.Service<TokenVerifier, {
 }>()("acme/TokenVerifier") {}
 
 declare const TokenVerifierLive: Layer.Layer<TokenVerifier> // JOSE library + the issuer's JWKS
-declare const CompCapabilities: Layer.Layer<never, never, McpServer.McpServer>
+declare const CompCapabilities: Layer.Layer<
+  never,
+  never,
+  McpServer.McpServer | McpServer.McpRequest<"Requires", Principal>
+>
 
 const challenge = (status: 401 | 403, error: "invalid_token" | "insufficient_scope", scope?: string) =>
   HttpServerResponse.empty({
@@ -440,16 +481,17 @@ export const BearerAuth = HttpRouter.middleware<{ provides: Principal }>()(
   })
 )
 
-const McpRoutes = CompCapabilities.pipe(
-  Layer.provide(McpServer.layerHttp({
-    name: "acme-comp",
-    version: "1.6.0",
-    path: "/mcp",
-    protocols: [McpProtocol.v2026_07_28, McpProtocol.v2025_11_25],
-    allowedOrigins: ["https://comp.acme.example"]
-  })),
-  // Route middleware wraps the routes registered while this Layer builds: the MCP
-  // endpoint. The metadata route is merged beside it and stays public.
+const McpRoutes = McpServer.layerHttp({
+  name: "acme-comp",
+  version: "1.6.0",
+  path: "/mcp",
+  protocols: [McpProtocol.v2026_07_28, McpProtocol.v2025_11_25],
+  allowedOrigins: ["https://comp.acme.example"],
+  // Their request-level Principal becomes an HttpRouter requirement...
+  registrations: CompCapabilities
+}).pipe(
+  // ...which this route middleware satisfies. It wraps the routes registered while this
+  // Layer builds: the MCP endpoint. The metadata route is merged beside it and stays public.
   Layer.provide(BearerAuth.layer)
 )
 
@@ -462,21 +504,20 @@ HttpRouter.serve(Layer.mergeAll(ProtectedResourceMetadata, McpRoutes)).pipe(
 )
 ```
 
-The middleware applies to the MCP endpoint because `router.add` reads route middleware from the context in which the route is registered, and `layerHttp` registers its routes while it builds inside `McpRoutes`.
+The middleware applies to the MCP endpoint because `router.add` reads route middleware from the context in which the route is registered, and `layerHttp` registers its routes while it builds inside `McpRoutes`. Remove `Layer.provide(BearerAuth.layer)` and `McpRoutes` no longer compiles, because nothing provides the handlers' `Principal`.
 
 ### Read the principal inside handlers
 
-The `Principal` provided by the middleware reaches tool, resource, and prompt handlers. The RPC server runs each handler with the HTTP request fiber's services merged in, which is also how `HttpServerRequest` is available to them. Two details decide how to read it:
+The `Principal` provided by the middleware reaches tool, resource, and prompt handlers, which run with the HTTP request's services. Read it as an ordinary service:
 
-- **Do not declare it as a tool dependency.** `Tool.make(..., { dependencies: [Principal] })` makes `Principal` a requirement of the `McpServer.toolkit` Layer, which is built once at startup. `McpRequestContext` is the only request service that Layer excludes.
-- **Never provide a `Principal` in the Layer graph.** When the server registers a toolkit it captures the build-time context and merges it over each call's context, dropping only its own request services (`McpRequestContext`, `McpServerClient`, `HttpServerRequest`, the log level). A build-time `Principal` would shadow the per-request one for every call.
-
-So read it with `Effect.serviceOption` and fail closed. A missing principal means the server was mounted without the middleware — over stdio, or on an unprotected route — which is a deployment fault, so it dies: the call returns the fixed internal-error result, and the cause is logged and reported.
+- **Declare it as a tool dependency.** `Tool.make(..., { dependencies: [Principal] })` lets the handler `yield* Principal`, and makes it a request-level requirement of the `McpServer.toolkit` Layer rather than a startup one. Resource and prompt handlers declare it by reading it.
+- **A Principal in the Layer graph is not a substitute.** Providing one with `Layer.provide` does not discharge the request-level requirement, and if a registration did capture one, the request's own services take precedence on every call. Only middleware supplies the caller.
+- **Low-level `addTool` handlers are the exception.** They may require only `McpRequestContext`, so the dual-era gate below reads the principal with `Effect.serviceOption` and dies when it is missing: that means the server was mounted without the middleware, a deployment fault, so the call returns the fixed internal-error result and the cause is logged and reported.
 
 **Contextual.** `Proposals` is the tenant-scoped port; the toolkit is merged into `CompCapabilities` like the read tools.
 
 ```ts
-import { Context, Effect, Layer, Option, Schema } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { McpServer, Tool, Toolkit } from "effect/ai"
 
 export class Principal extends Context.Service<Principal, {
@@ -486,20 +527,13 @@ export class Principal extends Context.Service<Principal, {
   readonly scopes: ReadonlySet<string>
 }>()("acme/Principal") {}
 
-export const currentPrincipal = Effect.serviceOption(Principal).pipe(
-  Effect.flatMap(Option.match({
-    onNone: () => Effect.die("MCP handler ran without an authenticated Principal"),
-    onSome: (principal) => Effect.succeed(principal)
-  }))
-)
-
 export class InsufficientScope extends Schema.TaggedError<InsufficientScope>()("InsufficientScope", {
   scope: Schema.String,
   message: Schema.String
 }) {}
 
 export const requireScope = (scope: string) =>
-  Effect.flatMap(currentPrincipal, (principal) =>
+  Effect.flatMap(Principal, (principal) =>
     principal.scopes.has(scope)
       ? Effect.succeed(principal)
       : Effect.fail(
@@ -514,7 +548,8 @@ const WithdrawProposal = Tool.make("comp_withdraw_proposal", {
   description: "Withdraw one of the caller's draft proposals. Requires the comp:write scope.",
   parameters: Schema.Struct({ proposalId: Schema.String }),
   success: Schema.Struct({ withdrawn: Schema.Boolean }),
-  failure: InsufficientScope // declared, so the model reads the re-authorize hint
+  failure: InsufficientScope, // declared, so the model reads the re-authorize hint
+  dependencies: [Principal]
 })
   .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, true)
@@ -572,7 +607,7 @@ Rules the server enforces for you:
 
 `requestState` is the only memory between rounds, and it comes back from the client. Treat it as attacker-controlled: a client can replay it, alter it, or hand it to someone else. Seal it.
 
-- **Integrity.** HMAC-SHA256 over the encoded payload with a server secret, compared in constant time. Effect's `Crypto` service offers random bytes and digests but no HMAC, so use `node:crypto`.
+- **Integrity.** HMAC-SHA256 over the encoded payload with a server secret, compared in constant time. The block below uses `node:crypto`; on runtimes without it, `effect/crypto/Mac` (`Mac.hmacSha256`, `Mac.timingSafeEqual`) and `SecureRandom` provide the same primitives as services.
 - **Expiry and freshness.** An expiry timestamp and a random nonce inside the sealed payload.
 - **Binding.** The tenant, the subject, and a digest of the exact arguments, checked against the current principal and arguments in round 2.
 - **Only what round 1 proved.** Store the proposal ids and the total the user is shown, not a flag that says "approved".
@@ -661,12 +696,20 @@ import { Context, Effect, Layer, Option, Schema } from "effect"
 import { McpSchema, McpServer } from "effect/ai"
 import { createHash } from "node:crypto"
 
-interface Principal {
+class Principal extends Context.Service<Principal, {
   readonly tenantId: string
   readonly subject: string
   readonly scopes: ReadonlySet<string>
-}
-declare const currentPrincipal: Effect.Effect<Principal>
+}>()("acme/Principal") {}
+
+// A low-level handler may require only McpRequestContext, so read the caller optionally
+// and fail closed: a missing Principal means the route was mounted without its middleware.
+const currentPrincipal = Effect.serviceOption(Principal).pipe(
+  Effect.flatMap(Option.match({
+    onNone: () => Effect.die("MCP handler ran without an authenticated Principal"),
+    onSome: (principal) => Effect.succeed(principal)
+  }))
+)
 
 interface PendingSubmission {
   readonly tenantId: string
@@ -730,7 +773,7 @@ export const SubmitProposals = Layer.effectDiscard(Effect.gen(function*() {
   const proposals = yield* Proposals
   const requestState = yield* RequestState
 
-  const commit = (principal: Principal, pending: PendingSubmission) =>
+  const commit = (principal: Principal["Service"], pending: PendingSubmission) =>
     proposals.submit(principal.tenantId, pending.proposalIds, {
       submittedBy: principal.subject,
       expectedTotal: pending.totalIncrease,
@@ -838,18 +881,17 @@ In the low-level `addTool` path, the mapping is yours: a handler's `InternalErro
 
 Claim the key and perform the write in one transaction, store the first outcome, and return it for duplicates. If a call is interrupted after the write was dispatched, the outcome is unknown; the client's retry with the same key resolves it instead of writing twice.
 
-**Runnable shape.** `AdjustmentLedger`, `currentPrincipal`, and the paging function are declared; the reporter Layer is provided with the capabilities.
+**Runnable shape.** `AdjustmentLedger`, `Principal`, and the paging function are declared; the reporter Layer is provided with the capabilities.
 
 ```ts
 import { Context, Effect, ErrorReporter, Layer, Schema } from "effect"
 import { McpServer, Tool, Toolkit } from "effect/ai"
 import { createHash } from "node:crypto"
 
-interface Principal {
+class Principal extends Context.Service<Principal, {
   readonly tenantId: string
   readonly subject: string
-}
-declare const currentPrincipal: Effect.Effect<Principal>
+}>()("acme/Principal") {}
 declare const pageOnCall: (error: Error, details: Readonly<Record<string, unknown>>) => void
 
 class LedgerUnavailable extends Schema.TaggedError<LedgerUnavailable>()("LedgerUnavailable", {}) {}
@@ -880,7 +922,8 @@ const RecordSpotBonus = Tool.make("comp_record_spot_bonus", {
     amount: Schema.Finite.check(Schema.isBetween({ minimum: 1, maximum: 10_000 }))
   }),
   success: Schema.Struct({ adjustmentId: Schema.String, replayed: Schema.Boolean }),
-  failure: RequestIdReused
+  failure: RequestIdReused,
+  dependencies: [Principal]
 })
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
@@ -894,7 +937,7 @@ export const BonusTools = McpServer.toolkit(BonusToolkit).pipe(
     const ledger = yield* AdjustmentLedger
     return BonusToolkit.of({
       comp_record_spot_bonus: Effect.fn("comp_record_spot_bonus")(function*({ requestId, employeeId, amount }) {
-        const principal = yield* currentPrincipal
+        const principal = yield* Principal
         const key = digest(["comp_record_spot_bonus", principal.tenantId, principal.subject, requestId])
         return yield* ledger.recordOnce(key, digest({ employeeId, amount }), {
           tenantId: principal.tenantId,
@@ -938,17 +981,17 @@ const GetSalaryBand = Tool.make("comp_get_salary_band", {
 }).annotate(Tool.Readonly, true)
 const CompToolkit = Toolkit.make(GetSalaryBand)
 
-const ServerUnderTest = McpServer.toolkit(CompToolkit).pipe(
-  Layer.provide(CompToolkit.toLayer({
-    comp_get_salary_band: () => Effect.succeed({ min: 150_000, mid: 185_000, max: 220_000 })
-  })),
-  Layer.provide(McpServer.layerHttp({
-    name: "acme-comp",
-    version: "test",
-    path: "/mcp",
-    protocols: [McpProtocol.v2026_07_28]
-  }))
-)
+const ServerUnderTest = McpServer.layerHttp({
+  name: "acme-comp",
+  version: "test",
+  path: "/mcp",
+  protocols: [McpProtocol.v2026_07_28],
+  registrations: McpServer.toolkit(CompToolkit).pipe(
+    Layer.provide(CompToolkit.toLayer({
+      comp_get_salary_band: () => Effect.succeed({ min: 150_000, mid: 185_000, max: 220_000 })
+    }))
+  )
+})
 
 const ListToolsReply = Schema.Struct({
   result: Schema.Struct({ tools: Schema.Array(Schema.Struct({ name: Schema.String })) })
@@ -1029,11 +1072,14 @@ it.effect("serves the catalog and calls over stateless HTTP", () =>
   }))
 ```
 
+When the HTTP admission rules are not what is under test, [`McpTest.makeClient(registrations, { protocols })`](../systems/mcp#mcptest) is lighter: it runs the same registrations, middleware, visibility, and JSON-RPC encoding in memory, performs the handshake for you, and returns typed `listTools` / `callTool` / `readResource` methods. Request-level dependencies still have to be met by MCP middleware there, so a test supplies a fake `Principal` with a test `McpServer.middleware`, not with `Layer.provide`.
+
 Build the rest of the suite on the same harness:
 
 - **Authorization.** Compose the real `BearerAuth` with a fake `TokenVerifier` Layer and assert `401` with a `WWW-Authenticate` header that names the metadata URL, `403 insufficient_scope` for a token without `comp:read`, an `isError` result with the re-authorize hint for a missing per-tool scope, and that the metadata route answers without a token.
 - **Tenancy.** Two principals from different tenants; each call returns only its own tenant's rows, whatever the arguments say.
 - **The round trip.** Call `comp_submit_proposals` without answers and decode `resultType: "input_required"`; call again with the returned `requestState` and an accepted answer and assert exactly one submission; repeat the second call and assert the same batch; alter one character of the state, or send it under another principal, and assert JSON-RPC `-32602`; omit the elicitation capability and assert `-32021`.
+- **Middleware coverage.** With `McpTest`, assert that a test middleware which fails with an `McpErrorBase` code reaches the client as that JSON-RPC error, and that a `McpServer.visibility` check hides admin tools from `tools/list` and from direct calls.
 - **Session era.** For elicitation tests, initialize a `2025-11-25` session, keep the `Mcp-Session-Id` response header on later requests, read the `elicitation/create` request from the call's event stream, and answer it with a separate POST.
 - **Catalog drift.** Snapshot the `tools/list` result — names, descriptions, input and output schemas, hints — and review every diff. A changed tool is a changed contract for every host that remembered it.
 
@@ -1045,7 +1091,7 @@ Handler logic itself — scope checks, idempotency, tenant filters — is ordina
 - **Transport boundary.** `allowedOrigins` set to exact origins; logs on stderr for stdio; request-size limits and rate limits at the edge; no reliance on GET streams, resumption, or session expiry, which `layerHttp` does not implement.
 - **Entrypoint.** Capability and MCP Layers merged directly into `HttpRouter.serve`; shared services (database, repositories, token verifier, request-state secret) provided outside it.
 - **Authentication.** Public protected-resource metadata; `401` challenges that point at it; tokens verified for signature, issuer, audience equal to your resource URI, and expiry; the principal built from claims only.
-- **Authorization.** Baseline scope at the edge, per-tool scopes in handlers, declared `InsufficientScope` failures that tell the model to ask for re-authorization; no `Principal` in the Layer graph; a missing principal dies.
+- **Authorization.** Baseline scope at the edge, per-tool scopes in handlers, declared `InsufficientScope` failures that tell the model to ask for re-authorization; `Principal` declared as a request-level dependency and supplied only by middleware; a low-level handler that finds none dies.
 - **Tenancy.** No tenant, actor, or role parameters; repositories take the tenant first; no token passthrough to downstream APIs.
 - **Catalog.** One verb per tool with a stable prefix; descriptions that state returns, limits, and next steps; bounded parameters; hints set explicitly; `Tool.Strict` on writes; `EnabledWhen` to trim per client, never to authorize; a snapshot test of `tools/list`.
 - **Confirmation.** Consequential writes confirmed through the client — `elicit` on session eras, `InputRequired` on the stateless era — with `requestState` sealed, expiring, bound to principal and arguments, and holding only what round 1 proved; the store re-validates at commit.

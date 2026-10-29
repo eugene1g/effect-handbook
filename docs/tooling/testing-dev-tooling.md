@@ -2,7 +2,7 @@
 
 Effect's test services make time, console output, randomness, and dependencies deterministic; `@effect/vitest` integrates those services with a test runner. The repository's documentation tools then compile and validate examples so docs can be treated like code rather than inert prose.
 
-> **Official companions:** Browse the release-matched authored [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src) for executable examples across Effect. [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.0.5/LLMS.md) is its generated single-file aggregate and begins with Effect's coding conventions.
+> **Official companions:** Browse the release-matched authored [AI documentation source](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src) for executable examples across Effect. [`LLMS.md`](https://github.com/Effect-TS/effect/blob/effect%404.1.0/LLMS.md) is its generated single-file aggregate and begins with Effect's coding conventions.
 
 > **Official guides:** [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
@@ -40,7 +40,7 @@ Semantics worth knowing before a test hangs:
 | **Virtual time starts at `0`**, the Unix epoch. | `Clock.currentTimeMillis` and `DateTime.now` read 1970 until you call `setTime`; pin the date whenever a calendar rule is under test. |
 | **With `TestClock.layer`, `adjust` and `setTime` track a woken fiber's scheduled continuations and child work until it suspends**, then inspect the next sleep. Standalone `make` does not install this tracking scheduler. | Multi-hop sleeps are included in the same advance, but tracking stops after live `warningDelay` with a busy warning; later sleeps can then register relative to the advanced time. This is not an external-callback or initial-readiness barrier: synchronize on a signal instead of counting turns — see [Drive time instead of waiting](../deep-dives/testing-an-effect-application#drive-time-instead-of-waiting). |
 | **A zero or negative sleep returns immediately.** | It never becomes a scheduled wake-up, so there is nothing to adjust past. |
-| **A sleep that nobody advances logs a warning** after `warningDelay` of *live* time (default `"1 second"`). | The message "A test is using time, but is not advancing the test clock" means a missing `adjust`, not a slow test. Tune it with `TestClock.layer({ warningDelay })`. |
+| **A sleep that nobody advances logs a warning** after `warningDelay` of *live* time (default `"1 second"`). | The message "A test is using time, but is not advancing the test clock" means a missing `adjust`, not a slow test. It and the busy-fiber warning are written to the live console even while `TestConsole` captures ordinary output. Tune it with `TestClock.layer({ warningDelay })`. |
 | **Adjustments keep nanosecond precision**, including after very large jumps. | `Clock.currentTimeNanos` is exact: a `"365 days"` adjust followed by `1.5` ms reads `31536000001500000n`. |
 | **`TestClock.withLive(effect)`** runs one effect on the real clock. | Use it for a wall-clock guard around a join (`Effect.timeoutOption`) or for a real fixture's readiness wait inside an otherwise virtual test. |
 
@@ -162,31 +162,56 @@ Use when code under test touches `Effect.sleep`, `Effect.timeout`, schedules, re
 
 Official guide: [TestClock](https://effect.website/docs/v4/testing/testclock).
 
-## TestCrypto
+## Deterministic crypto in tests
 
-`effect/testing/TestCrypto` — unstable
+`effect/testing` has no crypto test service. Crypto is a set of family services in [`effect/crypto`](../interfaces/cryptography) — `SecureRandom`, `Digest`, `Mac`, `Aead`, `Signature`, and the rest — and a test replaces exactly the ones the code under test requires, with an ordinary Layer.
 
-`TestCrypto.layer(seed)` replaces `Crypto.Crypto` random operations with a seeded generator while delegating digests to an existing platform crypto service. The layer **requires** `Crypto.Crypto`; it does not replace the platform digest implementation. Each layer build starts a new sequence. Random bytes, numbers, shuffles, UUIDs, and ULIDs consume that sequence in evaluation order, so concurrent operation ordering can change results. Never use seeded values for production secrets.
+> **Migration:** `effect/Crypto` and `effect/testing/TestCrypto` were removed. Code that called `Crypto.randomUUIDv4()` now uses `SecureRandom.uuidV4()`, and `crypto.digest("SHA-256", bytes)` becomes `Digest.digest(Digest.sha256, bytes)`. Replace `TestCrypto.layer(seed)` with a `SecureRandom` built from a seeded byte source (below) or with `Layer.mock` for the services a test touches. Crypto is no longer part of the runtime `*Services` bundles, so provide it explicitly in production too (`NodeCrypto.layer`, or one family layer such as `NodeCrypto.layerDigest`).
 
 ```ts
 import { NodeCrypto } from "@effect/platform-node"
-import { Crypto, Effect, Layer } from "effect"
-import { TestCrypto } from "effect/testing"
+import { Effect, Layer } from "effect"
+import { Digest, SecureRandom } from "effect/crypto"
 
-const TestCryptoLive = TestCrypto.layer("payroll-test").pipe(
-  Layer.provide(NodeCrypto.layer)
-)
+// A seeded, NON-cryptographic byte source (xorshift32). Each Layer build restarts the sequence.
+const seededBytes = (seed: number) => {
+  let state = seed >>> 0 || 1
+  return (size: number): Uint8Array => {
+    const bytes = new Uint8Array(size)
+    for (let i = 0; i < size; i++) {
+      state ^= state << 13
+      state ^= state >>> 17
+      state ^= state << 5
+      bytes[i] = state & 0xff
+    }
+    return bytes
+  }
+}
+
+// Every SecureRandom operation (bytes, intBetween, shuffle, UUIDs, ULIDs) derives from randomBytes.
+const SeededRandom = Layer.sync(SecureRandom.SecureRandom, () => SecureRandom.make(seededBytes(42)))
+
+// Keep the real digest; replace only the randomness.
+const TestCryptoLive = Layer.merge(SeededRandom, NodeCrypto.layerDigest)
+
+// Or stub a service outright: members you omit die as unimplemented if called.
+const FixedDigest = Layer.mock(Digest.Digest, {
+  digestHex: () => Effect.succeed("0".repeat(64))
+})
 
 const program = Effect.gen(function*() {
-  const crypto = yield* Crypto.Crypto
-  const id = yield* crypto.randomUUIDv4()
-  const bytes = yield* crypto.randomUUIDv7({ format: "bytes" })
-  const digest = yield* crypto.digest("SHA-256", bytes)
-  return { id, bytes, digest }
+  const random = yield* SecureRandom.SecureRandom
+  const digest = yield* Digest.Digest
+  const id = yield* random.uuidV4()
+  const bytes = yield* random.uuidV7({ format: "bytes" })
+  const hash = yield* digest.digestHex(Digest.sha256, bytes)
+  return { id, hash }
 }).pipe(Effect.provide(TestCryptoLive))
+
+const _ = [program, FixedDigest]
 ```
 
-`Crypto.randomUUIDv4` and `randomUUIDv7` are now **functions**: call them with `()` for the default lowercase, hyphenated string, or `{ format: "bytes" }` for 16 UUID bytes. `"hex"` means the same hyphenated string, not bare hex. UUIDv7 and ULID also depend on `Clock`, so provide `TestClock` or use `it.effect` and pin virtual time for fully reproducible output. `@effect/vitest` does not automatically install `TestCrypto`; provide this layer explicitly. For non-cryptographic application randomness use [`Random.withSeed`](../concurrency/scheduling-time#deterministic-testing).
+`SecureRandom.make(randomBytes)` must receive a function returning a fresh array of exactly `size` bytes; values are drawn in evaluation order, so concurrent draws can reorder a seeded sequence. `uuidV4` and `uuidV7` are functions: call them with `()` for the lowercase hyphenated string or `{ format: "bytes" }` for 16 bytes. UUIDv7 and ULID also read `Clock` and are monotonic per `SecureRandom` instance, so pin virtual time with `TestClock` (or `it.effect`) for fully reproducible output. `@effect/vitest` installs no crypto service; provide one explicitly. Never ship a seeded source, and for non-cryptographic application randomness use [`Random.withSeed`](../concurrency/scheduling-time#deterministic-testing).
 
 ## TestConsole
 
@@ -285,6 +310,8 @@ const _ = [samples, report]
 Generation is **size-scaled**. `size` is a local complexity budget that a check grows toward as runs complete, and at the default an *unconstrained* `Schema.Int` stays within roughly ±100 and an unconstrained `Schema.String` within about ten characters. Explicit Schema bounds are always honored regardless of size. So if a bug only appears for large values, say so in the schema (`isBetween`, `isMinLength`) or raise `size` — more `runs` alone will not reach it.
 
 Three rules keep properties trustworthy. Treat generated values as **immutable** — the runner does not clone them, so mutation corrupts shrinking and replay. Make the property **deterministic for a given input**, because it may be evaluated repeatedly; a stateful property should acquire and release its own fixture inside each evaluation. And record a failure as an **explicit regression test**: a `replay` token reproduces the current failure, but it is an unstable-module artifact that is not guaranteed across upgrades, and it is unrelated to fast-check seeds and paths. Array shrinking drops prefixes and interior blocks while keeping the order of what remains, and composed values keep shrink candidates where possible. `BigInt` and `BigDecimal` generation covers a wide range of magnitude, precision, and exponent, with shrinking toward numeric boundaries.
+
+`concurrency` (a positive integer, default `1`) evaluates up to that many generated cases at once. Results are still processed in generation order, so for deterministic generators and independent, repeatable properties the outcome — failure, run and discard counts, shrinks, replay token — does not change with it; later cases may run speculatively and are interrupted before shrinking, which stays sequential, as does replay. Concurrent evaluations share the provided services, so they must not depend on shared mutable state.
 
 `Arbitrary.configureGlobal({ check, sample })` replaces the defaults `checkEffect` and `sampleEffect` fall back to, for executions that start after the call — set it once, outside any concurrent test, rather than per test. Pass `{}` to reset it. A `replay` token always keeps control of its own run regardless of configured defaults.
 
@@ -405,11 +432,11 @@ it.effect.prop(
 
 `prop` accepts either an array of schemas/arbitraries (positional) or an object record (named destructuring). Prefer a constructive check such as `Schema.isBetween` over an opaque `Schema.makeFilter` predicate for generated domains: an opaque filter works, but only as a bounded residual filter that can exhaust its discard budget.
 
-> **Migrating from the fast-check bridge:** replace `Schema.toArbitrary(schema)(FastCheck)` with `Arbitrary.schema(schema)`; `FastCheck.sample` with `Arbitrary.sampleEffect` (`numRuns` → `count`); `FastCheck.assert(FastCheck.property(...))` with `Arbitrary.checkEffect` and handle the result (`numRuns` → `runs`, `path` → `replay`, `maxSkipsPerRun` → `maxDiscards`, `endOnFailure` → `maxShrinks: 0`); and `{ fastCheck: { numRuns } }` with `{ arbitrary: { runs } }`. Raw fast-check arbitraries are no longer accepted by `@effect/vitest`. Seeds, distributions, and shrink results are not compatible, so re-record any saved failure. If a test truly needs fast-check, install it yourself and use it directly with Vitest. Effect's release-matched [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/ARBITRARY.md) goes deeper.
+> **Migrating from the fast-check bridge:** replace `Schema.toArbitrary(schema)(FastCheck)` with `Arbitrary.schema(schema)`; `FastCheck.sample` with `Arbitrary.sampleEffect` (`numRuns` → `count`); `FastCheck.assert(FastCheck.property(...))` with `Arbitrary.checkEffect` and handle the result (`numRuns` → `runs`, `path` → `replay`, `maxSkipsPerRun` → `maxDiscards`, `endOnFailure` → `maxShrinks: 0`); and `{ fastCheck: { numRuns } }` with `{ arbitrary: { runs } }`. Raw fast-check arbitraries are no longer accepted by `@effect/vitest`. Seeds, distributions, and shrink results are not compatible, so re-record any saved failure. If a test truly needs fast-check, install it yourself and use it directly with Vitest. Effect's release-matched [Arbitrary guide](https://github.com/Effect-TS/effect/blob/effect%404.1.0/packages/effect/ARBITRARY.md) goes deeper.
 
 Use when testing pure transformations, codecs, data-structure invariants, or any function where the claim is "this holds for all valid inputs."
 
-Official guide: [Schema to Arbitrary](https://effect.website/docs/v4/schema/arbitrary) (its `checkEffect` option list is shorter than this module's, which also accepts `size`, `maxDiscards`, and `maxShrinks`).
+Official guide: [Schema to Arbitrary](https://effect.website/docs/v4/schema/arbitrary) (its `checkEffect` option list is shorter than this module's, which also accepts `size`, `maxDiscards`, `maxShrinks`, and `concurrency`).
 
 ## TestSchema
 
@@ -417,7 +444,7 @@ Official guide: [Schema to Arbitrary](https://effect.website/docs/v4/schema/arbi
 
 A class-based helper wrapping a `Schema` with ergonomic methods for asserting decoding, encoding, construction (`make`), and property-based round-trip verification.
 
-**Mental model.** Create `new TestSchema.Asserts(MySchema)` as your test handle. It exposes `.decoding()`, `.encoding()`, and `.make()` — each returning an object with `succeed(input, expected?)` / `fail(input, message)` Promise methods, plus `succeedEffect` / `failEffect` Effect-returning variants that preserve required decoding or encoding services — all comparing with `assert.deepStrictEqual` internally. `.arbitrary()` returns generation-check helpers. `verifyRoundTrip()` (and its Effect variant `verifyRoundTripEffect()`) runs a full property-based round-trip.
+**Mental model.** Create `new TestSchema.Asserts(MySchema)` as your test handle. It exposes `.decoding()`, `.encoding()`, and `.make()` — each returning an object with `succeed(input, expected?)` / `fail(input, message)` Promise methods, plus `succeedEffect` / `failEffect` Effect-returning variants that preserve required decoding or encoding services — all comparing with `assert.deepStrictEqual` internally. `.arbitrary()` returns generation-check helpers. `verifyRoundTrip()` (and its Effect variant `verifyRoundTripEffect()`) runs a full property-based round-trip, comparing each decoded value with the original through `Schema.toEquivalence` (custom equivalence annotations included), not structural deep equality.
 
 ```ts
 import { Schema } from "effect"
@@ -473,7 +500,8 @@ The official Effect test runner adapter for Vitest. It requires Vitest 5 (`>=5.0
 - `it.effect` — runs an Effect, provides TestClock + TestConsole, opens a fresh Scope per test.
 - `it.live` — same but uses real runtime services (no TestClock substitution).
 - `it.prop` / `it.effect.prop` / `it.live.prop` — property-based tests driven by the native [`Arbitrary`](#arbitrary) runner; inputs are Schemas, native Arbitraries, or a mix, with check options under `{ arbitrary: { runs, seed, … } }`.
-- `layer(L)` — builds a layer once for a block of tests, sharing state across them, tears down in `afterAll`.
+- `layer(L)` — builds a layer once for a block of tests, sharing state across them, tears down in `afterAll`; `{ buildPerTest: true }` builds it once per test instead.
+- `beforeAll` / `beforeEach` — Vitest's hooks, re-exported so a callback may return an Effect: it is run with a `Scope` that closes after the suite (`beforeAll`) or when the test finishes (`beforeEach`). The Effect must not require other services.
 - `assert` — Vitest's Chai-style `assert`, re-exported with the rest of `vitest` (`assert.strictEqual`, `assert.deepStrictEqual`, `assert.isTrue`, …); repo convention prefers this over Vitest's `expect`.
 - `@effect/vitest/utils` — structural helpers built on Node's `assert` and Effect's `Equal`: `assertEquals` (`Equal.equals` with a diff), `assertSome` / `assertNone`, `assertSuccess` / `assertFailure` for `Result`, and `assertExitSuccess` / `assertExitFailure(exit, cause)` for `Exit`.
 - `makeMethods(it)` — rebuilds `it.effect` / `it.live` / `it.prop` / `layer` on top of a Vitest test API extended with fixtures, so fixture values flow into Effect tests too.
@@ -502,7 +530,8 @@ Runner behavior that affects what a result means:
 | Behavior | Detail |
 | --- | --- |
 | **A failing test logs before it throws.** | Each entry of `Cause.prettyErrors` is written with `Effect.logError`, then the `Exit` is rethrown to Vitest. Treat that text as a diagnostic, never as an assertion target. |
-| **A Vitest timeout interrupts the fiber.** | The test's abort signal is passed to the runner, so the Effect is interrupted, its finalizers run, and the runner waits for them before the test finishes. A synchronous callback that never returns cannot be preempted. |
+| **A Vitest timeout interrupts the fiber.** | The test's abort signal is passed to the runner, so the Effect is interrupted, its finalizers run, and the runner waits for them before the test finishes; a defect raised by a finalizer during that cancellation is reported alongside the timeout. A synchronous callback that never returns cannot be preempted. |
+| **A synchronous `it.prop` callback returns a boolean or `void`.** | `false` (or a throw) falsifies the property; `true` and `undefined` pass. Returning an Effect or a Promise is rejected rather than silently passing — use `it.effect.prop` for Effect callbacks. |
 | **`it.effect` and `it.live` both open a `Scope` per test.** | Scoped acquisitions made in the body are released when the test ends; wrapping the body in another `Effect.scoped` changes the lifetime under test. |
 | **Returning an Effect from plain `it(...)` runs nothing.** | Vitest receives an object that is not a promise and reports the test green — even for `Effect.fail`. Always use `it.effect`; the [`floatingEffectInVitest`](#effect-language-service-effect-tsgo) diagnostic catches the slip. |
 
@@ -695,22 +724,23 @@ layer(RaiseLog.layerTest)("RaiseLog", (it) => {
 })
 ```
 
-> **Warning:** Tests inside a `layer(...)` block see the same service instance and its accumulated state. This is intentional for integration tests but dangerous if isolation is expected. For isolated state per test, provide the layer inside each `it.effect` body with `Effect.provide`, or use a `Ref` reset in `beforeEach`.
+> **Warning:** Tests inside a `layer(...)` block see the same service instance and its accumulated state. This is intentional for integration tests but dangerous if isolation is expected. For isolated state per test, pass `{ buildPerTest: true }`, provide the layer inside each `it.effect` body with `Effect.provide`, or use a `Ref` reset in `beforeEach`.
 
-`layer(L, options?)` accepts four options:
+`layer(L, options?)` accepts five options:
 
 | Option | Meaning |
 | --- | --- |
 | `excludeTestServices` | When `true`, `TestClock` and `TestConsole` are **not** merged into the block: the layer is built, and its tests run, on the live clock and the real console. Default `false`. Nested `it.layer(...)` blocks inherit the choice. |
 | `timeout` | A `Duration` input applied to the hooks that build and close the layer. Give a real fixture room to start and to shut down. |
 | `concurrent` | Named blocks only: overrides the enclosing suite's concurrency. An anonymous `layer(L)((it) => …)` always inherits it. Concurrent tests over one shared Layer need state that tolerates interleaving. |
+| `buildPerTest` | When `true`, the layer is built for each test and released when that test finishes, while services from an enclosing `layer` block stay shared. A build failure fails only that test, blocks nested inside are built per test too, and `timeout` has no effect (the test's own timeout covers the build). |
 | `memoMap` | A `Layer.MemoMap` to share already-built layers between separate `layer(...)` blocks. A nested `it.layer(...)` forks the parent's memo map on its own, so outer services are reused, not rebuilt. |
 
 Three consequences follow from how the helper is built:
 
 - **The shared Layer is constructed on the virtual clock.** By default `layer(L)` builds `L` with the test services provided, so a fixture that sleeps, polls for readiness, or applies an `Effect.timeout` while it *acquires* waits on a clock nobody advances, and the block hangs until the hook timeout. A Layer that only allocates in-memory state is unaffected.
 - **The `it` handed to the block has no `live` tester.** It offers `effect`, `prop`, `flakyTest`, and `layer`. Choose the clock for the whole block with `excludeTestServices`, or for one effect with `TestClock.withLive`.
-- **A Layer that fails to build fails the suite, not the tests.** The construction error is converted with `Effect.orDie` inside the block's setup hook; Vitest then reports one failed suite and marks the block's tests as *skipped*. Read the suite failure — a per-test count alone shows nothing red.
+- **A shared Layer that fails to build fails the suite, not the tests.** The construction error is converted with `Effect.orDie` inside the block's setup hook; Vitest then reports one failed suite and marks the block's tests as *skipped*. Read the suite failure — a per-test count alone shows nothing red.
 
 ```ts
 import { assert, layer } from "@effect/vitest"
@@ -792,6 +822,7 @@ Several modules ship their own test harness. Each removes one piece of infrastru
 | [`RpcTest.makeClient`](../interfaces/rpc#rpctest) (unstable) | client and server protocol machinery: streams, acknowledgements, interrupts, headers, middleware | transport **and serialization** | that payloads survive a real codec and wire |
 | `NodeHttpServer.layerTest` | a real HTTP server on an ephemeral port plus a client pointed at it | the fixed address | deployment concerns: proxies, TLS, production configuration |
 | [`TestRunner.layer`](../systems/cluster-sharding#testrunner) (unstable) | sharding, entity registration, mailbox persistence logic | storage (in-memory), runner transport (no-op), health checks | multi-runner rebalancing, durable storage behavior |
+| [`McpTest.makeClient`](../systems/mcp) (unstable) | `McpServer` registrations, middleware, and the JSON-RPC wire encoding | the stdio or HTTP transport | that a real MCP client connects and negotiates the protocol over a socket or process |
 | [`Entity.makeTestClient`](../systems/cluster-sharding#entity) (unstable) | one entity's handlers behind an in-memory RPC client | the cluster transport | routing across runners. It honors the entity layer's `disableFatalDefects` option: with that option set, a handler defect fails only its own call instead of every pending call on the client |
 | `WorkflowEngine.layerMemory`, `Persistence.layerMemory`, `KeyValueStore.layerMemory`, `EventJournal.layerMemory` (unstable) | the orchestration or storage *contract* | the durable backend | durability across a restart, backend-specific limits |
 | `ConfigProvider.fromUnknown(...)` via `ConfigProvider.layer` | `Config` parsing, defaults, redaction | environment variables | that the deployed environment sets those names |
@@ -800,7 +831,7 @@ Several modules ship their own test harness. Each removes one piece of infrastru
 
 ## Effect language service (@effect/tsgo)
 
-`@effect/tsgo` — external package ([Effect-TS/tsgo](https://github.com/Effect-TS/tsgo)), versioned separately from `effect`; this handbook validates with `0.56.0`
+`@effect/tsgo` — external package ([Effect-TS/tsgo](https://github.com/Effect-TS/tsgo)), versioned separately from `effect`; this handbook validates with `0.63.0`
 
 A build of TypeScript-Go with the Effect language service embedded. It reports Effect-specific mistakes — a floating Effect, an unprovided requirement, error handling on an Effect that cannot fail, two copies of `effect` in one program — as diagnostics, and offers quick fixes and refactors for them. The same rules run in the editor, in `tsc`, and in a dedicated CLI, which is what makes them usable in CI and by coding agents: the feedback arrives before any test runs.
 
@@ -861,7 +892,7 @@ Use when you want the mistakes in [Troubleshooting & Anti-Patterns](../troublesh
 
 `@effect/docgen` — package
 
-An opinionated Node 18+ documentation generator for Effect-style TypeScript libraries. The `docgen` CLI reads source modules and JSDoc, enforces configurable description/example/`@since` policies, typechecks and runs `@example` blocks, and emits Markdown/site material. It is zero-config by default (`src` → `docs`) or configured with `docgen.json` and its bundled `schema.json`.
+An opinionated documentation generator (Node 22.19.0 or later) for Effect-style TypeScript libraries. The `docgen` CLI reads source modules and JSDoc, enforces configurable description/example/`@since` policies, typechecks and runs `@example` blocks, and emits Markdown/site material. It is zero-config by default (`src` → `docs`) or configured with `docgen.json` and its bundled `schema.json`.
 
 ```json
 {

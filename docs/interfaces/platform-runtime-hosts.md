@@ -14,7 +14,7 @@ Service interface for filesystem operations: read, write, stat, copy, move, dele
 
 Mental model: typed composable wrapper over `node:fs/promises`, working identically on Bun. Business modules import from `effect/FileSystem`; the entrypoint imports `NodeFileSystem.layer`. Use `FileSystem.layerNoop` to stub in tests.
 
-Common methods: `readFileString` / `writeFileString` (text), `readFile` / `writeFile` (`Uint8Array`), `exists`, `stat`, `makeDirectory`, `copy`, `remove`, `stream` (lazy byte `Stream`, configurable chunk size), and `glob(pattern, { root, exclude })`. `watch(path)` observes direct children by default; pass `{ recursive: true }` for subdirectories. Scoped helpers `makeTempDirectoryScoped` and `makeTempFileScoped` auto-clean on scope close. An opened `File` is the public handle type; its `seek(offset, from)` takes and returns a plain `bigint` position and rejects a negative result with `BadArgument`, leaving the cursor unchanged (there is no public `FileDescriptor` type).
+Common methods: `readFileString` / `writeFileString` (text), `readFile` / `writeFile` (`Uint8Array`), `exists`, `stat`, `makeDirectory`, `copy`, `remove`, `stream` (lazy byte `Stream`, configurable chunk size), and `glob(pattern, { root, exclude, dot })`. `watch(path)` observes direct children by default; pass `{ recursive: true }` for subdirectories. Scoped helpers `makeTempDirectoryScoped` and `makeTempFileScoped` auto-clean on scope close. An opened `File` is the public handle type; its `seek(offset, from)` takes and returns a plain `bigint` position and rejects a negative result with `BadArgument`, leaving the cursor unchanged (there is no public `FileDescriptor` type).
 
 The service covers the whole `node:fs` surface, so reaching for raw `node:fs` costs typed errors and testability without buying an operation:
 
@@ -22,9 +22,9 @@ The service covers the whole `node:fs` surface, so reaching for raw `node:fs` co
 | --- | --- |
 | Whole-file I/O | `readFile`, `readFileString`, `writeFile`, `writeFileString` (both writes take `flag` and `mode`) |
 | Streams and handles | `stream` (lazy bytes), `sink` (a byte `Sink`; opens with flag `"w"` unless you pass one, so use `{ flag: "a" }` to append), `open` (a scoped `File`: `read`, `readAlloc`, `write`, `writeAll`, `seek`, `truncate`, `sync`, `stat`) |
-| Directories and trees | `makeDirectory` (`recursive`), `readDirectory` (`recursive`), `glob`, `copy` (like `cp -r`), `rename`, `remove` (`recursive`, `force`) |
+| Directories and trees | `makeDirectory` (`recursive`), `readDirectory` (`recursive`), `readDirectoryEntries` (names with a `File.Type`), `glob`, `copy` (like `cp -r`), `rename`, `remove` (`recursive`, `force`) |
 | Single files and links | `copyFile`, `truncate`, `link`, `symlink`, `readLink`, `realPath` |
-| Metadata and permissions | `exists`, `access` (`readable`, `writable`), `stat`, `chmod`, `chown`, `utimes` |
+| Metadata and permissions | `exists`, `access` (`readable`, `writable`), `stat`, `lstat` (does not follow a final symlink), `chmod`, `chown`, `utimes` |
 | Temporary paths | `makeTempDirectory`, `makeTempFile`, and the `…Scoped` variants that delete on scope close |
 | Change notification | `watch` |
 
@@ -75,6 +75,20 @@ const program = loadCompBands.pipe(
 )
 ```
 
+`fs.glob(pattern, options)` is one shared implementation on Node, Bun, and Deno, using the [`Glob`](#glob) syntax. Results are `/`-separated paths relative to `root` (default: the working directory), or absolute when the pattern is absolute, visited depth-first with each directory sorted by name. Wildcards skip dotfiles unless the segment starts with `.` or `dot: true`; `**` does not descend through directory symlinks; an `exclude` match drops the path and prunes the directory so it is never read. A missing path yields `[]`, an unreadable directory reached through a wildcard is skipped, and a read failure at `root` or at a leading literal directory fails with `PlatformError`. Patterns use `/` and backslash escapes on every host, and extglobs are not expanded.
+
+```ts
+import { Effect, FileSystem } from "effect"
+
+// Every TypeScript source under ./src, skipping generated code.
+export const sources = Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.glob("**/*.{ts,tsx}", { root: "src", exclude: ["generated/**"] })
+})
+```
+
+**Migration:** a custom `FileSystem` passed to `FileSystem.make` must now supply `lstat` and `readDirectoryEntries` (mapping `readDirectory` names to `{ name, type: "Unknown" }` is acceptable; `glob` then falls back to `stat`). `make` derives `glob` and no longer accepts one, so override it afterwards with `FileSystem.of({ ...fs, glob: customGlob })`. Wrappers that rewrite directory listings must change both `readDirectory` and `readDirectoryEntries`.
+
 `fs.watch(path)` returns a `Stream<WatchEvent>` whose tags are `Create`, `Update`, and `Remove`. Watching is host-dependent and may fail with `PlatformError`. A caller-provided `FileSystem.WatchBackend` is honored at the watch call, so provide it around consumption rather than assuming the backend was captured when the filesystem layer was built. `open` supports `noFollow`, and handle reads accept explicit positions without advancing the implicit cursor.
 
 When to use: any filesystem I/O in an Effect program. Use `FileSystem.layerNoop` to stub in unit tests.
@@ -101,6 +115,27 @@ const firstBand = Effect.gen(function*() {
   return csv.split("\n")[1] // "L5,100,120,140"
 }).pipe(Effect.provide(TestFs))
 ```
+
+The noop service's `glob`, `lstat`, and `readDirectoryEntries` also fail with `NotFound` unless overridden.
+
+## Glob
+
+`effect/Glob` — experimental
+
+Pure path matching with the same syntax `FileSystem.glob` uses, without touching a disk. `Glob.make(pattern, { dot? })` compiles a reusable value, `Glob.match(glob, path)` (dual) tests a `/`-separated path, and `Glob.escape(text)` makes a literal file name match only itself. Syntax: `*` and `?` within one segment, `[...]` classes (with `!`/`^` negation and POSIX classes such as `[[:digit:]]`), nested `{a,b}` alternatives, `**` as a whole segment for zero or more segments (so `dir/**` matches `dir` too), a trailing `/` for directories only, and `\` escapes. Wildcards never match `.` or `..` and skip dot-names unless `dot` is set. Leading `!` negation and extglobs are not interpreted, malformed syntax such as an unclosed `[` matches literally, and UNC paths never match.
+
+```ts
+// @effect-diagnostics experimentalApiUsage:off
+import { Glob } from "effect"
+
+const reports = Glob.make("exports/**/*.{csv,xlsx}")
+
+Glob.match(reports, "exports/2026/payroll.csv") // true
+Glob.match(reports, "exports/.tmp/payroll.csv") // false: dot directory
+Glob.match(Glob.make(Glob.escape("band[1].csv")), "band[1].csv") // true
+```
+
+**Reach for it when** filtering paths you already have (an upload's file list, a zip's entries, a watch event) with the same rules as a file-system search.
 
 ## Path
 
@@ -145,9 +180,25 @@ Official guide: [Path](https://effect.website/docs/v4/platform/path).
 
 `effect/Terminal` — unstable
 
-Interactive terminal I/O: query dimensions (`columns`, `rows`), read a line (`readLine`), receive a stream of key events (`readInput`), display text (`display`). Input reading fails with `QuitError` on Ctrl+C or Ctrl+D.
+Interactive terminal I/O: query dimensions (`columns`, `rows`), follow resizes (`size`), read a line (`readLine`), receive a stream of key events (`readInput`), display text (`display`). Input reading fails with `QuitError` on Ctrl+C or Ctrl+D.
 
-Mental model: the abstraction `@effect/cli` builds on. Provide a fake terminal in tests via `Terminal.make` to assert output and simulate input without a real TTY.
+`size` is a scoped `Effect` yielding a `Queue.Dequeue<Terminal.Size>` (`{ columns, rows }`) that starts with the current dimensions, receives each resize until its scope closes, and keeps only the latest value, so a slow renderer never processes stale sizes.
+
+Mental model: the abstraction `@effect/cli` builds on. Provide a fake terminal in tests via `Terminal.make` to assert output and simulate input without a real TTY. **Migration:** the object passed to `Terminal.make` must now include `size`; a fixed-size fake can return a queue offered one `Size`.
+
+```ts
+import { Effect, Queue, Terminal } from "effect"
+
+// Re-render a status table whenever the terminal is resized.
+export const followResizes = Effect.gen(function*() {
+  const terminal = yield* Terminal.Terminal
+  const sizes = yield* terminal.size
+  while (true) {
+    const { columns } = yield* Queue.take(sizes)
+    yield* terminal.display(`${"=".repeat(columns)}\n`)
+  }
+}).pipe(Effect.scoped)
+```
 
 ```ts
 import { Terminal } from "effect"
@@ -233,65 +284,22 @@ const validateEmployeeStream = Effect.gen(function*() {
 
 When to use: streaming CLI tools, stdin byte processing, or typed argv access without globals.
 
-## Crypto
-
-`effect/Crypto` — unstable
-
-Platform-agnostic cryptographic primitives backed by the host's secure RNG: `randomBytes`, `digest` (SHA-1/256/384/512), `randomUUIDv4`, `randomUUIDv7`, `randomULID`, `randomInt`, `randomBetween`, `randomIntBetween`, `randomBoolean`, `randomShuffle`. Sync-named variants are still `Effect`s — call with `yield*`.
-
-Mental model: CSPRNG-backed replacement for `Math.random()` and `crypto.randomUUID()`, injected through a service. Provide a deterministic fake via `Crypto.make` for testing.
-
-Digest operations take a `Uint8Array` and return a `Uint8Array`. Convert to hex manually (`Buffer.from(hash).toString("hex")`) — the service stays minimal by design.
-
-```ts
-import { Crypto, Effect } from "effect"
-import { NodeServices } from "@effect/platform-node"
-
-// Hash an employee national ID for pseudonymous storage in the equity ledger
-const hashNationalId = Effect.fn("hashNationalId")(
-  function*(employeeId: string, nationalId: string) {
-    const crypto = yield* Crypto.Crypto
-
-    // Stable time-ordered UUID for the ledger entry PK
-    const grantId = yield* crypto.randomUUIDv7()
-
-    // SHA-256 hash of the national ID for pseudonymous cross-referencing
-    const encoder = new TextEncoder()
-    const hash = yield* crypto.digest("SHA-256", encoder.encode(nationalId))
-    const hex = Buffer.from(hash).toString("hex")
-
-    yield* Effect.log(`employee=${employeeId} grantId=${grantId} idHash=${hex.slice(0, 8)}...`)
-    return { grantId, nationalIdHash: hex }
-  }
-)
-
-const program = hashNationalId("emp-001", "123-45-6789").pipe(
-  Effect.provide(NodeServices.layer)
-)
-```
-
-`crypto.randomULID` returns a 26-character, uppercase Crockford base32 ULID: 10 characters of millisecond timestamp from the current `Clock`, then 80 secure random bits. ULIDs sort by creation time across milliseconds, with no ordering within one millisecond, and because the timestamp comes from `Clock`, a `TestClock` pins the prefix in tests. Reach for it when an identifier must be time-sortable and shorter than a UUID in URLs or file names (payroll-run exports, say); `randomUUIDv7` gives the same ordering in a `uuid` column.
-
-`randomUUIDv4()` and `randomUUIDv7()` are functions returning Effects, not Effect-valued properties. Their default `format: "hex"` returns the conventional UUID string; `{ format: "bytes" }` returns 16 bytes. `randomULID` remains an Effect-valued property.
-
-When to use: secure randomness, UUIDs, or hashing inside an Effect with testable, non-global injection.
-
 ## Socket
 
 `effect/socket/Socket` — unstable
 
 Platform-neutral abstraction for a bidirectional socket (TCP, Unix domain, or WebSocket). A `Socket` is **pull-based**: it exposes a scoped `reader` and a scoped `writer`, and nothing is read from the transport until the consumer pulls.
 
-- `socket.reader` — acquiring it *dials the connection*; its scope owns the connection lifetime. It yields a `Reader` whose `pull` returns the next non-empty batch (one buffer for TCP, one entry per WebSocket frame) and whose `upgrade(options?)` wraps a live connection in TLS (STARTTLS) using `TlsUpgradeOptions` (`key`/`cert`/`ca`/`passphrase`/`alpnProtocols`/`requestCert`/`rejectUnauthorized`); an adapter that cannot upgrade in place fails with `SocketUpgradeError`. `Socket.readerBytes(socket)` and `Socket.readerString(socket, encoding?)` acquire a pull already normalized to `Uint8Array` or `string`.
+- `socket.reader` — acquiring it *dials the connection*; its scope owns the connection lifetime. It yields a `Reader` whose `pull` returns the next non-empty batch (one buffer for TCP, one entry per WebSocket frame) and whose `upgrade(options?)` wraps a live connection in TLS (STARTTLS) using `TlsUpgradeOptions` (`key`/`cert`/`ca`/`passphrase`/`alpnProtocols`/`requestCert`/`rejectUnauthorized`); an adapter that cannot upgrade in place fails with `SocketUpgradeError`. `Socket.readerBytes(socket)` and `Socket.readerString(socket, encoding?)` acquire a pull already normalized to `Uint8Array` or `string`; `readerString` decodes binary frames with one streaming decoder per acquisition, so a character split across frames is kept intact, and flushes leftover bytes (as U+FFFD) before a text frame or on a 1000 close. Use `readerBytes` and decode each frame yourself when every binary message must be decoded independently.
 - `socket.writer` — acquisition cannot fail. It yields a `Writer` with `write(chunk | CloseEvent)` and `writeAll(chunks)`; both wait for the transport's native drain signal, so a slow peer backpressures the producer. Writes issued while disconnected suspend until the next connection.
 
 Mental model: a connection is a scoped read loop. Code placed between acquiring the reader and the first `pull` runs exactly once per (re)connection, which is where a handshake belongs. A `pull` **never completes normally** — every termination, a clean close included, fails with `SocketError` wrapping a `SocketCloseError` (or `SocketReadError`, `SocketWriteError`, `SocketOpenError`, `SocketUpgradeError`). Reconnection is therefore ordinary `Effect.retry` around the scoped loop, not a special socket option.
 
 Backpressure is end to end: TCP pauses while nobody pulls; pausable WebSockets pause at `highWaterMark` (64 KiB by default) and resume after draining. Browser WebSockets cannot pause, so they fail with `SocketReadError` when a configured `highWaterMark` is exceeded — size it for the burst you expect.
 
-WebSockets: `Socket.makeWebSocket(url)` creates a `Socket` from a URL; `Socket.layerWebSocket(url)` provides it as a service. A `WebSocketConstructor` service controls the underlying constructor (inject `ws` in Node, use the global in browsers). Its second argument is either subprotocols or a typed `WebSocketClientOptions` (`{ headers }` for the opening handshake, e.g. an `Authorization` header): the Node and Bun constructors honor it, while the global/browser constructor throws a `TypeError`, because browsers cannot set handshake headers. `makeWebSocket` forwards only `protocols`, so to send headers call the constructor service yourself and wrap the result with `Socket.fromWebSocket`.
+WebSockets: `Socket.makeWebSocket(url)` creates a `Socket` from a URL; `Socket.layerWebSocket(url)` provides it as a service. A `WebSocketConstructor` service controls the underlying constructor. Its second argument is either subprotocols or a typed `WebSocketClientOptions` (`{ headers }` for the opening handshake, e.g. an `Authorization` header): `NodeSocket.layerWebSocketConstructor` passes it to Node's global `WebSocket`, `BunSocket` to Bun's, and `NodeWS.layerWebSocketConstructor` to the `ws` package, while the browser constructor throws a `TypeError`, because browsers cannot set handshake headers. Node's global `WebSocket` cannot pause reads (frames buffer without limit, or fail with `SocketReadError` past a configured `highWaterMark`), ignores a custom `Host` header, does not compress outgoing messages, and reports connection errors without the underlying error code; provide `NodeWS.layerWebSocketConstructor` when any of those matter. `makeWebSocket` forwards only `protocols`, so to send headers call the constructor service yourself and wrap the result with `Socket.fromWebSocket`.
 
-TCP in Node: use `NodeSocket.layerNet(opts)` where `opts` is a `Net.NetConnectOpts` object (e.g., `{ host, port }`). There is no `layerTCP` export. For a TLS connection from the start, `NodeSocket.makeTls(options)` (and its `layerTls`/`makeTlsChannel` counterparts) dials `tls.connect` directly, accepting the same options as `tls.connect` (`ca`, `cert`, `key`, `alpnProtocols`, `servername`, plus an `openTimeout`); a failed handshake, including an untrusted or expired certificate, fails with `SocketOpenError`.
+TCP in Node: use `NodeSocket.layerNet(opts)` where `opts` is a `Net.NetConnectOpts` object (e.g., `{ host, port }`) plus an optional `chunkSize`. There is no `layerTCP` export. For a TLS connection from the start, `NodeSocket.makeTls(options)` (and its `layerTls`/`makeTlsChannel` counterparts) dials `tls.connect` directly, accepting the same options as `tls.connect` (`ca`, `cert`, `key`, `alpnProtocols`, `servername`, plus an `openTimeout`); a failed handshake, including an untrusted or expired certificate, fails with `SocketOpenError`.
 
 ```ts
 import { Socket } from "effect/socket"
@@ -645,7 +653,7 @@ const prodExportCmd = ChildProcess.make("payroll-cli", ["export"]).pipe(
 )
 ```
 
-`make` also has a template-literal form, with or without options first. **Interpolations are arguments, never shell text:** each interpolated value becomes exactly one argument (an array becomes several), so untrusted input cannot inject a command; the literal part is split on whitespace only, so quotes are *not* parsed — put anything containing a space in an interpolation.
+`make` also has a template-literal form, with or without options first. **Interpolations are arguments, never shell text:** each interpolated value becomes exactly one argument (an array becomes several), so untrusted input cannot inject a command. The literal text is split the way a POSIX shell splits words — quotes group words and backslashes escape — but no shell runs, so shell syntax in the literal text (`|`, `;`, `$HOME`, `*`, a leading `~`, `{a,b}`, an assignment such as `FOO=bar cmd`) throws a `CommandLine.CommandLineError` with reason `UnsupportedSyntax` when `make` is called. Quote such characters or pass them through `${}`. Arguments and `env` values may be `Redacted` strings: the child receives the value, and logs and `CommandLine.display` show `<redacted>`; the program name cannot be `Redacted`.
 
 ```ts
 import { ChildProcess } from "effect/process"
@@ -660,7 +668,33 @@ const exportOne = ChildProcess.make`payroll-cli export ${flags} --employee ${emp
 const listing = ChildProcess.make({ cwd: "/app/payroll", forceKillAfter: "2 seconds" })`ls -la`
 ```
 
+With the `shell` option the template text *is* the shell script, kept as written; it cannot contain `${}` values (that throws), and extra arguments fail with `BadArgument` when spawned. Build such a script with [`CommandLine`](#commandline) and pass it as a plain string.
+
+**Migration:** templates that relied on whitespace-only splitting change meaning when they contain quotes, and templates containing shell syntax now throw. `ChildProcess.TemplateExpression` and `ChildProcess.TemplateExpressionItem` moved to `CommandLine`.
+
 When to use: composing commands before running them, separating command description from execution.
+
+## CommandLine
+
+`effect/process/CommandLine` — unstable
+
+Builds the single strings that a shell or a Windows program splits back into arguments — for `sh -c`, SSH, or a `shell` command — and argument lists from templates. It is unrelated to `effect/cli`, which parses your own program's arguments. `quote(word, { format? })` quotes one argument, `join(words, { format? })` quotes a whole argument list, and both return a `Result` failing with `CommandLineError` (a NUL character, or an argument the format cannot carry). `display(words)` renders the same text for logs with `Redacted` values replaced by `<redacted>`; `quote` and `join` include the secret, because their output is meant to run. `template` is the parser `ChildProcess.make` uses, returning `Result<Array<Word>, CommandLineError>`. Formats are `"posix"` (default; `sh`, `bash`, `zsh`, and readable by `fish`), `"powershell"` (7.3+), and `"windows"` (C runtime rules). The format follows the *receiving* shell: SSH sends the line to the remote account's login shell, and `cmd.exe` is not supported.
+
+```ts
+import { Redacted, Result } from "effect"
+import { ChildProcess, CommandLine } from "effect/process"
+
+const cycle = "2026 H1; rm -rf /"
+const token = Redacted.make("s3cret")
+
+// One shell script, every value quoted for sh.
+const script = Result.getOrThrow(CommandLine.join(["payroll-cli", "export", "--cycle", cycle]))
+export const viaShell = ChildProcess.make(`${script} | gzip > export.gz`, { shell: "/bin/sh" })
+
+// Safe to log: the token is hidden.
+export const logged = CommandLine.display(["curl", "-H", token, "https://payroll.internal"])
+// "curl -H <redacted> https://payroll.internal"
+```
 
 ## ChildProcessSpawner
 
@@ -671,6 +705,8 @@ Service that executes `ChildProcess.Command` values.
 Key APIs: spawner.string(cmd), spawner.lines(cmd), spawner.spawn(cmd)
 
 `string` collects stdout as a single string. `lines` collects stdout as `Array<string>`. `streamString` / `streamLines` are the incremental `Stream` forms, and `exitCode(cmd)` runs a command for its status alone; all five take `{ includeStderr }` except `exitCode`. `spawn` returns a scoped `ChildProcessHandle` with `stdout`, `stderr`, `all` (merged) as byte `Stream`s, and `exitCode` as an Effect waiting for process completion. Exit code is a branded `ExitCode`; compare with `ChildProcessSpawner.ExitCode(0)`.
+
+The collecting helpers never deadlock on an unread pipe: `exitCode` reads and discards stdout and stderr until the process exits, and `string`, `lines`, `streamString`, and `streamLines` discard stderr unless `includeStderr` is set. A failure while reading that output (for example from an output `Sink`) fails the helper. Output sinks configured for `stdout`, `stderr`, or output `additionalFds` only receive data while the matching handle stream is consumed.
 
 Platform implementations: `NodeServices.layer` includes `NodeChildProcessSpawner.layer`; Bun uses `BunServices.layer`.
 
@@ -735,7 +771,9 @@ The services above are interfaces. Platform packages provide concrete Layer impl
 
 **@effect/platform-node** — package
 
-Implements FileSystem, Path, Terminal, Stdio, Crypto, ChildProcessSpawner, Socket, SocketServer, Worker, WorkerRunner, HTTP, Redis, cluster transports, and stream adapters using Node.js APIs. `NodeServices.layer` is deliberately narrower: it aggregates ChildProcessSpawner, Crypto, FileSystem, Path, Stdio, and Terminal. Sockets, workers, HTTP (`NodeHttpServer.layer`), and other adapters have explicit layers.
+Implements FileSystem, Path, Terminal, Stdio, ChildProcessSpawner, the `effect/crypto` services, Socket, SocketServer, Worker, WorkerRunner, HTTP, Redis, cluster transports, and stream adapters using Node.js APIs; it requires Node.js 22.19.0 or newer. `NodeServices.layer` is deliberately narrower: it aggregates ChildProcessSpawner, FileSystem, Path, Stdio, and Terminal. Crypto (`NodeCrypto.layer` or one family layer, see [Cryptography](./cryptography)), sockets, workers, HTTP (`NodeHttpServer.layer`), and other adapters have explicit layers.
+
+`NodeSocket` WebSocket clients use Node's global `WebSocket`, so the `ws` package is loaded only by `NodeSocketServer.layerWebSocket` and the `NodeWS` module (`NodeWS.WebSocket`, `NodeWS.layerWebSocketConstructor`). **Migration:** `NodeSocket.NodeWS` and `NodeSocket.layerWebSocketConstructorWS` were removed; import `NodeWS` from `@effect/platform-node` instead. Node socket and stream readers return at most `chunkSize` chunks per pull (default 4096; `Infinity` restores unbounded batching), and Node stream `read(size)` byte sizes moved to a separate `readSize` option.
 
 `@effect/platform-node` has no `Mime` export — use [`Mime`](./http-server#mime) from `effect/http` instead. `NodeRedis` wraps the `redis` (node-redis) client, so the optional peer dependency is `redis >=5.0.0 <7.0.0`; its accessors are unstable because they expose that client's own types directly.
 
@@ -755,7 +793,7 @@ program.pipe(
 
 **@effect/platform-bun** — package
 
-Bun-native counterparts cover the same broad host responsibilities, but use `Bun*` namespaces and layers rather than promising every Node adapter is interchangeable. Like Node's aggregate, `BunServices.layer` includes ChildProcessSpawner, Crypto, FileSystem, Path, Stdio, and Terminal; HTTP, sockets, workers, `BunRedis` (unstable — it exposes the underlying `redis` client's types), and cluster adapters remain explicit.
+Bun-native counterparts cover the same broad host responsibilities, but use `Bun*` namespaces and layers rather than promising every Node adapter is interchangeable. Like Node's aggregate, `BunServices.layer` includes ChildProcessSpawner, FileSystem, Path, Stdio, and Terminal; `BunCrypto`, HTTP, sockets, workers, `BunRedis` (unstable — it exposes the underlying `redis` client's types), and cluster adapters remain explicit. `BunHttpServer` disables Bun's default 10-second `idleTimeout` unless you pass one, so quiet response streams and slow uploads are not cut; a server exposed directly to the internet should set `idleTimeout` (seconds) itself.
 
 ```ts
 import { BunRuntime, BunServices } from "@effect/platform-bun"
@@ -773,7 +811,7 @@ program.pipe(
 
 **@effect/platform-deno** — package
 
-The Deno host package (Deno 2.8.3+) covers FileSystem, Path, Crypto, Stdio, Terminal, child processes, HTTP client/server, sockets, workers, `DenoRedis` (unstable, same caveat as `NodeRedis`/`BunRedis`), multipart parsing, key-value storage, and cluster HTTP/socket adapters. `DenoServices.layer` is the standard aggregate; specialized HTTP/socket/worker layers remain explicit. `DenoRuntime.runMain` installs structured SIGINT/SIGTERM interruption and teardown.
+The Deno host package (Deno 2.9.3+) covers FileSystem, Path, `DenoCrypto`, Stdio, Terminal, child processes, HTTP client/server, sockets, workers, `DenoRedis` (unstable, same caveat as `NodeRedis`/`BunRedis`), multipart parsing, key-value storage, and cluster HTTP/socket adapters. `DenoServices.layer` is the standard aggregate (ChildProcessSpawner, FileSystem, Path, Stdio, Terminal); crypto and specialized HTTP/socket/worker layers remain explicit. `DenoRuntime.runMain` installs structured SIGINT/SIGTERM interruption and teardown.
 
 The Deno child-process adapter has narrower process-control semantics than Node: commands using `detached` or `additionalFds` fail as unsupported, and killing a handle terminates only the direct child, not its descendants. Design process-tree cleanup explicitly when Deno is a deployment target.
 
@@ -798,7 +836,7 @@ Contains implementation shared by the Node, Bun, and Deno adapters: Node-compati
 
 **@effect/platform-browser** — package
 
-Browser-specific implementations: `BrowserCrypto.layer` (Web Crypto API), `BrowserSocket.layer` (native WebSocket), `BrowserWorker.layer` and `BrowserWorkerRunner.layer` (dedicated/shared workers via `postMessage`). No FileSystem or ChildProcess in browsers. Additional APIs include `Permissions`, `Clipboard`, `Geolocation`, typed DOM event streams, Fetch/XHR clients, browser persistence/key-value layers, and the typed IndexedDB subsystem below.
+Browser-specific implementations: `BrowserCrypto.layer` (every `effect/crypto` service on Web Crypto, or one family layer such as `BrowserCrypto.layerDigest`), `BrowserSocket.layer` (native WebSocket), `BrowserWorker.layer` and `BrowserWorkerRunner.layer` (dedicated/shared workers via `postMessage`). No FileSystem or ChildProcess in browsers. Additional APIs include `Permissions`, `Clipboard`, `Geolocation`, typed DOM event streams, Fetch/XHR clients, browser persistence/key-value layers, and the typed IndexedDB subsystem below.
 
 `BrowserRuntime.runMain` listens for **`pagehide`** and interrupts the root fiber when the document is being discarded. A *persisted* `pagehide` — the page entering the back/forward cache — is ignored, because that document may be restored with its fibers intact. The interruption is best effort: the browser may tear the page down before asynchronous finalizers, network flushes, or timers complete, so persist anything important before unload rather than in a finalizer.
 
@@ -948,4 +986,4 @@ Use `.add(V2, (from, to) => ...)` to preserve/copy rows while changing stores or
 | `BrowserKeyValueStore` | LocalStorage, SessionStorage, or IndexedDB-backed key/value layers. |
 | `BrowserPersistence` | The unstable Persistence abstraction backed by IndexedDB, including TTL behavior. |
 
-> **Tip:** Browser APIs remain ordinary services and layers. At portable test boundaries, `FileSystem.layerNoop`, `Stdio.layerTest`, and a deterministic `Crypto.make(...)` implementation avoid reaching host globals.
+> **Tip:** Browser APIs remain ordinary services and layers. At portable test boundaries, `FileSystem.layerNoop`, `Stdio.layerTest`, and a seeded `SecureRandom.make(...)` or `Layer.mock` crypto service ([Cryptography](./cryptography)) avoid reaching host globals.

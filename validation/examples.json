@@ -500,13 +500,6 @@
       "fixture": "base"
     },
     {
-      "id": "observability.otel-node-sdk",
-      "source": "docs/operations/telemetry-export.md",
-      "sha256": "5c1fc810dd3dd5e8f7db6d037b21f7b6a8889752a68887bdf4e5e099f08f75f4",
-      "disposition": "contextual",
-      "fixture": "base"
-    },
-    {
       "id": "cluster.department-client-call",
       "source": "docs/systems/cluster-sharding.md",
       "sha256": "e800590a8d558b7a0885f4f1fa4dd060b74a5732c7047006b7e6c9493eaa7831",

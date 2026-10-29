@@ -4,7 +4,7 @@ Effect Cluster provides *entities*: stateful, addressable actors keyed by id, di
 
 > **Note:** The spine: **Entity** defines an addressable actor and its RPC protocol. **Sharding** routes every message. **Runner**/**Runners** host shards and talk to each other. **MessageStorage** makes delivery durable. **Singleton**, **Snowflake**, **EntityProxy**, **ClusterCron**, **ShardingConfig** hang off those four. Define entities, merge their layers, provide a cluster layer.
 
-> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/80_cluster) defines and runs a distributed entity.
+> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/80_cluster) defines and runs a distributed entity.
 
 > **Warning:** The entire cluster surface lives under `effect/cluster`. APIs may shift between minor versions. Pin your version and re-check signatures when you upgrade. Transport entrypoints (`NodeClusterSocket`, `NodeClusterHttp`) come from `@effect/platform-node`; `@effect/platform-bun` and `@effect/platform-deno` ship the matching `BunCluster*` / `DenoCluster*` modules.
 
@@ -81,7 +81,7 @@ const program = Effect.gen(function*() {
 
 > **Tip:** `toLayer` is the idiomatic path. For actor purists who want to own the message loop, `toLayerQueue` hands a `Queue.Dequeue` of request envelopes plus a `Replier` (`succeed`/`fail`/`failCause`/`complete`). Same delivery guarantees, lower-level control.
 
-> **Note:** `toLayer` takes `maxIdleTime` (passivation; the `ShardingConfig.entityMaxIdleTime` default is one minute), `concurrency` (defaults to sequential per instance), `mailboxCapacity`, a `defectRetryPolicy`, `disableFatalDefects`, and `spanAttributes`. By default a handler defect is *fatal to the instance*: the runtime logs it, waits according to `defectRetryPolicy`, rebuilds the instance, and re-delivers the requests that were in flight — so handlers must tolerate redelivery. With `disableFatalDefects: true` only the failing call reports the defect and the instance keeps running. Inside a handler read `Entity.CurrentAddress` (this entity's type/id/shard) and call `Entity.keepAlive(true)` to pin an instance alive while it holds a resource. For tests without transport, `Entity.makeTestClient(entity, layer)` builds an in-memory client. It honors the entity layer's `disableFatalDefects` setting: without it, one handler defect also fails the other calls pending on that entity id in the test.
+> **Note:** `toLayer` takes `maxIdleTime` (passivation; the `ShardingConfig.entityMaxIdleTime` default is one minute), `concurrency` (defaults to sequential per instance), `mailboxCapacity`, `mailboxMetrics` (per-entity mailbox gauge; see [ClusterMetrics](#clustermetrics)), a `defectRetryPolicy`, `disableFatalDefects`, and `spanAttributes`. By default a handler defect is *fatal to the instance*: the runtime logs it, waits according to `defectRetryPolicy`, rebuilds the instance, and re-delivers the requests that were in flight — so handlers must tolerate redelivery. With `disableFatalDefects: true` only the failing call reports the defect and the instance keeps running. Inside a handler read `Entity.CurrentAddress` (this entity's type/id/shard) and call `Entity.keepAlive(true)` to pin an instance alive while it holds a resource. For tests without transport, `Entity.makeTestClient(entity, layer)` builds an in-memory client. It honors the entity layer's `disableFatalDefects` setting: without it, one handler defect also fails the other calls pending on that entity id in the test.
 
 > **Note:** Handlers resolve services from the context in which the entity is *registered* — what you provide to the `entity.toLayer(...)` layer wins. Services that were only present when `Sharding` itself was constructed remain a fallback, not an override.
 
@@ -153,6 +153,8 @@ const TextWireCluster = NodeClusterSocket.layer({
 }).pipe(Layer.provide(SqlClientLayer))
 ```
 
+> **Deployment warning:** the RPC request envelope that carries runner traffic gained an optional `discard` field (a discarded call now completes when the receiver acknowledges it), which changes the `"binary"` (SchemaBinary) frame fingerprint. Runners and client-only nodes on binary serialization cannot be mixed across that change; upgrade them together, and rehearse any rolling upgrade on a mixed-version pair first.
+
 For what the serialization layers do on the wire, see [RPC](../interfaces/rpc).
 
 ### Rebalance and shutdown behavior
@@ -161,6 +163,11 @@ For what the serialization layers do on the wire, see [RPC](../interfaces/rpc).
 - **A persisted call never fails just because ownership is moving.** The caller keeps waiting on message storage; only a shutdown of the caller's own runner ends the wait, and it does so by interruption (see [EntityProxy](#entityproxy)).
 - **Teardown bookkeeping is bounded.** Whether an interrupt is "transient" is decided from live teardown state — entity, shard, singleton, entity type, or node shutdown — rather than from a growing set of fiber ids, so mass passivation does not leak memory.
 - **Handoff drains before release.** Shutdown stops acquiring new shards and hands them off one at a time after their entities and singletons stop. The wait is bounded; on timeout, `releaseAll` attempts to release remaining locks. Interrupts and stream acknowledgements still reach work draining on the previous owner. Volatile requests arriving during handoff wait at most `shardLockExpiration`; persisted outgoing requests are stored even while a locally assigned shard is still waiting for its lock.
+- **Shutdown abandons callers instead of waiting them out.** A workflow or other durable caller waiting on a persisted request that has not started is abandoned during runner shutdown, so the request replays under the next owner instead of holding shutdown for `entityTerminationTimeout`. With `preemptiveShutdown: false`, entities drain before the runner is marked as shutting down, so such a caller still waits for `entityTerminationTimeout`.
+- **A runner that lost a shard does not write its reply.** Before storing the final reply of a persisted request, the runner refreshes its shard locks and checks that the shard is still among them; if not, the request is left for the shard's new owner.
+- **Stalled forced releases are visible.** A forced shard release still pending after `shardLockExpiration` logs a warning naming the shards and the pending entity types and singletons, repeated every `max(shardLockExpiration, 30 seconds)`; the `shardsReleasing` gauge in [`ClusterMetrics`](#clustermetrics) counts shards still being released. Teardown and lock release must still finish before the shard is reacquired.
+- **Batch shard handoff during scale-up with `runnerJoinDebounce`.** By default (`0`) every runner join republishes assignments immediately, so a surge deployment can move a shard once per join. Set `ShardingConfig.runnerJoinDebounce` to add joining runners only after the healthy runner set has stayed unchanged for that duration (at most four times the duration after the first pending join). Runners that already hold shards and leave or become unhealthy are still published immediately. While joins are pending, runners take no new shards, so a shard can stay unlocked briefly.
+- **Persisted messages are read as soon as their entity type registers**, rather than at the next `entityMessagePollInterval`.
 - **Process death skips finalizers.** Entity finalizers and `Entity.keepAlive` scopes run on graceful passivation and shutdown only; recovery after a kill relies on runner health checks, shard-lock release or expiry (`shardLockExpiration` defaults to 35 seconds), and redelivery of persisted messages — never on cleanup code having run.
 
 **Reach for it when** building cluster tooling or custom routing. Otherwise, provide its *layer*.
@@ -246,7 +253,9 @@ The save path returns a `SaveResult` tagged enum — `Success` or `Duplicate` (c
 
 **Reads are bounded and claim only what they return.** `unprocessedMessages(shardIds, { limit?, addresses? })` reads at most `limit` messages (the runner passes `ShardingConfig.unprocessedMessageBatchSize`) and can be restricted to specific entity addresses. Only the returned messages are claimed; everything else stays eligible for a later poll, which is what lets a runner at its residency cap keep serving resident entities without starving the rest. The in-memory driver applies the same ten-minute claim window as SQL, and `resetAddress` / `resetAddresses` / `resetShards` make claimed messages eligible again immediately.
 
-**Custom backends.** `MessageStorage.makeEncoded(encoded)` lifts an `Encoded` driver (strings and bytes) into the typed service. The driver contract's reset operation is the batched `resetAddresses(addresses)`, so a hand-written driver must implement that form. `SqlMessageStorage.makeEncoded({ prefix? })` returns the SQL `Encoded` driver on its own when you want to wrap or compose it.
+**Fresh local replies skip storage reads.** A fresh persisted request owned by the local runner is answered from a reply handler registered before the request is saved. Duplicates and streams still read their replies from storage, and a dropped reply handler falls back to storage immediately.
+
+**Custom backends.** `MessageStorage.makeEncoded(encoded)` lifts an `Encoded` driver (strings and bytes) into the typed service. The driver contract's reset operation is the batched `resetAddresses(addresses)`, so a hand-written driver must implement that form. A custom `registerReplyHandler` must register its handler as soon as the effect starts; the fresh-reply path above depends on it. `SqlMessageStorage.makeEncoded({ prefix? })` returns the SQL `Encoded` driver on its own (after running migrations) when you want to wrap or compose it; `SqlMessageStorage.makeEncodedStorage({ prefix? })` does the same without migrations or startup SQL.
 
 **Without `MessageStorage` (`noop`/`layerNoop`), completed request ids are not retained.** Redelivering a request id that already completed re-runs it instead of failing with `AlreadyProcessingMessage` — that dedup guarantee needs real storage.
 
@@ -354,6 +363,12 @@ const QuarterlyReviewKickoff = ClusterCron.make({
 })
 ```
 
+- **Read the scheduled time from `ClusterCron.CurrentScheduledTime`** inside `execute`; it is available in both modes.
+- **`calculateNextRunFromPrevious: true` runs one chain per job.** Every run is processed by a single `executor` entity for the cron job, so a restart does not start a second chain: runs never overlap and missed runs catch up in order. A failing run is retried until it succeeds or is older than `skipIfOlderThan`, and blocks later runs while it is retried.
+- **Failures scheduling the first run are logged and retried**, so a transient error at startup does not leave the cron stopped.
+
+> **Migration:** with `calculateNextRunFromPrevious: true`, `Entity.CurrentAddress` inside `execute` no longer identifies the scheduled time (every run shares the executor address); read `ClusterCron.CurrentScheduledTime` instead.
+
 **Reach for it when** you want durable, deduplicated, failover-safe cron scheduling in a multi-node deployment and can make the scheduled effect safe for at-least-once delivery.
 
 ## ShardingConfig
@@ -391,6 +406,8 @@ Every limit below is per runner. Environment names are the constant-case form of
 | `entityMailboxCapacity` | `4096` | A request to a resident entity whose mailbox is full fails with `MailboxFull` (volatile) or stays in storage for redelivery (persisted). |
 | `entityMaxIdleTime` | 1 minute | Idle instances are passivated, which frees a residency slot. |
 | `entityTerminationTimeout` | 15 seconds | Longest wait for an entity to terminate during shutdown or rebalance (chosen to fit inside Kubernetes' default grace period). |
+| `runnerJoinDebounce` | `0` (off) | Joining runners wait until the healthy runner set has been quiet for this long before receiving shards (see [Rebalance and shutdown behavior](#rebalance-and-shutdown-behavior)). |
+| `entityMailboxMetrics` | `false` | Enables the per-entity `entityMailboxSize` gauge; the per-type `entityMailboxSizeMax` gauge is always on. |
 
 **Size `maxResidentEntities` from memory, not from traffic.** It is a safety valve against an activation storm (for example a cold start draining a large backlog); when it engages, persisted work is delayed rather than lost, so alert on the `entities` gauge from [`ClusterMetrics`](#clustermetrics) approaching the cap and on storage backlog age.
 
@@ -481,7 +498,7 @@ Decides whether a runner should be treated as alive, so Sharding knows when to m
 
 `effect/cluster` — unstable
 
-A single-process cluster layer: `Sharding` + no-op runner comms + no-op health + SQL message storage + env config, with SQL or in-memory runner storage. For embedded or small single-node deployments that still want durable entities. Requires a `SqlClient`.
+A single-process cluster layer: `Sharding` + no-op runner comms + no-op health + SQL message storage + env config, with SQL or in-memory runner storage. For embedded or small single-node deployments that still want durable entities. Requires a `SqlClient` and a `Digest.Digest` service (for example `NodeCrypto.layerDigest` or `Digest.layerWebCrypto`).
 
 ## SocketRunner
 
@@ -519,7 +536,11 @@ Type-only Kubernetes declarations used by the cluster helpers: the transitive cl
 
 `effect/cluster` — unstable
 
-The production `MessageStorage`: encodes envelopes and reply chunks into SQL tables, redelivers unprocessed messages after restart, deduplicates by primary key, and replays reply chunks until acknowledged. Ships migrations and an optional table prefix (`layerWith({ prefix })`; default `cluster`). Provide via `layer` with any `@effect/sql-*` client; the layer also requires a `Crypto` service, which the platform cluster entrypoints supply. `makeEncoded({ prefix? })` exposes the SQL `MessageStorage.Encoded` driver by itself for custom storage composition. Changing the prefix after deployment points the runtime at a different set of tables, including the migration history.
+The production `MessageStorage`: encodes envelopes and reply chunks into SQL tables, redelivers unprocessed messages after restart, deduplicates by primary key, and replays reply chunks until acknowledged. Ships migrations and an optional table prefix (`layerWith({ prefix })`; default `cluster`). Provide via `layer` with any `@effect/sql-*` client; the layer also requires `Digest.Digest` (from `effect/crypto/Digest`), used to hash deduplication keys longer than the 255-character `message_id` column. The platform cluster entrypoints supply it. `makeEncoded({ prefix? })` exposes the SQL `MessageStorage.Encoded` driver by itself for custom storage composition, and `makeEncodedStorage({ prefix? })` builds the same driver without migrations or startup SQL.
+
+> **Migration:** `SqlMessageStorage` and `SingleRunner` require `Digest.Digest` instead of the removed `Crypto.Crypto` service. Shorter keys are still stored as plaintext and hashed keys keep the SHA-256 hex form, so existing rows stay compatible.
+
+Supported dialects include SQL Server: claims and duplicate checks use valid T-SQL, and its tables use filtered unique indexes and `NVARCHAR(MAX)`. On SQLite drivers that return numbers (including Cloudflare Durable Objects), message ids are read without precision loss. Changing the prefix after deployment points the runtime at a different set of tables, including the migration history.
 
 For separate deployment and runtime database roles, run `SqlMessageStorage.layerMigrations({ prefix })` using the schema-owner connection, then provide `layerStorage({ prefix })` using the runtime connection. `layerStorage` performs no DDL or startup schema checks; migrations must already have succeeded. `layer`, `layerWith`, `make`, and `makeEncoded` still migrate first. Migration failures become defects. On PostgreSQL select the schema through `search_path`, not a schema-qualified prefix (which produces an invalid index name).
 
@@ -527,13 +548,13 @@ For separate deployment and runtime database roles, run `SqlMessageStorage.layer
 
 `effect/cluster` — unstable
 
-SQL-backed runner registration and shard-ownership: records runners, health flags, machine ids, and shard locks so multiple processes coordinate who owns each shard. Uses advisory locks on Postgres/MySQL when enabled.
+SQL-backed runner registration and shard-ownership: records runners, health flags, machine ids, and shard locks so multiple processes coordinate who owns each shard. Uses advisory locks on Postgres/MySQL when enabled. On PGlite (detected through `SqlClient.driver`), it uses lock-table rows and does not reserve PGlite's only connection.
 
 `SqlRunnerStorage` likewise separates `layerMigrations({ prefix })` from `layerStorage({ prefix })`: use an owner connection to migrate before starting the DML-only runtime. Keep prefixes identical in deployment and runtime. The normal `layer` / `layerWith` and `make` constructors still run migrations.
 
 > **Note:** PostgreSQL advisory shard locks are namespaced by the `SqlRunnerStorage` table prefix. Changing the prefix on a running deployment points lock keys at a different namespace; stop the whole cluster before rolling out such a change, since mixing lock schemes can allow split ownership.
 
-> **Note:** Advisory locks live on a reserved connection. While lock storage is unhealthy, the liveness probe runs on the shared pool instead of that reserved connection, so a hung reserved connection cannot stall shard-lock recovery, and failed probes are logged as warnings instead of being swallowed. With `shardLockDisableAdvisory` (row-based locks instead of advisory locks), acquisition, refresh, and bulk release all take their row locks in a consistent order to avoid lock-order deadlocks. Locks are leases, not fencing: a paused former owner can still issue a write after takeover, so protect external writes with idempotency keys or a version check in the sink.
+> **Note:** Advisory locks live on a reserved connection. While lock storage is unhealthy, the liveness probe runs on the shared pool instead of that reserved connection, so a hung reserved connection cannot stall shard-lock recovery, and failed probes are logged as warnings instead of being swallowed. With `shardLockDisableAdvisory` (row-based locks instead of advisory locks), acquisition, refresh, and bulk release all take their row locks in a consistent order to avoid lock-order deadlocks. A frozen runner loses its advisory locks after `shardLockExpiration`: on PostgreSQL 14+ the lock connection sets `idle_session_timeout`, and on MySQL it sets `wait_timeout`; both settings are restored before the connection returns to the pool. Lock refresh only confirms locks held by the current lock session, so after the lock connection is replaced, shards held by the previous session are reported lost rather than silently reacquired. On Vitess, releasing all shards no longer leaves stale lock holders behind. Locks are leases, not fencing: a paused former owner can still issue a write after takeover, so protect external writes with idempotency keys or a version check in the sink.
 
 ## RunnerStorage
 
@@ -570,7 +591,7 @@ Structured, schema-backed failures of the cluster runtime: `EntityNotAssignedToR
 
 `effect/cluster` — unstable
 
-Standard gauges the runtime updates while running: active `entities`, `singletons`, registered `runners`, `runnersHealthy`, and acquired `shards`. Wire to a metrics exporter for cluster visibility.
+Standard metrics the runtime records while running: active `entities`, `singletons`, registered `runners`, `runnersHealthy`, acquired `shards`, `shardsReleasing` (shards this runner is still releasing), the `shardReleaseDuration` timer, and `entityMailboxSizeMax` (largest resident mailbox per entity type). `entities` and the mailbox gauges are read when metrics are snapshotted and are removed when the entity manager shuts down. The opt-in `entityMailboxSize` gauge reports each resident entity's mailbox; enable it with `ShardingConfig.entityMailboxMetrics` or the `mailboxMetrics` option of `Entity.toLayer`, and its series is removed when the entity is released. Wire to a metrics exporter for cluster visibility.
 
 Entity RPC server span names contain the entity **type**, not its id (for example `WorkflowEntity.Run`). The id remains in `entity.id` as an attribute. Update dashboards that parsed entity ids from span names, and apply the usual attribute privacy and cardinality policy.
 

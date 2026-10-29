@@ -2,7 +2,7 @@
 
 Caching avoids repeating the same lookup result; batching combines many logically independent requests into fewer physical calls. `Cache` stores both successful and failed lookup `Exit` values, while `ScopedCache` owns resource lifetimes. `Request` and `RequestResolver` describe data fetching so Effect can deduplicate and batch it safely.
 
-> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/05_batching) builds a batched `RequestResolver`.
+> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/05_batching) builds a batched `RequestResolver`.
 
 > **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option `Effect.forEach` does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These guides track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
@@ -63,7 +63,7 @@ export const makeCompBandsHandle = Effect.cachedWithTTL(
 | --- | --- | --- |
 | `Effect.cached(e)` | For as long as the handle lives | None |
 | `Effect.cachedWithTTL(e, ttl)` | For `ttl`, a `Duration.Input` **or** `(exit) => Duration.Input` | Expiry, read from the `Clock` — `TestClock.adjust` controls it in tests |
-| `Effect.cachedInvalidateWithTTL(e, ttl)` | For `ttl`, a `Duration.Input` **or** `(exit) => Duration.Input` | Expiry, or the returned `invalidate` effect |
+| `Effect.cachedInvalidateWithTTL(e, ttl)` | For `ttl`, a `Duration.Input` **or** `(exit) => Duration.Input` | Expiry, or the returned `invalidate` effect (an invalidation while the effect is running discards that run's result instead of caching it) |
 
 - **Yield the outer effect once and share the handle.** `yield* Effect.cached(load)` at every call site builds a fresh, empty cell each time and caches nothing.
 - **Failures are stored — interruptions are not.** With `Effect.cached` or a fixed-TTL `cachedWithTTL`, a transient `HrisUnavailable` is replayed to every caller until expiry, which for `cached` is never. Branch on the `Exit` and return `0` for non-success so the next caller retries. Interrupted computations are never cached: the pending work is interrupted only after every waiting caller has been interrupted (abandonment), and the next caller then starts a fresh computation.
@@ -341,7 +341,7 @@ const program = Effect.scoped(
 
 > **Warning:** If your value has no resources to release, use `Cache` instead. `ScopedCache` runs scope machinery on every entry. Reach for it only when your lookup calls `Effect.acquireRelease`, opens a socket, or otherwise needs cleanup on eviction.
 
-`ScopedCache.makeWith` accepts the same `(exit, key) => Duration` policy as `Cache.makeWith`, and the [key](#keys-are-logical-values) and [failure TTL](#failure-and-freshness-policy) guidance applies unchanged. Two lifetime details are specific to it: `ScopedCache.invalidateAll` detaches every entry from the table *before* closing the entry scopes (concurrently), so an entry that a finalizer re-creates is kept and released later instead of being discarded unreleased; and after the cache's own scope has closed, `get`, `set`, `refresh`, and the invalidation operations are interrupted rather than reopening anything. A shared lookup also survives any single caller's interruption — if every waiter leaves while the lookup is still pending, the lookup itself is interrupted and its scope closed, and missing-key lookups (including `refresh`) run in a daemon fiber so one caller's cancellation never corrupts the entry for the others.
+`ScopedCache.makeWith` accepts the same `(exit, key) => Duration` policy as `Cache.makeWith`, and the [key](#keys-are-logical-values) and [failure TTL](#failure-and-freshness-policy) guidance applies unchanged. Three lifetime details are specific to it: `ScopedCache.invalidateAll` detaches every entry from the table *before* closing the entry scopes (concurrently), so an entry that a finalizer re-creates is kept and released later instead of being discarded unreleased; `invalidateAll` and owner-scope shutdown attempt every entry release and then propagate all release defects together, and a release failure discovered by expiry during a `keys` / `values` / `entries` scan, where no caller observes it, is logged at `References.UnhandledLogLevel`; and after the cache's own scope has closed, `get`, `set`, `refresh`, and the invalidation operations are interrupted rather than reopening anything. A shared lookup also survives any single caller's interruption — if every waiter leaves while the lookup is still pending, the lookup itself is interrupted and its scope closed, and missing-key lookups (including `refresh`) run in a daemon fiber so one caller's cancellation never corrupts the entry for the others.
 
 **When to use:** the cached value holds a resource (live connection, file handle, in-process child) that must be released precisely on expiry or eviction.
 
@@ -608,15 +608,15 @@ export const CompSummaryResolver = RequestResolver.makeGrouped<GetCompSummary, s
 | --- | --- |
 | `RequestResolver.make(runAll)` | Batched resolver: `runAll(entries, key)` answers a non-empty batch. Default window: one `Effect.yieldNow`. |
 | `RequestResolver.makeGrouped({ key, resolver })` | Like `make`, with a grouping key computed from each *entry*: `key: (entry) => K`, `resolver: (entries, key) => …`. **The key decides what may share a round trip** — a constant key puts every request in one batch, while keying by tenant, shard, or data source batches within each group and never mixes requests bound for different backends. Keys are compared with `Equal` in the pending batch map and released as soon as their batch stops pending, including after interruption; the resolver does not retain every historical key. `RequestResolver.grouped(f)` adds the same grouping to an existing resolver. |
-| `RequestResolver.fromEffect(f)` | No batch endpoint: `f(entry)` runs once per entry, concurrently, and its `Exit` completes that entry. You still get one call site for caching, tracing, and delay. |
+| `RequestResolver.fromEffect(f)` | No batch endpoint: `f(entry)` runs once per entry, concurrently, and its `Exit` completes that entry. Each entry runs with its own caller's context, never another caller's services. You still get one call site for caching, tracing, and delay. |
 | `RequestResolver.fromEffectTagged<Req>()({ Tag: (entries) => … })` | One handler per request `_tag`; each returns an iterable of results in the same order as its entries (arrays, iterators, and generators all work). A handler's typed error, defect, or interruption completes every entry of that tag with it. This is the one positional API — prefer `make` when the backend does not guarantee order. |
 | `RequestResolver.fromFunctionBatched(f)` | Quick path: map entries to successes with a pure function; no explicit completions needed. Also positional. |
 | `RequestResolver.setDelay(duration)` | Wait before draining — more entries collected, higher latency on first call. `setDelayEffect` takes an arbitrary effect. |
 | `RequestResolver.batchN(n)` | Limit maximum batch size to `n`; a full batch runs immediately instead of waiting out the delay. |
-| `RequestResolver.withSpan(name)` | Wrap each batch in an OTel span (attribute `batchSize`) and add each distinct requesting parent span as a span link. |
+| `RequestResolver.withSpan(name, options?)` | Wrap each batch in an OTel span (attribute `batchSize`) and add each distinct requesting parent span as a span link. `options` may be a function of the batch; every span option it returns is applied. |
 | `RequestResolver.withCache({ capacity, strategy? })` | Put a bounded in-memory cache in front, keyed by request equality: equal requests in one batch collapse to one entry, and completed results are replayed. `strategy` is `"lru"` (default) or `"fifo"`. **Entries never expire by time and failures are cached like successes** (interrupted results are not), so a transient failure stays until it is evicted by capacity. |
 | `RequestResolver.asCache({ capacity, timeToLive? })` | Convert the resolver into a `Cache` (requests are the keys). Use this instead of `withCache` when you need a TTL — `timeToLive: (exit, request) => Duration`, so the [failure policy](#failure-and-freshness-policy) applies — or `invalidate` / `refresh`. |
-| `RequestResolver.persisted({ storeId, timeToLive })` | Back the resolver with a `Persistence` store (cross-restart caching). |
+| `RequestResolver.persisted({ storeId, timeToLive?, staleWhileRevalidate? })` | Back the resolver with a `Persistence` store (cross-restart caching). With `staleWhileRevalidate`, a stale entry is served while it refreshes; only refresh results are persisted, a whole-batch refresh failure replaces the stale value, and a refresh that completes no entries leaves the original expiry unchanged. |
 | `RequestResolver.race(a, b)` | Run two resolvers concurrently and use whichever responds first. |
 | `RequestResolver.around(before, after)` | Bracket each batch run with setup/teardown effects. |
 
@@ -674,7 +674,7 @@ describe("band midpoint resolver", () => {
 })
 ```
 
-No clock is involved with the default `Effect.yieldNow` window. A resolver built with `setDelay` sleeps on the `Clock`, so under `it.effect` fork the callers, `TestClock.adjust` past the delay, then join.
+No clock is involved with the default `Effect.yieldNow` window. A resolver built with `setDelay` sleeps on the `Clock`, so under `it.effect` fork the callers, `TestClock.adjust` past the delay, then join. A delay that completes synchronously, such as `setDelay(0)` under `TestClock`, is safe: the request is registered before the delay starts.
 
 **When to use:** service methods that individual fibers call independently but which support batch APIs underneath (lookups, permission checks, external API calls). The N+1 problem on deeply nested data is the canonical trigger.
 

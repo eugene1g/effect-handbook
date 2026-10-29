@@ -2,7 +2,7 @@
 
 `Stream<A, E, R>` is a pull-based source: the consumer requests the next chunk, the stream computes it (possibly failing with `E`, needing services `R`), emits the chunk, and waits. This pull loop provides automatic back-pressure. `Sink<A, In, L, E, R>` folds chunks into a final answer. `Channel` is the bidirectional primitive both are built from. In practice: live in `Stream` 95% of the time; reach for `Channel` only when authoring a new operator.
 
-> **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
+> **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
 >
 > **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
@@ -155,9 +155,9 @@ Official guide: [Creating Streams](https://effect.website/docs/v4/stream/creatin
 | Stop early | `take` / `takeWhile` / `takeUntil` / `takeRight` / `haltWhen` / `interruptWhen` | `takeWhile` stops *before* the first failing element; `takeUntil` *includes* the element that matched unless `{ excludeLast: true }`. `takeRight(n)` must see the end, so it buffers `n` and never emits on an infinite source. `haltWhen(effect)` stops before the next pull; `interruptWhen(effect)` also interrupts the pull in progress. |
 | Batch | `grouped(n)` / `groupedWithin(n, duration)` / `rechunk(n)` | `grouped` flushes only when `n` elements arrived or the stream ended. `groupedWithin` flushes on size **or** elapsed time, whichever is first — the right shape for live feeds. Its window starts with the first element of a batch: idle time before that element is excluded, but silence after a partial batch starts still advances its timer. For schedule-driven aggregation, schedule exhaustion can drain already-pulled leftovers into further batches without more upstream pulls. `rechunk` resizes the internal chunks without changing the element type. |
 | Rate control | `throttle` / `debounce(duration)` / `schedule(schedule)` | `throttle` is a token bucket charged per *chunk* via `cost(chunk)`: `"shape"` delays, `"enforce"` drops the whole over-budget chunk (`rechunk(1)` first for per-element dropping), `burst` raises the bucket to `units + burst`. `debounce` emits only the last value after a quiet period. `schedule` spaces every element by a `Schedule`. |
-| Keyed sub-streams | `groupByKey(f)` / `groupBy` | Emits `[key, Stream]` pairs; consume them with `flatMap(..., { concurrency: "unbounded" })` or a finite bound. Each key owns a queue (`bufferSize`, default 4096 elements); `idleTimeToLive` retires quiet keys, which matters when the key space is large. If a substream consumer stops early, the underlying queue is shut down so the source is not left hanging. |
+| Keyed sub-streams | `groupByKey(f)` / `groupBy` | Emits `[key, Stream]` pairs; consume them with `flatMap(..., { concurrency: "unbounded" })` or a finite bound. Each key owns a queue (`bufferSize`, default 4096 elements); `idleTimeToLive` retires quiet keys, which matters when the key space is large. If a substream consumer stops early, the underlying queue is shut down so the source is not left hanging; when the upstream ends or fails, every open group ends too. |
 | Dedupe | `changes` | Drops consecutive elements that are `Equal.equals`. |
-| Text framing | `decodeText` / `splitLines` / `encodeText` | `decodeText` decodes incrementally, so a multi-byte character may straddle chunks. `splitLines` accepts `\n`, `\r\n`, and a lone `\r`, and carries an incomplete line to the next pull. |
+| Text framing | `decodeText` / `splitLines` / `encodeText` | `decodeText` decodes incrementally, so a multi-byte character may straddle chunks; on normal completion an incomplete trailing character becomes U+FFFD (`Channel.decodeText(encoding, { fatal: true })` turns it into a defect instead). `splitLines` accepts `\n`, `\r\n`, and a lone `\r`, and carries an incomplete line to the next pull. |
 | Shape the output | `drain` / `intersperse` | `drain` keeps a stream's effects but emits nothing, so it can be `merge`d in as a background side-stream. `intersperse` inserts a separator between elements. |
 
 ```ts
@@ -573,6 +573,8 @@ const _audit = Stream.make(
 
 ### Adapting, leftovers, and repeatable batching
 
+**A sink's error handlers see only the sink's own failures.** In `Stream.run`, `Stream.peel`, and `Stream.aggregate` / `aggregateWithin`, an upstream stream failure reaches the caller unchanged: `Sink.mapError`, `Sink.catch`, `Sink.catchCause`, and `Sink.orElse` do not remap or recover it, and `Sink.onExit` observes it as an interruption of the sink. Handle source failures on the stream (`Stream.catch*`, `Stream.retry`) before it reaches the sink.
+
 **`Sink.mapInput` adapts the input; `Sink.map` adapts the result.** Write the aggregation once over a primitive and reuse it across streams of different shapes.
 
 **Leftovers are the rest of the chunk already pulled — not the rest of the stream.** A sink finishes with an `End` tuple `[result, leftover?]`. `Sink.mapEnd` can read and rewrite both halves, `Sink.ignoreLeftover` narrows `L` to `never`, and `Sink.flatMap` hands the first sink's leftovers to the second, so "parse a header, then fold the body" composes. Because leftovers depend on chunking, `Sink.take(3)` over `Stream.make(1, 2, 3, 4, 5)` (one chunk) leaves `[4, 5]`, but over chunks `[1, 2]`, `[3, 4]`, `[5]` it leaves `[4]`. Ignoring leftovers never pulls more input.
@@ -732,13 +734,13 @@ const _ = Effect.runSync(step)
 
 **Wire codecs: streaming bytes ↔ typed values.**
 
-All three modules below are under `effect/encoding` and are **unstable** (API may change). Each is a channel spliced via `Stream.pipeThroughChannel`. Decode: bytes/text in, typed objects out. Encode: objects in, bytes/text out. Each has a plain variant and a `*Schema*` variant that validates against a `Schema` at the boundary.
+The streaming codecs below live under `effect/encoding` and are **unstable** or **experimental** (API may change; each label line says which). Each is a channel spliced via `Stream.pipeThroughChannel`. Decode: bytes/text in, typed objects out. Encode: objects in, bytes/text out. The record formats (`Ndjson`, `Sse`, `Csv`, `JsonArray`) have a plain variant and a `*Schema*` variant that validates against a `Schema` at the boundary; `Xml` streams events, and the archive formats (`Tar`, `Zip`) stream entries.
 
 ## Ndjson
 
 `effect/encoding/Ndjson` — unstable
 
-Newline-delimited JSON codecs as channels. `Ndjson.decodeString()` splits on newlines and `JSON.parse`s each line. `Ndjson.decode()` takes `Uint8Array` input (handles UTF-8). Failures are a tagged `NdjsonError` with `kind: "Pack"` (encoding) or `"Unpack"` (decoding). `decodeSchemaString(Schema)()` fuses split → parse → validate in one channel.
+Newline-delimited JSON codecs as channels. `Ndjson.decodeString()` splits on newlines and `JSON.parse`s each line. `Ndjson.decode()` takes `Uint8Array` input: it splits on raw bytes, decodes each line as strict UTF-8, and skips a leading BOM. Both accept `\n`, `\r\n`, and a bare `\r` as line endings. Failures are a tagged `NdjsonError` with `kind: "Pack"` (encoding) or `"Unpack"` (decoding); decoders also set `reason` (`"InvalidJson"`, `"InvalidUtf8"`, or `"LineTooLarge"`) and `unterminated` when the bad line is the final line without a terminator. The lines before a bad line are emitted before the channel fails. `decodeSchemaString(Schema)()` fuses split → parse → validate in one channel.
 
 ```ts
 import { DateTime, Schema, Stream } from "effect"
@@ -785,7 +787,7 @@ const sampleGrant = new EquityGrant({
 
 Both text lines and UTF-8 code points may straddle incoming chunks: the decoder buffers either boundary correctly. You do not need to align network chunks to newlines or character boundaries.
 
-> **Warning:** The decoder has no maximum line length: it retains an incomplete line until its newline arrives, so one newline-free upload is one unbounded allocation. For untrusted input, cap the byte stream first with `Stream.limitBytes(limit, () => Stream.fail(...))`: the total cap is then also the largest line the decoder can ever hold.
+> **Warning:** Lines are unbounded by default: a decoder retains an incomplete line until its terminator arrives, so one newline-free upload is one unbounded allocation. For untrusted bytes, pass `maxLineBytes` to `decode`, `decodeSchema`, `duplex`, or `duplexSchema`; a longer line fails with `reason: "LineTooLarge"` as soon as the limit is passed, without reading the rest of the line. The string decoders have no such option, so cap their input first, for example with `Stream.limitBytes(limit, () => Stream.fail(...))` on the byte stream before decoding text.
 
 **Use when** consuming or producing a streaming JSON HTTP body, tailing a JSON log file, or processing bulk exports line by line.
 
@@ -857,6 +859,102 @@ By default, a named event with **no `data:` line** is dropped, as in the WHATWG 
 
 **Use when** consuming an SSE endpoint for live typed events with built-in reconnect signalling.
 
+## Csv
+
+`effect/encoding/Csv` — unstable
+
+Streaming RFC 4180 CSV over text (`decodeString` / `encodeString`) or UTF-8 bytes (`decode` / `encode`). Cells are strings kept exactly as written; quoted fields may contain delimiters, line breaks, and doubled quotes. Decoders accept LF, CRLF, and CR and strip a leading BOM. With `{ headers: true }` the first record supplies unique field names and every later record becomes an object of the same width; a duplicate header or a row of a different width fails with `CsvError` (`kind: "Header"`, plus one-based `record` and `line`); malformed quoting is `kind: "Syntax"` with a `column`. `delimiter` is one character (default `","`), `maxRecordSize` bounds one record in UTF-16 code units (default 1 MiB, exceeding it is `kind: "RecordSize"`; `Infinity` disables it), and `ignoreEmptyLines` skips blank records instead of reading them as one empty cell. Invalid options throw when the channel is created.
+
+`decodeSchemaString(schema)(options?, parseOptions?)` and `encodeSchemaString(schema)(options?)` wrap the schema in `Schema.toCodecStringTree` by default, so columns can be `Schema.Number`, `Schema.Boolean`, or `Schema.Date`; with header records, an empty cell for an optional property decodes as a missing key. Pass `disableCodecs: true` to use the schema exactly as given. The encoder writes `"\r\n"` after every record unless `newline: "\n"`, takes `columns` from a struct's encoded keys, and writes them as the first record with `headers: true`.
+
+```ts
+import { Effect, Schema, Stream } from "effect"
+import { Csv } from "effect/encoding"
+
+const PayrollRow = Schema.Struct({
+  employeeId: Schema.String,
+  salary: Schema.Number,
+  active: Schema.Boolean
+})
+
+const export_ = "employeeId,salary,active\r\ne1,110000,true\r\ne2,95000,false\r\n"
+
+// Text → typed rows. Cell conversion comes from Schema.toCodecStringTree.
+const rows = Stream.make(export_).pipe(
+  Stream.pipeThroughChannel(Csv.decodeSchemaString(PayrollRow)({ headers: true })),
+  Stream.runCollect
+)
+// [{ employeeId: "e1", salary: 110000, active: true }, { employeeId: "e2", salary: 95000, active: false }]
+
+// Typed rows → CSV text with a header record.
+const csv = Stream.make({ employeeId: "e3", salary: 120000, active: true }).pipe(
+  Stream.pipeThroughChannel(Csv.encodeSchemaString(PayrollRow)({ headers: true })),
+  Stream.mkString
+)
+// "employeeId,salary,active\r\ne3,120000,true\r\n"
+
+const program = Effect.all([rows, csv])
+```
+
+A schema failure is a `Schema.SchemaError` whose path starts at the one-based record number, so `[2]["salary"]` names the first data row after the header.
+
+**Use when** importing or exporting spreadsheets and bulk HR/payroll files without buffering the whole file.
+
+## JsonArray
+
+`effect/encoding/JsonArray` — unstable
+
+Streams the elements of **one** JSON array — the root, or the array an RFC 6901 `pointer` selects inside an envelope such as `{"items":[...],"total":n}` — without buffering the whole document. Each element is buffered only until complete, then `JSON.parse`d; the rest of the document is validated and discarded. Use `Ndjson` instead when the producer writes one value per line. (It is unrelated to `Schema.JsonArray`, the type of a JSON array value.) The encoders write a stream of values as one array; an empty stream encodes as `[]`.
+
+```ts
+import { Schema, Stream } from "effect"
+import { JsonArray } from "effect/encoding"
+
+const Employee = Schema.Struct({ id: Schema.String })
+
+// Chunks may split an element anywhere; `pointer` selects the nested array.
+const employees = Stream.make(`{"total":2,"items":[{"id":"e1"},{"i`, `d":"e2"}]}`).pipe(
+  Stream.pipeThroughChannel(JsonArray.decodeSchemaString(Employee)({ pointer: "/items" })),
+  Stream.runCollect
+)
+// [{ id: "e1" }, { id: "e2" }]
+
+const body = Stream.make({ id: "e1" }, { id: "e2" }).pipe(
+  Stream.pipeThroughChannel(JsonArray.encodeString()),
+  Stream.mkString
+)
+// '[{"id":"e1"},{"id":"e2"}]'
+```
+
+Failures are a `JsonArrayError` with `kind` `"Syntax"`, `"Limit"`, `"Pointer"` (missing target, non-array target, or a non-array root without a pointer into it), or `"Encode"`; decoding errors carry an `offset` in UTF-16 code units. `maxDepth` (default 1000) and `maxElementSize` (default 16 MiB of UTF-16 code units) bound every value, including the ones outside the selected array.
+
+**Use when** a large HTTP response or file is one JSON document and its items should be processed one at a time.
+
+## Xml
+
+`effect/encoding/Xml` — experimental
+
+Streaming XML 1.0 over text (`decodeString` / `encodeString`) or UTF-8 bytes (`decode` / `encode`). Decoders emit `Xml.Event`s (`Declaration`, `Doctype`, `StartElement`, `EndElement`, `Text`, `Comment`, `ProcessingInstruction`) and check well-formedness. `Xml.elements(path)` collects every element at a root-anchored path (`"*"` matches any name) into a small `{ name, attributes, children }` tree, so a large feed or export is processed one record at a time.
+
+```ts
+// @effect-diagnostics experimentalApiUsage:off
+import { Stream } from "effect"
+import { Xml } from "effect/encoding"
+
+const feed = `<feed><entry id="1"><title>Q1 &amp; Q2</title></entry><entry id="2"><title>Q3</title></entry></feed>`
+
+const entries = Stream.make(feed).pipe(
+  Stream.pipeThroughChannel(Xml.decodeString()),
+  Stream.pipeThroughChannel(Xml.elements(["feed", "entry"])),
+  Stream.runCollect
+)
+// [{ name: "entry", attributes: { id: "1" }, children: [{ name: "title", attributes: {}, children: ["Q1 & Q2"] }] }, ...]
+```
+
+The decoder never reads external resources and never expands entities declared in a DOCTYPE — a reference to one fails with an `Unsupported` `XmlError` — so XXE and entity-expansion attacks do not apply. It does not validate against a DTD or schema and reports names as written, without resolving namespaces. Failures are an `XmlError` with `kind` `"Syntax"`, `"Unsupported"`, `"Limit"`, or `"InvalidEvent"`, and decoder errors carry a one-based `line` and `column`. `maxTokenSize` (default 10 MiB), `maxDepth` (default 1024), and `elements`' `maxElementSize` (default 16 MiB) bound memory; lower them for untrusted input.
+
+**Use when** consuming RSS/Atom feeds, sitemaps, SOAP-era exports, or other XML too large to parse in one piece.
+
 ## SchemaBinary
 
 `effect/encoding/SchemaBinary` — unstable
@@ -917,7 +1015,71 @@ Two ownership details matter in practice. Encoded results are arena-backed views
 
 **Use when** you need a compact, schema-validated binary frame format over a socket, worker, or file where human readability is not required and both ends share Effect schemas. Prefer `Ndjson` when the other side is not an Effect program or when frames must be inspectable.
 
-> **Tip:** Every codec is a channel composed the same way: `stream.pipe(Stream.pipeThroughChannel(Codec.decode…(MySchema)()))`. Bytes in, typed objects out — or reverse with the encoder. `Ndjson`, `Sse`, and `SchemaBinary` are the same shape with different wires.
+> **Tip:** Every codec is a channel composed the same way: `stream.pipe(Stream.pipeThroughChannel(Codec.decode…(MySchema)()))`. Bytes in, typed objects out — or reverse with the encoder. `Ndjson`, `Sse`, `Csv`, `JsonArray`, and `SchemaBinary` are the same shape with different wires.
+
+**Archive formats.** `Tar` and `Zip` are channels from bytes to entries (`{ header, body }`, where `body` is a `Stream<Uint8Array>`) and back. Neither touches the file system, and both share the same consumption rules.
+
+> **Warning:** Read each entry's `body` while the entry stream is running — typically inside `Stream.mapEffect` — and before pulling the next entry. Pulling the next entry skips the rest of the current body, a body read afterwards fails with a `BodyConsumed` error, and every body fails that way once the entry stream has ended (after `Stream.runCollect`, `Stream.take`, or `Stream.runHead`). Operators that pull ahead, such as `Stream.buffer`, therefore cannot sit between `decode` and the body reads. Paths come back exactly as archived — they can be absolute or contain `..` — so validate them before writing anything to disk.
+
+## Tar
+
+`effect/encoding/Tar` — unstable
+
+`Tar.decode()` reads v7, USTAR, PAX extended headers (including global headers), GNU long names and links, and base-256 numbers; GNU sparse entries fail with an `Unsupported` `TarError`. `Tar.encode()` writes USTAR, adding a PAX header only for what USTAR cannot hold, and streams bodies without buffering them. Build entries with `Tar.file(path, content)`, `Tar.fileStream(path, size, body)` (note that `size` comes before the body), `Tar.directory`, `Tar.symlink`, and `Tar.hardlink`; unset options default to fixed modes, uid/gid `0`, and an epoch mtime, so archives are reproducible. It does not compress.
+
+```ts
+import { Effect, Stream } from "effect"
+import { Tar } from "effect/encoding"
+
+const archive = Stream.make(
+  Tar.directory("reports/"),
+  Tar.file("reports/q1.csv", "employeeId,salary\ne1,110000\n")
+).pipe(Stream.pipeThroughChannel(Tar.encode()))
+
+// Read each body inside mapEffect, while the entry stream is still running.
+const listing = archive.pipe(
+  Stream.pipeThroughChannel(Tar.decode()),
+  Stream.mapEffect((entry) =>
+    Stream.mkString(Stream.decodeText(entry.body)).pipe(
+      Effect.map((text) => ({ path: entry.header.path, type: entry.header.type, bytes: text.length }))
+    )
+  ),
+  Stream.runCollect
+)
+// [{ path: "reports/", type: "Directory", bytes: 0 }, { path: "reports/q1.csv", type: "File", bytes: 28 }]
+```
+
+A body that produces any byte count other than `header.size` fails encoding with a `SizeMismatch` `TarError`, so a streamed entry's size must be known up front. Other `TarError` kinds are `InvalidHeader`, `Truncated`, `Unsupported`, and `BodyConsumed`.
+
+## Zip
+
+`effect/encoding/Zip` — experimental
+
+Streaming zip with stored and deflated entries and ZIP64 when sizes, offsets, or counts need it. `Zip.decode()` reads entries in archive order from their local headers — so an archive can be decoded as it arrives — and checks every body against its CRC-32 and sizes; it never reads the central directory, so `mode`, comments, and entries only the central directory lists are not reported. `Zip.encode()` writes each entry as it arrives and the central directory at the end. Build entries with `Zip.file(path, content, { method? })` (in memory, default `"Deflate"`; use `"Store"` for already-compressed content), `Zip.fileStream(path, body, options?)`, and `Zip.directory(path)`. Compression uses the runtime's `CompressionStream("deflate-raw")`. Encryption, other methods, and split archives are not supported.
+
+```ts
+// @effect-diagnostics experimentalApiUsage:off
+import { Effect, Stream } from "effect"
+import { Zip } from "effect/encoding"
+
+const archive = Stream.make(
+  Zip.directory("reports"), // a trailing "/" is added
+  Zip.file("reports/q1.csv", "employeeId,salary\ne1,110000\n")
+).pipe(Stream.pipeThroughChannel(Zip.encode()))
+
+const listing = archive.pipe(
+  Stream.pipeThroughChannel(Zip.decode()),
+  Stream.mapEffect((entry) =>
+    Stream.mkString(Stream.decodeText(entry.body)).pipe(
+      Effect.map((text) => `${entry.header.path} (${entry.header.method}): ${text.length} chars`)
+    )
+  ),
+  Stream.runCollect
+)
+// ["reports/ (Store): 0 chars", "reports/q1.csv (Deflate): 28 chars"]
+```
+
+A stored `fileStream` requires `size`; for deflated streams it is optional and checked. Deflated data can expand roughly a thousandfold and pulling the next entry inflates the rest of the current one, so for untrusted archives check `header.size`, count the bytes of bodies without one, and end the stream at an oversized entry rather than skipping it. Every `ZipError` (`InvalidHeader`, `InvalidData`, `Truncated`, `Checksum`, `SizeMismatch`, `Unsupported`, `BodyConsumed`) ends the archive.
 
 **Configuration formats.** The remaining parsers decode human-authored configuration text into unknown data. Schema-decode their results before trusting them at an application boundary.
 
@@ -948,27 +1110,41 @@ Use for conventional INI configuration input. Parse is synchronous and deliberat
 
 `effect/encoding/Toml` — unstable
 
-A focused TOML parser covering tables, dotted keys, arrays and inline tables, arrays of tables, multiline strings, numeric formats, and TOML date/time forms. Tables are null-prototype records. Offset date-times become JavaScript `Date`s; local dates and times remain strings. Duplicate or malformed keys throw `SyntaxError`.
+A focused TOML 1.0 parser covering tables, dotted keys, arrays and inline tables, arrays of tables, multiline strings, numeric formats, and TOML date/time forms. `Toml.parse(text)` does not throw: it returns `Result<Record<string, unknown>, EncodingError>`, failing with an [`EncodingError`](../data/functional-toolkit#encodingerror) (`module: "Toml"`, `kind: "Decode"`, and a message carrying the line and column) for invalid input. Tables are null-prototype records. Offset date-times become JavaScript `Date`s; local dates and times remain strings. The parser rejects what TOML 1.0 forbids: duplicate keys and tables, extending an inline table or a statically defined array, out-of-range dates and times such as `1979-02-30` or `24:00:00`, integers outside JavaScript's safe range, raw control characters (including a bare carriage return), and non-scalar Unicode escapes.
 
 ```ts
+import { Effect, Result } from "effect"
 import { Toml } from "effect/encoding"
 
-const config = Toml.parse(`
+const parsed = Toml.parse(`
 title = "Merit service"
 ports = [8000, 8001]
 [database]
 enabled = true
 credentials = { user = "service", roles = ["reader", "writer"] }
 `)
+
+if (Result.isSuccess(parsed)) {
+  console.log(parsed.success.title) // "Merit service"
+}
+
+// Inside an effect, lift the Result: a failure becomes the typed EncodingError.
+const loadConfig = (text: string) =>
+  Effect.gen(function*() {
+    const config = yield* Effect.fromResult(Toml.parse(text))
+    return config
+  })
 ```
 
-Use when the CLI or another trusted boundary accepts TOML. Wrap `Toml.parse` with `Effect.try` if syntax failures belong in a typed effect channel, then validate its result with `Schema`.
+> **Migration:** `Toml.parse` used to throw `SyntaxError`. Code that wrapped it in `try`/`catch` or `Effect.try` now receives a `Result` instead; branch on it, or lift it with `Effect.fromResult` to fail the effect with the `EncodingError`.
+
+Use when the CLI or another trusted boundary accepts TOML. Validate the parsed record with `Schema` before trusting it.
 
 ## Yaml
 
 `effect/encoding/Yaml` — unstable
 
-A focused YAML 1.2 configuration parser. It supports block and flow collections, quoted and block scalars, anchors, and aliases. Invalid indentation, duplicate keys, malformed collections, and unknown aliases throw `SyntaxError`. The parser rejects three inputs that resemble valid YAML but are not: a plain (unquoted) scalar with a colon followed by a space or the end of the value (`description: Use when: deploy`, `description: Deploy:`), a compact nested sequence (`- - value`), and a stream of several documents separated by `---`. Colons without a following space, as in `url: http://x.com` or `time: 12:30`, still parse as plain text.
+A focused YAML 1.2 configuration parser. Unlike `Toml.parse`, `Yaml.parse(text)` returns `unknown` and throws on invalid input. It supports block and flow collections (flow collections may span lines), quoted and block scalars, anchors (including anchors inside flow collections), aliases, and YAML 1.1 merge keys: an unquoted `<<` key merges a mapping, or a sequence of mappings, into the enclosing mapping, with explicit keys winning over merged ones and earlier merge sources over later ones; quote it (`"<<"`) to keep an ordinary key. Invalid indentation, duplicate keys, malformed collections, and unknown aliases throw `SyntaxError`. The parser rejects three inputs that resemble valid YAML but are not: a plain (unquoted) scalar with a colon followed by a space or the end of the value (`description: Use when: deploy`, `description: Deploy:`), a compact nested sequence (`- - value`), and a stream of several documents separated by `---`. Colons without a following space, as in `url: http://x.com` or `time: 12:30`, still parse as plain text.
 
 ```ts
 import { Yaml } from "effect/encoding"
@@ -991,6 +1167,22 @@ const reviewStep = Yaml.parse(`
 step: calibration
 description: "Use when: a manager disputes a merit rating"
 `)
+```
+
+```ts
+import { Yaml } from "effect/encoding"
+
+// A merge key reuses shared settings; the explicit `size` wins over the merged one.
+const environments = Yaml.parse(`
+defaults: &defaults
+  region: eu-west-1
+  size: 1
+production:
+  <<: *defaults
+  size: 3
+`)
+// { defaults: { region: "eu-west-1", size: 1 },
+//   production: { region: "eu-west-1", size: 3 } }
 ```
 
 This is a configuration-focused parser, not a promise of every YAML feature. Treat parsed values as untrusted and schema-decode them before application use.

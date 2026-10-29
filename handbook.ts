@@ -26,9 +26,10 @@ const pageDescriptions = {
   "interfaces/rpc.md": "Typed RPC requests, routers, clients, transports, serialization, streaming, and middleware.",
   "interfaces/sql.md": "SQL clients, schemas, resolvers, models, migrations, transactions, streams, and provider adapters.",
   "interfaces/platform-runtime-hosts.md": "Node, Bun, Deno, browser, Cloudflare, filesystem, path, terminal, worker, and runtime services.",
+  "interfaces/cryptography.md": "Cryptography services: secure randomness, digests, MACs, signatures, AEAD and ciphers, key derivation, agreement, wrapping, key formats, and the WebCrypto backend.",
   "systems/reactivity-atom.md": "Effect's reactive Atom graph, registries, hydration, typed clients, and framework bindings.",
   "systems/ai-language-models.md": "Language models, tools, toolkits, chat, prompts, embeddings, decisions, telemetry, errors, and provider integrations.",
-  "systems/mcp.md": "Model Context Protocol: MCP wire schemas, protocol adapters, and McpServer over stdio and streamable HTTP.",
+  "systems/mcp.md": "Model Context Protocol: MCP wire schemas, protocol adapters, McpServer over stdio and streamable HTTP, McpClient, and in-memory McpTest.",
   "systems/workflows-durable-execution.md": "Durable workflows, activities, retries, interruption, persistence, and operational recovery.",
   "systems/cluster-sharding.md": "Cluster membership, sharding, entities, runners, proxies, messaging, and distributed coordination.",
   "systems/event-log-event-sourcing.md": "Event logs, event sourcing, projections, encryption, identity, and session authorization.",
@@ -97,11 +98,11 @@ const pageRelated = Object.freeze({
 
 export const handbookRelease = Object.freeze({
   package: "effect",
-  version: "4.0.5",
-  tag: "effect@4.0.5",
-  commit: "7f524e25cfb49a71ac39b0f44278d08d40dda5de",
-  publishedAt: "2026-10-15T01:27:07.583Z",
-  auditedAt: "2026-10-22"
+  version: "4.1.0",
+  tag: "effect@4.1.0",
+  commit: "9a91b1926a5fbfaffd302a7a41a94d4d53a1154e",
+  publishedAt: "2026-10-29T04:09:37.471Z",
+  auditedAt: "2026-10-29"
 })
 
 function upstreamUrl(kind: "blob" | "tree", pathname: string): string {
@@ -203,7 +204,8 @@ export const handbookGroups = [
       page("GraphQL", "interfaces/graphql.md"),
       page("RPC", "interfaces/rpc.md"),
       page("SQL", "interfaces/sql.md"),
-      page("Platform & Runtime Hosts", "interfaces/platform-runtime-hosts.md")
+      page("Platform & Runtime Hosts", "interfaces/platform-runtime-hosts.md"),
+      page("Cryptography", "interfaces/cryptography.md")
     ]
   },
   {
@@ -328,6 +330,7 @@ export const agentBundles = [
     "interfaces/graphql.md",
     "interfaces/rpc.md",
     "interfaces/platform-runtime-hosts.md",
+    "interfaces/cryptography.md",
     "systems/reactivity-atom.md",
     "recipes/schema-httpapi-sql-boundary.md",
     "recipes/request-cancellation-through-a-host.md"

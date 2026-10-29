@@ -2,7 +2,7 @@
 
 The CLI modules define parsers, help, completions, prompts, and command handlers as typed values that compose with ordinary Effects and Layers. Import the barrel with `import { Argument, Command, Flag, Prompt } from "effect/cli"`, or use the module paths shown in each section.
 
-> **Warning:** The framework lives under `effect/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/70_cli) provides a compact runnable companion.
+> **Warning:** The framework lives under `effect/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/70_cli) provides a compact runnable companion.
 
 ## CliConfig
 
@@ -155,7 +155,8 @@ comp.pipe(
 | `Command.withShortDescription(s)` | One-liner shown in parent's subcommand list |
 | `Command.withAlias(s)` | Alternate invocation name (`review start` → `review s`) |
 | `Command.unlisted` | Keep a command invocable but omit it from normal listings/help |
-| `Command.withExamples([...])` | Curated examples shown at the bottom of `--help` |
+| `Command.withExamples([...])` | Curated examples shown at the bottom of `--help`; pass `({ commandPath }) => [...]` to derive them from where the command is mounted |
+| `Command.validate(f)` | Check the parsed input before the handler runs (for example mutually exclusive flags); fail with `CliError.ValidationError` and it is shown with help like a parse error |
 | `Command.provide(layer)` | Provide a Layer to the handler (static or derived from parsed input) |
 | `Command.provideEffect(effect)` | Run an effect before the handler and provide its result as a service |
 | `Command.run({ version })` | Convert to a runnable `Effect` (reads argv from `Stdio`) |
@@ -205,7 +206,7 @@ it.effect("a bad value fails with ShowHelp carrying the structured cause", () =>
   }).pipe(Effect.provide(NodeServices.layer)))
 ```
 
-`NodeServices.layer` gives the command the real filesystem and terminal. When a test must be hermetic — no disk, no TTY, no child processes — assemble the environment from the in-memory pieces instead; the stubs below turn an unexpected terminal read or process spawn into a defect:
+`NodeServices.layer` gives the command the real filesystem and terminal. When a test must be hermetic — no disk, no TTY, no child processes — assemble the environment from the in-memory pieces instead; the stubs below turn an unexpected terminal read or process spawn into a defect. A custom `Terminal.make` must supply every member, including `size` (a scoped queue of `{ columns, rows }` that starts with the current dimensions and receives each resize):
 
 ```ts
 import { Effect, FileSystem, Layer, Path, Stdio, Terminal } from "effect"
@@ -218,6 +219,7 @@ export const CliTestEnvironment = Layer.mergeAll(
   Layer.succeed(Terminal.Terminal, Terminal.make({
     columns: Effect.succeed(80),
     rows: Effect.succeed(24),
+    size: Effect.die("this command must not watch the terminal size"),
     readInput: Effect.die("this command must not read keys"),
     readLine: Effect.die("this command must not prompt"),
     display: () => Effect.void
@@ -233,7 +235,7 @@ export const CliTestEnvironment = Layer.mergeAll(
 | --- | --- |
 | parsing, defaults, fallbacks, handler wiring, and the typed failure for bad input | that the packaged binary starts, reads real `argv`, and exits with the right status — launch the built artifact once for that (see [Testing an Effect Application](../deep-dives/testing-an-effect-application#the-built-artifact-lane)) |
 
-Assert on the structured error, not on the rendered help text: help tables are aligned by terminal display width (wide, emoji, combining, and zero-width graphemes), so exact column spacing is a formatter detail. Pass `{ renderErrors: false }` when the embedding host owns error rendering; help documents are still printed.
+Assert on the structured error, not on the rendered help text: help tables are aligned by terminal display width (wide, emoji, combining, and zero-width graphemes), so exact column spacing is a formatter detail. Pass `{ renderErrors: false }` when the embedding host owns error rendering; help documents are still printed. To suppress or redirect the built-in help, version, and invalid-invocation output itself, provide a [`CliOutput.Presenter`](#clioutput).
 
 Use when you need a type-safe CLI application with subcommands, help generation, and shell completions.
 
@@ -241,7 +243,7 @@ Use when you need a type-safe CLI application with subcommands, help generation,
 
 `effect/cli/Flag` — unstable
 
-A `Flag<A>` is a typed parser for named CLI options (`--verbose`, `--shares 1000`). Flags are composable: chain `Flag.withDefault` to make optional, `Flag.optional` to get `Option<A>`, `Flag.withFallbackConfig` to satisfy from an environment variable when absent. Boolean flags: `--dry-run` alone means `true`; `--no-dry-run` negates it. An **omitted** boolean flag is not an implicit `false`: like every other flag it fails with `CliError.MissingOption` unless you add `Flag.withDefault(false)`, `Flag.optional`, or a config/prompt fallback. That makes absence uniform across flag types and lets a fallback chain decide it. The built-in global flags add their own `false` default.
+A `Flag<A>` is a typed parser for named CLI options (`--verbose`, `--shares 1000`). Flags are composable: chain `Flag.withDefault` to make optional, `Flag.optional` to get `Option<A>`, `Flag.withFallbackConfig` to satisfy from an environment variable when absent. Boolean flags: `--dry-run` alone means `true`; `--no-dry-run` negates it — rename that form with `Flag.withNegation("skip-dry-run")` or remove it with `Flag.withoutNegation` (both also change shell completions). An **omitted** boolean flag is not an implicit `false`: like every other flag it fails with `CliError.MissingOption` unless you add `Flag.withDefault(false)`, `Flag.optional`, or a config/prompt fallback. That makes absence uniform across flag types and lets a fallback chain decide it. The built-in global flags add their own `false` default.
 
 ```ts
 import { Config } from "effect"
@@ -283,7 +285,7 @@ const labels = Flag.KeyValuePair("label").pipe(
   Flag.withDescription("Attach metadata labels to the grant")
 )
 
-// Fall back to an interactive prompt when the flag is absent.
+// Fall back to an interactive prompt when the flag is absent and the terminal can prompt.
 // Pass the Prompt directly — no callback wrapper needed.
 const employeeId = Flag.String("employee").pipe(
   Flag.withFallbackPrompt(
@@ -335,6 +337,9 @@ const _ = [approver, planSource, planSourceTagged, optionalPlanSource]
 | A value begins with `-` and parses as a number (`-3`, `-3.70`, `-2e5`) | parses as a value either way: `--delta -5` and `--delta=-5` both set `delta` to `-5` |
 | A value begins with `-` but is not numeric, such as a string flag value of `-x` | write it inline: `--label=-x`. The spaced form `--label -x` reads `-x` as another flag and fails with `UnrecognizedOption` |
 | A boolean flag is omitted | `MissingOption`, unless the flag has a default, is optional, or has a fallback |
+| A single-valued flag is given twice (`--shares 1 --shares 2`) | rejected with `InvalidValue` (expected "at most 1 value") instead of keeping the first; use `Flag.atLeast`, `Flag.atMost`, or `Flag.between` to accept repeats. `KeyValuePair` flags still merge their occurrences |
+| A short cluster with an inline value (`-vn=3`) | split into `-v -n=3`; a single dash before a multi-character name (`-num=3`) is split the same way, so write `--num=3` |
+| `--=value` | passed through as a plain value, not an empty-named flag |
 
 ### GNU-style optional flag values
 
@@ -469,7 +474,7 @@ Use when inspecting what type a flag or argument represents (e.g. documentation 
 
 Interactive terminal prompts. A `Prompt<A>` is an Effect that runs a TUI render loop and yields a typed value on confirmation. Prompts compose with `Effect.gen`, chain with `Prompt.flatMap`, and collect with `Prompt.all`.
 
-Each prompt has three phases: render (write ANSI), process (receive keypress, return next state or final value), clear (erase frame). The CLI connection is `Flag.withFallbackPrompt`: when a required flag is absent, the prompt runs automatically. Pass the `Prompt` or an `Effect` yielding one directly.
+Each prompt has three phases: render (write ANSI), process (receive keypress, return next state or final value), clear (erase frame). The CLI connection is `Flag.withFallbackPrompt` (and `Argument.withFallbackPrompt`): when a required flag is absent, the prompt runs automatically — but only when [`TerminalCapabilities`](#terminalcapabilities) reports `canPrompt`. Otherwise the prompt is not built or shown and the parse fails with the original `MissingOption` / `MissingArgument`, so a CI job or piped invocation fails instead of hanging. Pass the `Prompt` or an `Effect` yielding one directly.
 
 Prompts and the command wizard respect `NO_COLOR`, suppressing color/style escapes but retaining cursor and redraw controls: this is not a plain non-interactive transcript mode. Terminal input is acquired only when a prompt needs user input, so constant fallback prompts leave piped stdin untouched.
 
@@ -591,7 +596,7 @@ Use when you want wizard-style interactive CLIs or need to prompt for a required
 
 `effect/cli/HelpDoc` — unstable
 
-The intermediate data structure for a command's help page. Captures description, usage line, flag/argument docs, global flag docs, subcommand listing, and examples — before any string formatting. Rendering is delegated to `CliOutput.Formatter`.
+The intermediate data structure for a command's help page. Captures description, usage line, flag/argument docs, inherited and global flag docs, subcommand listing, and examples — before any string formatting. Shared flags declared on ancestor commands arrive in `inheritedFlags` (rendered as an `INHERITED FLAGS` section), not in `flags`; `commandPath` and `globalFlagsScope` record where the command and its global flags are declared. Rendering is delegated to `CliOutput.Formatter`.
 
 `HelpDoc` is to `--help` output what `Schema` is to JSON serialization: a structured description renderable multiple ways (plain text, ANSI, Markdown, JSON). The CLI framework builds it automatically from the command tree; inspect or transform it for custom tooling.
 
@@ -642,6 +647,8 @@ const grantCommandHelp: HelpDoc.HelpDoc = {
 
 The default formatter aligns the flag, argument, and subcommand tables by terminal *display* width rather than string length, so wide characters, emoji, combining marks, and zero-width graphemes in names or descriptions do not skew the columns. A custom formatter that pads with `String.prototype.padEnd` does not get that for free; test on the `HelpDoc` data rather than on padded output.
 
+> **Migration:** a custom formatter that read ancestor shared flags from `HelpDoc.flags` must read them from `HelpDoc.inheritedFlags`.
+
 Use when implementing a custom `CliOutput.Formatter`, generating Markdown documentation from the CLI tree, or building tooling requiring structured access to the help model.
 
 ## Completions
@@ -661,11 +668,14 @@ comp --completions fish > ~/.config/fish/completions/comp.fish
 
 For PowerShell, save `comp --completions powershell > comp-completion.ps1` and dot-source the script from your profile (`. ./comp-completion.ps1`). Regenerate scripts after changing the command tree.
 
-To generate completions programmatically (e.g. in a build script or test):
+To generate completions programmatically (e.g. in a build script or test), `Completions.fromCommand(command)` converts an existing `Command` tree into a `CommandDescriptor` — the same one `--completions` uses, with shared flags, aliases, and negations, and without hidden flags or unlisted subcommands:
 
 ```ts
 import { Completions } from "effect/cli"
 
+// Usually derive the descriptor from the command tree itself — handlers never run:
+//   Completions.generate("comp", "zsh", Completions.fromCommand(compCommand))
+// A hand-written descriptor works too:
 const descriptor: Completions.CommandDescriptor = {
   name: "comp",
   description: "Compensation administration CLI",
@@ -735,7 +745,7 @@ const zshScript  = Completions.generate("comp", "zsh",  descriptor)
 const fishScript = Completions.generate("comp", "fish", descriptor)
 ```
 
-What the built-in `--completions` flag derives for you — and what a hand-written `CommandDescriptor` must therefore reproduce:
+What the built-in `--completions` flag and `Completions.fromCommand` derive for you — and what a hand-written `CommandDescriptor` must therefore reproduce:
 
 | Behavior | Detail |
 | --- | --- |
@@ -819,7 +829,7 @@ const grantWithGlobals = grantCmd.pipe(
 - **Secrets are masked in the rendered command.** A `Flag.Redacted` parameter is collected with `Prompt.Password`, and the printed command shows `<redacted>` in place of the value while the real value is passed to the run.
 - **Values that look like flags are written inline.** A collected value beginning with `-` is emitted as `--delta=-5` rather than `--delta -5`, so the lexer cannot mistake it for a flag or for the `--` delimiter.
 
-`--help` and `--version` print through the `Console` service and **succeed**; they are not failures. A parent command invoked without a subcommand fails with `ShowHelp` and an empty `errors` list, which maps to exit code `0`.
+Invalid values for a global flag show the command help like any other parse error. `--help` and `--version` print through `CliOutput.Presenter` (by default the `Console` service) and **succeed**; they are not failures. A parent command invoked without a subcommand fails with `ShowHelp` and an empty `errors` list, which maps to exit code `0`.
 
 Use when you need a flag that short-circuits command dispatch or provides context-level configuration to every handler in the tree.
 
@@ -831,16 +841,35 @@ The typed error union for the CLI parser. `CliError.CliError` is what `Command.r
 
 **Parse and validation failures arrive wrapped.** The runner collects them, prints the help page plus the rendered errors, and fails with a single `ShowHelp` whose `errors` array holds the structured causes (`InvalidValue`, `MissingOption`, `UnknownSubcommand`, …). A `catchTag("InvalidValue", …)` placed on `Command.run` therefore never fires for bad input; inspect `ShowHelp.errors` instead. `UserError` and any error type of your own handlers reach the caller directly.
 
+**Give a domain error a user-facing message without wrapping it.** When a handler fails with an object carrying a string `[CliError.userMessage]` — `UserError` does, and a tagged error can define the getter — `Command.run` renders that message with the installed formatter and rethrows the *original* error, so `catchTag` on your own tag still works and `runMain` does not log it twice. `CliError.getUserMessage(error)` reads it.
+
+```ts
+import { Effect, Schema } from "effect"
+import { CliError, Command } from "effect/cli"
+
+class GrantExists extends Schema.TaggedError<GrantExists>()("GrantExists", { employee: Schema.String }) {
+  override get [CliError.userMessage]() {
+    return `${this.employee} already has a grant this cycle`
+  }
+}
+
+// `comp grant` prints "ERROR  e-42 already has a grant this cycle" and fails with GrantExists.
+const grant = Command.make("grant", {}, () => Effect.fail(new GrantExists({ employee: "e-42" })))
+
+const _ = grant
+```
+
 | Error class | When it fires |
 | --- | --- |
 | `UnrecognizedOption` | A `--flag` was passed that no command recognises. Includes Levenshtein suggestions. |
-| `DuplicateOption` | A non-variadic flag appeared more than once. |
+| `DuplicateOption` | A subcommand declares a flag whose name its parent already declares (a command-definition error, not a user-input error). |
+| `ValidationError` | A `Command.validate`, `Flag.mapEffect`, or `Argument.mapEffect` rule rejected the parsed input; carries `message`. |
 | `MissingOption` | A required flag was absent and had no default or fallback. |
 | `MissingArgument` | A required positional argument was absent. |
 | `UnexpectedArgument` | Extra positional arguments remained after parsing. |
-| `InvalidValue` | A value failed Primitive parsing (e.g. "abc" for an integer flag). |
+| `InvalidValue` | A value failed Primitive parsing (e.g. "abc" for an integer flag), or a single-valued flag was repeated. |
 | `UnknownSubcommand` | The first token didn't match any known subcommand. Includes suggestions. |
-| `UserError` | A handler or parameter transform explicitly wrapped a failure for safe CLI rendering; carries `cause` and an optional `userMessage`. |
+| `UserError` | A handler or parameter transform explicitly wrapped a failure for safe CLI rendering; carries `cause` and an optional `userMessage`. Prefer the `CliError.userMessage` annotation on your own error. |
 | `ShowHelp` | The runner's failure for "help was shown": with `errors` attached for parse/validation failures (exit code 1), or with an empty `errors` list when a parent command is invoked without a subcommand (exit code 0). An explicit `--help` is not an error at all — it prints and succeeds. |
 
 ```ts
@@ -887,18 +916,26 @@ Use when embedding a CLI runner in a larger Effect program and needing to distin
 
 `effect/cli/CliOutput` — unstable
 
-The formatting service for CLI output — help pages, error messages, version strings. `CliOutput.Formatter` is a `Context.Reference` service with a `defaultFormatter`; override with `CliOutput.layer(myFormatter)` to customise all CLI output.
+Two services decide what built-in CLI output looks like and where it goes. `CliOutput.Formatter` is the renderer: it turns help documents, errors, and version strings into text; override it with `CliOutput.layer(myFormatter)`. `CliOutput.Presenter` is the sink: `Command.run` / `runWith` hand it an event (`Help` with reason `"Requested"` or `"Implicit"`, `InvalidInvocation` with the help document and errors, or `Version`) instead of writing to the console itself; override it with `CliOutput.layerPresenter(presenter)`.
 
-`HelpDoc` is the data; `CliOutput.Formatter` is the renderer. Swap the formatter for colourless output in CI, Markdown in a doc generator, or JSON for machine-readable help.
+`HelpDoc` is the data; the Formatter renders it; the Presenter decides whether and where to print it. Swap the formatter for colourless output, Markdown, or JSON; swap the presenter to keep stdout clean for machine-readable results, send usage errors to stderr, or silence help in an embedding host. Presenting never changes the result: implicit help and invalid invocations still fail with `CliError.ShowHelp`. `--completions` scripts, wizard output, and `CliError.userMessage` renderings bypass the presenter.
+
+`CliOutput.defaultPresenter` writes help and version to `Console.log`, and on an invalid invocation the help to `Console.log` and the errors to `Console.error`. Without an installed `Formatter`, it uses the default formatter colored according to [`TerminalCapabilities`](#terminalcapabilities)`.canColor`, so `NO_COLOR`, `FORCE_COLOR`, and `TERM=dumb` are honored.
+
+`CliOutput.defaultFormatter({ colors?, inheritedFlags?, globalFlags? })` takes `"full"` (default), `"summary"`, or `"none"` for the `INHERITED FLAGS` and `GLOBAL FLAGS` sections of subcommand help. `"summary"` replaces the section with a pointer such as `Run 'comp --help' for inherited flags`; a command that declares global flags always lists them in full.
 
 `CliOutput.displayWidth(text)` exposes the built-in help/table terminal-cell measurement for custom formatters. It ignores ANSI escapes, handles combining/zero-width characters, and accounts for wide graphemes: use it rather than `text.length` or `padEnd` when aligning terminal columns.
 
 ```ts
-import { Effect } from "effect"
+import { Console, Effect } from "effect"
 import { CliOutput } from "effect/cli"
 
-// Build a plain-text (no-colour) formatter — useful in CI pipelines
-const plainFormatter = CliOutput.defaultFormatter({ colors: false })
+// Plain text, and subcommand help that points at the parent instead of repeating its flags.
+const plainFormatter = CliOutput.defaultFormatter({
+  colors: false,
+  inheritedFlags: "summary",
+  globalFlags: "summary"
+})
 
 const program = Effect.gen(function*() {
   const fmt = yield* CliOutput.Formatter
@@ -908,6 +945,18 @@ const program = Effect.gen(function*() {
   Effect.provide(CliOutput.layer(plainFormatter))
 )
 
+// Keep stdout for results: usage errors go entirely to stderr; everything else is unchanged.
+const StderrPresenter = CliOutput.layerPresenter({
+  present: (event) =>
+    event._tag === "InvalidInvocation"
+      ? Effect.gen(function*() {
+        const formatter = yield* CliOutput.Formatter
+        yield* Console.error(formatter.formatHelpDoc(event.helpDoc))
+        yield* Console.error(formatter.formatErrors(event.errors))
+      })
+      : CliOutput.defaultPresenter.present(event)
+})
+
 // Custom formatter — emit JSON for machine-readable help tooling
 const jsonFormatter: CliOutput.Formatter = {
   formatHelpDoc:  (doc)           => JSON.stringify(doc, null, 2),
@@ -916,6 +965,46 @@ const jsonFormatter: CliOutput.Formatter = {
   formatVersion:  (name, version) => JSON.stringify({ name, version }),
   formatErrors:   (errs)          => JSON.stringify(errs.map((e) => ({ tag: e._tag, message: e.message })))
 }
+
+const _ = [program, StderrPresenter, jsonFormatter]
 ```
 
-Use when you need colourless CI output, machine-readable help (JSON/Markdown), or programmatic CLI metadata formatting — override the default formatter rather than post-processing printed strings.
+Use when you need colourless CI output, machine-readable help (JSON/Markdown), or control over where built-in help and errors are written — override the formatter or presenter rather than post-processing printed strings.
+
+## TerminalCapabilities
+
+`effect/cli/TerminalCapabilities` — unstable
+
+A `Context.Reference` of `{ canColor, canAnimate, canPrompt }` for the current process. Built-in `Command` help, version, and error output follows `canColor` (unless you install a `CliOutput.Formatter`), and fallback prompts from `Flag.withFallbackPrompt` / `Argument.withFallbackPrompt` run only when `canPrompt` is `true`. `canAnimate` is for your own output: it says whether stdout is being watched.
+
+**Detection.** `TERM=dumb` clears all three. Otherwise a non-empty `NO_COLOR` disables color and wins over `FORCE_COLOR`; `FORCE_COLOR` forces color even off a TTY, except `0` and `false`; empty variables count as unset. `canAnimate` needs stdout to be a terminal, and `canPrompt` needs both stdin and stdout to be terminals. The default value is detected from `process` the first time it is read (all `false` without a `process` global); `TerminalCapabilities.layer` detects through the current `ConfigProvider` and the `Stdio` service instead, and never fails.
+
+```ts
+import { Effect } from "effect"
+import { Command, Flag, Prompt, TerminalCapabilities } from "effect/cli"
+
+const grant = Command.make(
+  "grant",
+  { employee: Flag.String("employee").pipe(Flag.withFallbackPrompt(Prompt.String({ message: "Employee ID: " }))) },
+  ({ employee }) => Effect.log(`granting to ${employee}`)
+)
+
+// Force non-interactive behavior: no colors, and a missing --employee fails with MissingOption.
+const nonInteractive = Command.run(grant, { version: "1.0.0" }).pipe(
+  Effect.provideService(TerminalCapabilities.TerminalCapabilities, {
+    canColor: false,
+    canAnimate: false,
+    canPrompt: false
+  })
+)
+
+// Application output can share the same answer.
+const banner = Effect.gen(function*() {
+  const { canColor } = yield* TerminalCapabilities.TerminalCapabilities
+  return canColor ? "\u001b[1mcomp\u001b[0m" : "comp"
+})
+
+const _ = [nonInteractive, banner]
+```
+
+**Reach for it when** a CLI must behave correctly in CI, pipes, and dumb terminals, or when your own output should color and animate under the same rules as the built-in help.

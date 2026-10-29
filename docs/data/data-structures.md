@@ -157,7 +157,7 @@ const program = pipe(
 | Out | `Chunk.toReadonlyArray(chunk)` | Returns the (cached) backing array; no copy once materialised |
 | Out | `Chunk.toArray(chunk)` | A mutable copy you own |
 
-**A chunk built from an array aliases that array**, so mutating the source afterwards changes the chunk (`xs[0] = 99` shows up in both forms above). Copy first (`Chunk.fromIterable([...xs])`) when the source outlives the call and may still be written to. Both `toArray` and `toReadonlyArray` keep non-emptiness in the type: a `NonEmptyChunk<A>` converts to a non-empty array type. Chunks compare by value — `Equal.equals(Chunk.make(1, 2), Chunk.make(1, 2))` is `true` — and count arguments (`take`, `drop`, ...) follow the normalisation rule described under [Array](#array).
+**A chunk built from an array aliases that array**, so mutating the source afterwards changes the chunk (`xs[0] = 99` shows up in both forms above). Copy first (`Chunk.fromIterable([...xs])`) when the source outlives the call and may still be written to. Both `toArray` and `toReadonlyArray` keep non-emptiness in the type: a `NonEmptyChunk<A>` converts to a non-empty array type. Chunks compare by value — `Equal.equals(Chunk.make(1, 2), Chunk.make(1, 2))` is `true` — and count arguments (`take`, `drop`, ...) follow the normalisation rule described under [Array](#array). `Chunk.get` floors a fractional index and treats `NaN` or an infinite index as out of bounds (`Option.none()`); `getUnsafe` throws for those.
 
 Use when accumulating many small pieces and avoiding repeated array copies — especially in stream processing, recursive algorithms, or custom collectors.
 
@@ -353,6 +353,8 @@ const engApprovers = Arr.fromIterable(Trie.keysWithPrefix(approvalTrie, "eng"))
 ```
 
 Key APIs: `map`, `filter`, `filterMap`, `reduce`, `forEach`, `modify`, `insert`, `remove`, `insertMany`, `removeMany`.
+
+The empty string is an ordinary key: `Trie.insert(trie, "", value)` stores it, `get`, `modify`, `remove`, and iteration see it, and `longestPrefixOf` returns it when no longer stored key is a prefix of the query. An iterator obtained from a trie continues from its current position when iterated again rather than restarting.
 
 Use when keys are strings and prefix-based lookup is a core operation.
 

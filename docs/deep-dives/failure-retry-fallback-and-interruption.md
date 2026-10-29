@@ -13,7 +13,7 @@ An `Effect<A, E, R>` exposes two channels in its type and two additional runtime
 - **Defect** — an unexpected bug or violated invariant, preserved in `Cause` rather than `E`.
 - **Interruption** — cooperative cancellation, also preserved in `Cause`.
 
-`Effect.catch` and `catchTag(s)` handle the typed error channel. A `Cause` with *no* typed failure — a pure defect or a pure interruption — passes straight through them. That is narrower than "they never consume defects": a `Cause` is a flat list of reasons, and when it holds a typed failure *and* a defect, recovering the typed failure replaces the whole `Cause` and the defect is dropped (see [Typed recovery replaces the whole Cause](#typed-recovery-replaces-the-whole-cause)). `catchCause` can see every reason, but reaching for it too early often erases the distinction the runtime is maintaining for you.
+`Effect.catch` and `catchTag(s)` handle the typed error channel. A `Cause` with *no* typed failure — a pure defect or a pure interruption — passes straight through them. A `Cause` is a flat list of reasons, and when it holds a typed failure *and* a defect, they do not recover either: the typed failure is turned into a defect and the whole `Cause` propagates (see [Typed recovery and mixed causes](#typed-recovery-and-mixed-causes)). `catchCause` can see every reason, but reaching for it too early often erases the distinction the runtime is maintaining for you.
 
 Not every unpleasant outcome belongs in `E` at all: a correct negative answer ("not eligible", "no band on file") is a success value. [Designing the error model](../foundations/errors-option-result#designing-the-error-model) has the channel-selection table and a worksheet to fill in before writing error classes.
 
@@ -142,7 +142,7 @@ Every handler should be one of four things: *recover* (a truthful value for the 
 
 1. Validated construction makes the failure impossible, *or* a process owner deliberately makes a startup failure fatal.
 2. No caller could recover, retry, compensate, or translate it.
-3. Nothing else of value can travel in the same `Cause`: `orDie` swaps the entire `Cause` for one `Die`, so a defect recorded alongside the typed failure disappears.
+3. Nothing else of value can travel in the same `Cause`: on a typed failure with only interruptions beside it, `orDie` replaces the whole `Cause` with one `Die` and the interruption disappears. (A defect beside the typed failure is kept; the typed failure joins it as a second `Die`.)
 
 `orDie` is never a way to shrink a union that is inconvenient to handle.
 
@@ -258,7 +258,7 @@ Do not put a logging side effect inside the retried operation merely to count re
 
 **Build the attempt inside the retried Effect.** `Effect.retry` re-runs an *Effect*, not a Promise. If a Promise is started once and the retried Effect merely awaits it, every "retry" replays the same settled rejection and the foreign call runs exactly once; call the Promise-returning function inside `Effect.tryPromise({ try: (signal) => ... })` so each attempt starts new work. Retry the transient operation, not the whole use case around it.
 
-**`Effect.retry` skips when the cause contains a defect or interruption.** If the `Cause` that ended the attempt holds any `Die` or `Interrupt` reason — even alongside a typed failure that the `while` predicate would accept — `Effect.retry` passes the cause through unchanged rather than retrying. This is almost always correct: a defect is a bug, an interruption is an external signal, and neither should be silently restarted. When a mixed cause should still be retried, recover the typed failure first with `Effect.catchCause` (leaving only a `Fail` reason) before applying the retry policy. Similarly, `Effect.repeat` and `Effect.schedule` now preserve defects raised inside their finalizer steps rather than discarding them.
+**`Effect.retry` does not retry a defect.** If the `Cause` that ended the attempt has no typed failure, or holds a `Die` beside one that the `while` predicate would accept, `Effect.retry` stops: a pure defect or interruption passes through unchanged, and in a mixed `[Fail, Die]` cause the typed failure is converted to a defect before the cause propagates (see [Typed recovery and mixed causes](#typed-recovery-and-mixed-causes)). This is almost always correct: a defect is a bug and should not be silently restarted. A typed failure recorded beside an *interruption* only is still retried like any typed failure. When a crashed attempt should genuinely be retried, decide that explicitly with `Effect.catchCause` before applying the retry policy. Similarly, `Effect.repeat` and `Effect.schedule` now preserve defects raised inside their finalizer steps rather than discarding them.
 
 For simple policies `Effect.retry` also accepts an options object, `{ times, while, until, schedule }`, as used in [the classifier example](#route-each-variant-to-the-layer-that-decides-its-policy); [Scheduling & Time](../concurrency/scheduling-time#schedule) owns the Schedule API inventory.
 
@@ -419,19 +419,22 @@ if (Exit.isFailure(exit)) {
 
 Do not `catchCause(() => Effect.void)` around a long-running service. That swallows defects and can turn interruption into an accidental restart loop. Recover specific typed failures inside the loop and let unexpected causes terminate the owner. When a boundary does recover at the `Cause` level, it propagates what it does not own with `Effect.failCause(cause)` — the same cause, unchanged.
 
-### Typed recovery replaces the whole Cause
+### Typed recovery and mixed causes
 
-Every typed-channel operator is built on the same lookup: find the **first `Fail` reason** in the flat `Cause`.
+Every typed-channel operator starts from the same lookup: find the **first `Fail` reason** in the flat `Cause`, then look at what sits beside it.
 
 - **No `Fail` reason** (a pure defect, a pure interruption): the `Cause` passes through untouched. This is the case people have in mind when they say "`catch` does not catch defects".
 - **A `Fail` reason that the selector does not match** (`catchTag("Other", ...)`): the original `Cause` is re-raised, every reason intact.
-- **A `Fail` reason that is handled:** the handler's result becomes the *entire* outcome. A `Die` or `Interrupt` recorded next to it is dropped.
+- **A `Fail` reason beside a `Die`:** the operator does **not** recover. It converts every typed error to a defect, keeps reason order and any interruptions, and propagates — so reasons `[Fail(e), Die(d)]` come out as `[Die(e), Die(d)]` and the handler never runs.
+- **A `Fail` reason beside interruptions only:** the handler runs and its result becomes the *entire* outcome; the interruption is dropped.
 
-The third case applies to `Effect.catch`, `catchTag` / `catchTags`, `catchIf`, `catchFilter`, `catchReason(s)`, `mapError`, `orDie`, `orElseSucceed`, `firstSuccessOf`, `match` / `matchEffect`, `result`, `option`, `ignore`, and `retry` (a mixed `Cause` is retried like any typed failure, and the defect from the failed attempt is gone). `catchDefect` is the mirror image: it looks for the first `Die` and, when it recovers, drops a typed failure recorded beside it. Only the *first* `Fail` is inspected, so `catchTag("B", ...)` does not fire for reasons `[Fail(A), Fail(B)]`.
+The defect rule applies to `Effect.catch`, `catchTag` / `catchTags`, `catchIf`, `catchFilter`, `catchReason(s)`, `orDie`, `orElseSucceed`, `firstSuccessOf`, `match` / `matchEffect`, `result`, `option`, `ignore`, and `retry` (a mixed `Cause` is not retried; it propagates after the first attempt). `mapError` is not recovery: it maps **every** typed error in place and preserves defects, interruptions, and order. `catchDefect` is the mirror image: it looks for the first `Die` and, when it recovers, drops a typed failure recorded beside it. Only the *first* `Fail` is inspected, so `catchTag("B", ...)` does not fire for reasons `[Fail(A), Fail(B)]`.
 
-Mixed causes are not exotic. They arise whenever outcomes combine: a failing operation whose finalizer then dies, a concurrent sibling whose cleanup dies while it is being interrupted, an `Effect.race` in which every contender fails, or an explicit `Cause.combine`.
+Mixed causes are not exotic. They arise whenever outcomes combine: a failing operation whose finalizer then dies, a concurrent sibling whose cleanup dies while it is being interrupted, an `Effect.race` in which every contender fails, or an explicit `Cause.combine`. When the runtime itself combines a typed failure with a defect — a dying finalizer after a failure, or a dying sibling — it records the typed failure as a defect already, so the `Cause` reads `[Die(error), Die(defect)]` before any operator sees it.
 
-> **Example status — Runnable:** one typed failure plus a dying finalizer, recovered four ways.
+> **Migration:** In earlier 4.0 releases a handled `Fail` replaced the whole `Cause`, so `catchTag`, `result`, or `retry` on a `[Fail, Die]` cause succeeded and silently dropped the defect. Code that relied on that now sees the crash; recover it deliberately with `catchDefect` or a guarded `catchCause`.
+
+> **Example status — Runnable:** one typed failure plus a dying finalizer, handled four ways.
 
 ```ts
 import { Cause, Effect, Exit, Schema } from "effect"
@@ -441,18 +444,29 @@ class ExportFailed extends Schema.TaggedError<ExportFailed>()(
   { batchId: Schema.String }
 ) {}
 
-// A typed failure whose finalizer then dies: one Cause, two reasons.
+// A typed failure whose finalizer then dies: the runtime records both as defects.
 const exportBatch = Effect.fail(new ExportFailed({ batchId: "b-7" })).pipe(
   Effect.ensuring(Effect.die(new Error("ledger handle already closed")))
 )
 
-// 1. Typed recovery: the handler's result replaces the whole Cause.
-const lossy = exportBatch.pipe(
+// The same pair built explicitly keeps its Fail reason: [Fail, Die].
+const mixed = Effect.failCause(
+  Cause.combine(
+    Cause.fail(new ExportFailed({ batchId: "b-8" })),
+    Cause.die(new Error("ledger handle already closed"))
+  )
+)
+
+// 1. Typed recovery: the defect wins, the handler never runs, the error becomes a defect.
+const notRecovered = mixed.pipe(
   Effect.catchTag("ExportFailed", () => Effect.succeed("skipped"))
 )
 
-// 2. Guarded catchCause: re-fail when anything besides typed failures is present.
-const guarded = exportBatch.pipe(
+// 2. mapError maps the typed error in place and keeps the defect.
+const mapped = mixed.pipe(Effect.mapError((error) => error.batchId))
+
+// 3. Guarded catchCause: recover only when nothing besides typed failures is present.
+const guarded = mixed.pipe(
   Effect.catchCause((cause) =>
     Cause.hasDies(cause) || Cause.hasInterrupts(cause)
       ? Effect.failCause(cause)
@@ -460,45 +474,27 @@ const guarded = exportBatch.pipe(
   )
 )
 
-// 3. Reason inspection: recover one specific failure, and only when it is the whole story.
-const specific = exportBatch.pipe(
-  Effect.catchCause((cause) => {
-    const [first, ...rest] = cause.reasons
-    return first !== undefined && rest.length === 0 &&
-        Cause.isFailReason(first) && first.error._tag === "ExportFailed"
-      ? Effect.succeed(`skipped ${first.error.batchId}`)
-      : Effect.failCause(cause)
-  })
-)
-
-// 4. Sandbox: move the Cause into E, decide with ordinary catch, restore with failCause.
-const sandboxed = exportBatch.pipe(
-  Effect.sandbox,
-  Effect.catch((cause) =>
-    cause.reasons.every(Cause.isFailReason)
-      ? Effect.succeed("skipped")
-      : Effect.failCause(cause)
-  )
-)
+// 4. catchDefect: an explicit decision to absorb the crash (and the typed failure beside it).
+const absorbed = mixed.pipe(Effect.catchDefect(() => Effect.succeed("absorbed")))
 
 const reasonTags = <A, E>(exit: Exit.Exit<A, E>) =>
   Exit.isSuccess(exit)
     ? "Success"
     : exit.cause.reasons.map((reason) => reason._tag).join("+")
 
-console.log(reasonTags(await Effect.runPromiseExit(exportBatch))) // Fail+Die
-console.log(reasonTags(await Effect.runPromiseExit(lossy))) // Success — the defect is gone
+console.log(reasonTags(await Effect.runPromiseExit(exportBatch))) // Die+Die
+console.log(reasonTags(await Effect.runPromiseExit(mixed))) // Fail+Die
+console.log(reasonTags(await Effect.runPromiseExit(notRecovered))) // Die+Die
+console.log(reasonTags(await Effect.runPromiseExit(mapped))) // Fail+Die
 console.log(reasonTags(await Effect.runPromiseExit(guarded))) // Fail+Die
-console.log(reasonTags(await Effect.runPromiseExit(specific))) // Fail+Die
-console.log(reasonTags(await Effect.runPromiseExit(sandboxed))) // Fail+Die
-console.log(reasonTags(await Effect.runPromiseExit(Effect.orDie(exportBatch)))) // Die — only ExportFailed, as a defect
+console.log(reasonTags(await Effect.runPromiseExit(absorbed))) // Success
 ```
 
 Practical rules:
 
-- **Where a mixed `Cause` is possible and the other reasons matter, recover through `catchCause` with an explicit guard** (or `sandbox`), and re-fail with the unchanged cause otherwise. Around plain domain logic with no fallible finalizers, ordinary `catchTag` is still the right tool.
+- **Typed handlers cannot swallow a crash, so do not reach for `catchCause` to "fix" a mixed cause.** Use `catchDefect` or a guarded `catchCause` (or `sandbox`) only where absorbing a defect is genuinely the owner's decision, and re-fail with the unchanged cause otherwise. Around plain domain logic, ordinary `catchTag` is still the right tool.
 - **`tapError`, `tapCause`, and `tapDefect` lose nothing**: they re-raise the original `Cause` after a successful observer.
-- **Never use `orDie` as union cleanup**; it discards the defect you would most want to see.
+- **Never use `orDie` as union cleanup**: it turns expected failures into defects, and on a mixed cause it only adds more defects beside the one you would most want to see.
 - **`Effect.sandbox` has no `unsandbox` counterpart** (a stale doc comment still names one); restore the ordinary error model with `Effect.catch((cause) => Effect.failCause(cause))`.
 - **Multiple domain errors are better modeled as data** — `Effect.validate` or `Effect.partition` — than as several `Fail` reasons, because typed handlers see only the first.
 
@@ -761,7 +757,7 @@ Also test a permanent error stops immediately, an exhausted policy returns the l
 - Handle an error at the narrowest layer that owns a meaningful recovery; fold with `Effect.match` only at the terminal boundary.
 - Use `tapError`/`tapCause` for observation and `catchTag(s)` for recovery; keep observers infallible.
 - Accept `orDie` only through the three-condition gate, never to shrink a union.
-- Remember that typed recovery replaces the whole `Cause`; guard with `catchCause` or `sandbox` wherever a finalizer or sibling can add a defect.
+- Remember that typed recovery does not run when a defect sits beside the typed failure: the error becomes a defect and the whole `Cause` propagates. Absorb a crash only deliberately, with `catchDefect` or a guarded `catchCause`.
 - Retry only classified transient failures, with both attempt and time/delay bounds, and decide whether each timeout is per attempt or for the whole operation.
 - Prove the whole retried Effect is repeatable or supply enforced idempotency.
 - Remember that timeout/interruption does not prove a remote write was rolled back.

@@ -2,14 +2,14 @@
 
 Everything else in this handbook assumes a project where Effect is installed, TypeScript is strict, and one entrypoint runs an Effect. This page gets you there and names the traps on the way: mismatched package versions, compiler settings that silently weaken the types, and packages that do not exist for Effect 4.
 
-> **Official guides:** [Installation](https://effect.website/docs/v4/getting-started/installation) (asks for Node.js 22.18+; the release-matched README states Node.js 18+ as the general minimum), [Importing Effect](https://effect.website/docs/v4/getting-started/importing-effect), [The Effect Type](https://effect.website/docs/v4/getting-started/the-effect-type), [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; the type is `Fiber`), [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it calls `Option` and `Result` yieldable inside `Effect.gen`; they are not — use `Effect.fromOption` and `Effect.fromResult`), [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
+> **Official guides:** [Installation](https://effect.website/docs/v4/getting-started/installation) (asks for Node.js 22.18+; the release-matched README states Node.js 22.19+ as the general minimum), [Importing Effect](https://effect.website/docs/v4/getting-started/importing-effect), [The Effect Type](https://effect.website/docs/v4/getting-started/the-effect-type), [Creating Effects](https://effect.website/docs/v4/getting-started/creating-effects), [Running Effects](https://effect.website/docs/v4/getting-started/running-effects) (it names the `runFork` result `RuntimeFiber`; the type is `Fiber`), [Using Generators](https://effect.website/docs/v4/getting-started/using-generators), [Building Pipelines](https://effect.website/docs/v4/getting-started/building-pipelines) (it calls `Option` and `Result` yieldable inside `Effect.gen`; they are not — use `Effect.fromOption` and `Effect.fromResult`), [Devtools](https://effect.website/docs/v4/getting-started/devtools). These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
 ## Install Effect 4
 
 Effect 4 is the `latest` release on npm: a plain `pnpm add effect` installs it. Pin the exact version anyway, so that an upgrade is a deliberate, audited change rather than a side effect of a fresh install.
 
 ```sh
-pnpm add effect@4.0.5 @effect/platform-node@4.0.5
+pnpm add effect@4.1.0 @effect/platform-node@4.1.0
 pnpm add -D typescript@7 @types/node
 ```
 
@@ -32,7 +32,7 @@ The library's floor and this handbook's validation target are different things. 
 | | Required by Effect (release-matched README and package metadata) | Used to validate this handbook |
 | --- | --- | --- |
 | TypeScript | 5.9 or newer; TypeScript 7 recommended | 7.0.2 |
-| Node.js | 18 or newer in general (`@effect/platform-node` declares `engines.node >=18.0.0`); some packages need more, for example `@effect/sql-sqlite-node` needs 22.16+ and `@effect/platform-deno` needs Deno 2.8.3+ | 26, which runs `.ts` entrypoints directly |
+| Node.js | 22.19 or newer (the README's general minimum; `@effect/platform-node`, `@effect/platform-node-shared`, and `@effect/opentelemetry` declare `engines.node >=22.19.0`); on Deno, `@effect/platform-deno` declares `engines.deno >=2.9.3` | 26, which runs `.ts` entrypoints directly |
 | Test runner | `@effect/vitest` and `@effect/doctest` require Vitest 5; `@effect/atom-react` requires React 19 | Vitest 5.0.5 |
 | Type checking | `strict: true` | `strict` plus the flags below |
 | Module format | ESM only: the packages are `"type": "module"` with no CommonJS build | `module: NodeNext` |

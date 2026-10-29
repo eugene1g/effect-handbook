@@ -98,7 +98,7 @@ The HTTP `url` may also be a function evaluated per request with the call's serv
 
 `effect/graphql/GraphQLResolver` — experimental
 
-`ordered` maps a list result to input keys by position; `findById` matches returned objects by a key. `request(resolver)` turns either into a lookup function participating in Effect request batching. `path` selects the result list and `typename` narrows abstract results. Missing/null/wrong-type entries fail their own lookup with `NoSuchElementError`; errors with an entry-specific GraphQL path can fail just that entry, while transport, decoding, or unscoped GraphQL errors fail the batch. Bound batch size to the server's actual list/page limit; a truncated result must not silently become “not found.”
+`ordered` maps a list result to input keys by position; `findById` matches returned objects by a key. `request(resolver)` turns either into a lookup function participating in Effect request batching. `path` selects the result list and `typename` narrows abstract results. Missing/null/wrong-type entries fail their own lookup with `NoSuchElementError`; errors with an entry-specific GraphQL path can fail just that entry, while transport, decoding, or unscoped GraphQL errors fail the batch. Bound batch size to the server's actual list/page limit; a truncated result must not silently become “not found.” Batch limits apply independently per resolved protocol URL and `batchKey`, so interleaved lookups for different tenants do not fragment each other's batches, and each lookup's URL is resolved in its calling fiber.
 
 `aliased` combines generated document templates into one request, renaming variables and root fields, then decodes each slice with its operation Schema. Equal encoded variables share a slice; the default cap is ten slices. Handwritten document strings lack the generator's rename metadata. Pathless errors fail all slices; non-null propagation can also destroy shared data. Middleware sees the batched `request.query`, so persisted-document allowlists or signatures must account for the rewritten document.
 
@@ -125,11 +125,11 @@ export default defineConfig({
 })
 ```
 
-Run `graphqlgen`, `graphqlgen --watch`, or `graphqlgen --check` (CI, no writes); `--config` selects a different config. One config targets one SDL or introspection schema. The CLI imports TypeScript configuration directly: Node 22.18+ needs erasable syntax, or use Bun/Deno. Document globs are relative to the config and reject absolute patterns.
+Run `graphqlgen`, `graphqlgen --watch`, or `graphqlgen --check` (CI, no writes); `--config` selects a different config. One config targets one SDL or introspection schema. The CLI imports TypeScript configuration directly, so on Node (22.19+, the `@effect/platform-node` peer's minimum) keep the config to erasable syntax, or use Bun/Deno. Document globs are relative to the config and reject absolute patterns.
 
 For programmatic tooling, `@effect/graphql-generator/Generator.generate(config, { cwd })` returns generated files, stale-file deletions, and diagnostics **in memory**, requiring `FileSystem` and `Path`; it does not write files itself. Error diagnostics leave the returned file/deletion lists empty. This is the public generator entry point; do not import its parser/emitter internals.
 
-The generator validates documents and writes sibling `.graphql.ts` / `.gql.ts` modules plus a shared schema module. Generated exports include operations, a group, fragment schemas, and named decoded interfaces. Object selections, ordinary input objects, and object fragments use a `Schema.Struct` const with a same-named interface, rather than the earlier Opaque class shape; abstract unions and one-of inputs retain their specialized forms. Use exported interfaces in explicit annotations when structural editor hovers become large.
+The generator validates documents and writes sibling `.graphql.ts` / `.gql.ts` modules plus a shared schema module. Generated exports include operations, a group, fragment schemas, and named decoded interfaces. Object selections, ordinary input objects, and object fragments use a `Schema.Struct` const with a same-named interface, rather than the earlier Opaque class shape; abstract unions and one-of inputs retain their specialized forms. Recursive input objects (filters with `and` / `or`) are generated rather than reported as unsupported. Use exported interfaces in explicit annotations when structural editor hovers become large.
 
 Built-in `Int` is 32-bit, `Float` finite, and `ID` string. `DateTime` defaults to a UTC DateTime codec and `URI` to string; unmapped custom scalars fall back to `Schema.Json` with a warning. Scalar mappings name an exported Schema codec (`module#export`): generation does not prove that module exists, so compile the output too.
 
@@ -137,4 +137,4 @@ Commit generated files, exclude them from formatting, and gate drift with `--che
 
 **Reach for it when** consuming an existing schema with many operations, fragments, custom scalars, subscriptions, or aliased batching.
 
-Pinned implementation and examples: [GraphQL source](https://github.com/Effect-TS/effect/tree/effect%404.0.5/packages/effect/src/graphql), [client tests](https://github.com/Effect-TS/effect/tree/effect%404.0.5/packages/effect/test/graphql), and [generator](https://github.com/Effect-TS/effect/tree/effect%404.0.5/packages/tools/graphql-generator).
+Pinned implementation and examples: [GraphQL source](https://github.com/Effect-TS/effect/tree/effect%404.1.0/packages/effect/src/graphql), [client tests](https://github.com/Effect-TS/effect/tree/effect%404.1.0/packages/effect/test/graphql), and [generator](https://github.com/Effect-TS/effect/tree/effect%404.1.0/packages/tools/graphql-generator).

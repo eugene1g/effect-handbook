@@ -1,6 +1,6 @@
 # Telemetry Export
 
-Getting logs, spans, and metrics out of the process. Instrumentation stays in business code ([Observability](observability)); export is a Layer chosen once per process. This page covers choosing and owning an export path, Effect's native OTLP exporters, Prometheus, the Effect DevTools, and the bridge to the OpenTelemetry Node and Web SDKs.
+Getting logs, spans, and metrics out of the process. Instrumentation stays in business code ([Observability](observability)); export is a Layer chosen once per process. This page covers choosing and owning an export path, Effect's native OTLP exporters, the OTLP proxy for browser telemetry, Prometheus, the Effect DevTools, and the bridge to the OpenTelemetry Node and Web SDKs.
 
 ## Choosing and owning an export path
 
@@ -108,7 +108,7 @@ it.effect("records one approval with its fields", () =>
 
 All-in-one OTLP layer. Wires `OtlpLogger`, `OtlpMetrics`, and `OtlpTracer` from a single config, posting to `/v1/logs`, `/v1/metrics`, and `/v1/traces` under a shared `baseUrl`.
 
-**Mental model.** `Otlp.layerJson({ baseUrl, resource })` activates full observability. Bundles serialization, batching, retry-on-429, and graceful flush at shutdown. Requires `HttpClient`. Per-signal export intervals: `loggerExportInterval`, `metricsExportInterval`, `tracerExportInterval`.
+**Mental model.** `Otlp.layerJson({ baseUrl, resource })` activates full observability. Bundles serialization, batching, retry-on-429, and graceful flush at shutdown. Requires `HttpClient`. Every `Otlp.layer*` constructor provides the one `OtlpExporter.Flusher` shared by all three signals, so `Layer.Layer<OtlpExporter.Flusher, never, HttpClient>` is its type and a single `flush` drains logs, metrics, and traces — for example before a serverless instance is suspended. Per-signal export intervals: `loggerExportInterval`, `metricsExportInterval`, `tracerExportInterval`.
 
 ```ts
 import { NodeRuntime } from "@effect/platform-node"
@@ -245,11 +245,12 @@ export const CompTracingLayer = OtlpTracer.layer({
 
 Shared batch-export engine used internally by `OtlpLogger`, `OtlpMetrics`, and `OtlpTracer`. Buffers items, posts encoded batches at a configurable interval, retries transient errors, honors HTTP 429 `Retry-After`, temporarily disables export after repeated failures (60 s backoff), and flushes on scope close. Typically not used directly.
 
-For an explicit graceful-shutdown checkpoint, provide the shared `OtlpExporter.layerFlusher`, acquire `OtlpExporter.Flusher`, and run `flusher.flush`; it concurrently drains every registered signal exporter and cannot fail. There is no built-in timeout, so wrap it in `Effect.timeoutOption` when shutdown has a deadline. Registration is scoped, and exporters inside their temporary disabled window are skipped.
+For an explicit graceful-shutdown checkpoint, acquire `OtlpExporter.Flusher` — the `Otlp.layer*` constructors already provide it; per-signal layers need the shared `OtlpExporter.layerFlusher` provided once beside them — and run `flusher.flush`; it concurrently drains every registered signal exporter and cannot fail. There is no built-in timeout, so wrap it in `Effect.timeoutOption` when shutdown has a deadline. Registration is scoped, and exporters inside their temporary disabled window are skipped.
 
 Delivery semantics, so nobody mistakes export for a guarantee:
 
 - **The scope-close flush is bounded** by the exporter's `shutdownTimeout` (3 seconds unless configured); whatever is still buffered after that is lost.
+- **A `Retry-After` on `429` is honoured when it is whole non-negative seconds or an HTTP date**; anything else (`1.5`, `-5`, `Infinity`) is ignored and the fixed delay applies.
 - **A failed export is dropped, not queued.** Transient HTTP failures are retried a few times; if the export still fails, the buffer is cleared, the exporter disables itself for 60 seconds, and everything pushed during that window is discarded.
 - **The exporter announces its own failure only at `Debug` level** ("Disabling exporter for 60 seconds"), which the default `Info` minimum hides — another reason to watch export health through a second path.
 - The exporter's own HTTP calls run with tracing disabled and without trace-header propagation, so exporting does not generate more spans to export.
@@ -260,7 +261,7 @@ Delivery semantics, so nobody mistakes export for a guarantee:
 
 `effect/observability/OtlpResource` — unstable
 
-Builds the OTLP `Resource` object (service name, version, arbitrary attributes) attached to every exported signal. `OtlpResource.make({ serviceName, serviceVersion, attributes })` returns a `Resource`; `fromConfig` reads from a config record. Helpers `entriesToAttributes` and `unknownToAttributeValue` convert JS values to OTLP `KeyValue`/`AnyValue`.
+Builds the OTLP `Resource` object (service name, version, arbitrary attributes) attached to every exported signal. `OtlpResource.make({ serviceName, serviceVersion, attributes })` returns a `Resource`; `fromConfig` reads from a config record. Helpers `entriesToAttributes` and `unknownToAttributeValue` convert JS values to OTLP `KeyValue`/`AnyValue`; an integer outside the signed 64-bit range becomes a `doubleValue` (numbers) or `stringValue` (bigints) so collectors do not reject the batch, and `NaN`/`Infinity` are no longer written as `null` by `OtlpSerialization.layerJson`. `fromConfig` trims and percent-decodes `OTEL_RESOURCE_ATTRIBUTES` keys and values, keeps an entry with an empty value as `""`, skips entries without `=` or with an empty key, and lets the last repeated key win; invalid percent-encoding is a defect.
 
 **Reach for it when** building a custom OTLP exporter that needs standard resource metadata, or inspecting how Effect maps JS values to OTLP attribute types.
 
@@ -283,6 +284,40 @@ export const ProtobufSerialization = OtlpSerialization.layerProtobuf
 ```
 
 **Reach for it when** choosing or swapping serialization format, or writing a custom signal exporter in the same service graph.
+
+## OtlpProxy
+
+`effect/observability/OtlpProxy` — unstable
+
+Forwards browser OTLP exports through your own HTTP server, so vendor credentials stay on the server and the browser exports to its own origin. `OtlpProxy.layer({ baseUrl, headers?, prefix?, signals?, urls?, maxBodySize?, timeout? })` mounts `POST <prefix>/v1/traces`, `/v1/logs`, and `/v1/metrics` on the `HttpRouter` in context and requires an `HttpClient`; `layerFromConfig` reads each upstream from `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT` and headers from the matching `*_HEADERS` (a signal without an endpoint gets no route); `make` returns the three handlers for mounting elsewhere, such as an `HttpApi` endpoint.
+
+- **The payload passes through untouched.** Only `application/json` and `application/x-protobuf` are accepted (`415` otherwise); bodies are buffered up to `maxBodySize` (the `HttpIncomingMessage.MaxBodySize` reference, else 10 MiB; `413` beyond it) and not decoded.
+- **The client cannot steer the upstream.** The upstream URL comes only from configuration — the request path and query never reach it — only `content-type` and `content-encoding` are forwarded, and configured `headers` are applied last.
+- **Back-off survives the hop.** The upstream status and body come back with only `content-type` and `retry-after`; transport failures return `502`, timeouts (`timeout`, default 10 seconds) `504`. The proxy does not retry or batch, and its own upstream call is untraced.
+- **It is an open credentialed endpoint.** Anyone who can reach the routes sends telemetry with your credentials: compose authentication, CORS, and rate limiting around it. The proxy routes are traced like any other route unless you exclude them with `HttpMiddleware.TracerDisabledWhen` or `HttpMiddleware.layerTracerDisabledForUrls`.
+
+```ts
+import { Layer } from "effect"
+import { FetchHttpClient, HttpRouter } from "effect/http"
+import { Otlp, OtlpProxy } from "effect/observability"
+
+// Server: POST /otlp/v1/{traces,logs,metrics} forwarded with the vendor key.
+export const OtlpProxyRoutes = OtlpProxy.layer({
+  baseUrl: "https://otlp.vendor.example",
+  headers: { authorization: "Bearer server-side-key" },
+  prefix: "/otlp"
+}).pipe(Layer.provide(FetchHttpClient.layer))
+
+export const ServerRoutes = HttpRouter.serve(OtlpProxyRoutes)
+
+// Browser: export to the page's own origin; no credentials in the bundle.
+export const BrowserTelemetry = Otlp.layerJson({
+  baseUrl: "/otlp",
+  resource: { serviceName: "comp-planning-ui" }
+}).pipe(Layer.provide(FetchHttpClient.layer))
+```
+
+**Reach for it when** a browser or other untrusted client must export OTLP to a vendor or collector that needs credentials or another origin.
 
 ## PrometheusMetrics
 
@@ -325,7 +360,7 @@ const MetricsLayer = PrometheusMetrics.layerHttp({ prefix: "comp", path: "/metri
 
 `effect/devtools/DevTools` — unstable
 
-Application-side entry point for connecting to the Effect DevTools desktop app. `DevTools.layer(url?)` opens a WebSocket to `ws://localhost:34437` (or a custom URL) and mirrors spans and metric snapshots to the DevTools process. Zero configuration required for local development.
+Application-side entry point for connecting to the Effect DevTools desktop app. `DevTools.layer(url?)` opens a WebSocket to `ws://localhost:34437` (or a custom URL) and mirrors spans and metric snapshots to the DevTools process. Zero configuration required for local development. The client sends a `Ping` as soon as it connects, retries a failed or dropped connection every second (logging failures at `Debug`), so the DevTools app may start after the program, and on shutdown stops pending connections while still flushing telemetry queued on a healthy one. Spans that have already ended send no further events.
 
 **Mental model.** DevTools is a development-only OTLP exporter that streams to a local GUI instead of a collector. Add `DevTools.layer()` alongside your `ObservabilityLayer` in development. Gate on `NODE_ENV` or remove in production.
 
@@ -376,7 +411,7 @@ Schema definitions for the DevTools wire protocol — `Span`, `SpanEvent`, `Ping
 
 ## OtelNodeSdk
 
-`@effect/opentelemetry — import { NodeSdk } from "@effect/opentelemetry"` — @effect/opentelemetry
+`@effect/opentelemetry — import * as NodeSdk from "@effect/opentelemetry/NodeSdk"` — @effect/opentelemetry
 
 Bridge between Effect and the official OpenTelemetry Node.js SDK. `NodeSdk.layer(config)` accepts a lazy config factory (or an Effect) returning a `Configuration` object, and installs tracing (`spanProcessor`), metrics (`metricReader`), and logging (`logRecordProcessor`) based on which are present. Always provides `Resource.Resource`, reading from `OTEL_*` environment variables plus any explicit resource metadata.
 
@@ -387,7 +422,9 @@ import { NodeRuntime } from "@effect/platform-node"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base"
 import { Layer } from "effect"
-import { NodeSdk } from "@effect/opentelemetry"
+import * as NodeSdk from "@effect/opentelemetry/NodeSdk"
+
+declare const Main: Layer.Layer<never>
 
 // Wire comp-service tracing into OTel's BatchSpanProcessor → OTLP exporter.
 // NodeSdk.layer takes a lazy factory: () => Configuration
@@ -410,20 +447,22 @@ Layer.launch(Main.pipe(Layer.provide(OtelLayer))).pipe(
 > **Warning:** If using `@opentelemetry/auto-instrumentations-node`, register it *before* importing any modules to be patched. Node.js instrumentations hook module loading, so registration must come first in the entry point.
 
 - **Install the OpenTelemetry packages you import.** `@effect/opentelemetry` declares the OpenTelemetry API and SDK packages as optional peers, so a package manager will not add `@opentelemetry/sdk-trace-base`, an exporter, or the others for you.
-- **A root import loads every module.** `import { OtelTracer } from "@effect/opentelemetry"` also evaluates `NodeSdk`, `WebSdk`, `OtelLogger`, `OtelMetrics`, and `Resource`, so it fails at startup with `ERR_MODULE_NOT_FOUND` unless `@opentelemetry/api`, `api-logs`, `sdk-logs`, `sdk-metrics`, `sdk-trace-node`, `sdk-trace-web`, `resources`, and `semantic-conventions` are all installed — even though the code type-checks. Install them, or import only the module you use by path: `import * as OtelTracer from "@effect/opentelemetry/OtelTracer"`.
+- **`NodeSdk` and `WebSdk` are subpath imports only.** The package root re-exports `OtelLogger`, `OtelMetrics`, `OtelTracer`, and `Resource`, so importing it does not need `@opentelemetry/sdk-trace-node` or `sdk-trace-web`. A root import still evaluates all four, so it fails at startup with `ERR_MODULE_NOT_FOUND` unless `@opentelemetry/api`, `api-logs`, `sdk-logs`, `sdk-metrics`, `resources`, and `semantic-conventions` are installed — even though the code type-checks. Install them, or import only the module you use by path: `import * as OtelTracer from "@effect/opentelemetry/OtelTracer"`. The package requires Node.js 22.19.0 or later.
 - **For a first look without a collector**, swap the exporter for `new ConsoleSpanExporter()` from `@opentelemetry/sdk-trace-base`; finished spans print to stdout. Any OpenTelemetry `SpanProcessor`, including a vendor's, fits the same `spanProcessor` slot.
 - **Do not also install `OtlpTracer` for traces** once the bridge owns them (see [One export path per signal](#one-export-path-per-signal)); with the bridge, sampling belongs to the OpenTelemetry sampler.
+
+> **Migration:** `import { NodeSdk } from "@effect/opentelemetry"` and `import { WebSdk } from "@effect/opentelemetry"` no longer compile; use `import * as NodeSdk from "@effect/opentelemetry/NodeSdk"` and `import * as WebSdk from "@effect/opentelemetry/WebSdk"`.
 
 **Reach for it when** your platform team manages an OTel SDK setup, you need OTel-native auto-instrumentation (HTTP, gRPC, DB drivers), or integrating with a service that uses `@opentelemetry/sdk-node`.
 
 ## OtelWebSdk
 
-`@effect/opentelemetry — import { WebSdk } from "@effect/opentelemetry"` — @effect/opentelemetry
+`@effect/opentelemetry — import * as WebSdk from "@effect/opentelemetry/WebSdk"` — @effect/opentelemetry
 
 Browser equivalent of `NodeSdk`. Structurally identical API — pass `spanProcessor`, `metricReader`, `logRecordProcessor` — but uses the OTel *web* tracer provider. Use in browser bundler targets where `NodeSdk` would pull in Node-only internals.
 
 ```ts
-import { WebSdk } from "@effect/opentelemetry"
+import * as WebSdk from "@effect/opentelemetry/WebSdk"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base"
 
@@ -475,7 +514,7 @@ Log records receive the current Effect span's OpenTelemetry span context, so the
 
 `@effect/opentelemetry — import { Resource } from "@effect/opentelemetry"` — @effect/opentelemetry
 
-Provides the OTel `Resource` service used by all `@effect/opentelemetry` modules. `Resource.layer({ serviceName, serviceVersion, attributes })` builds from explicit config; `Resource.layerFromEnv(additionalAttributes?)` merges additional attributes with `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`; `Resource.layerEmpty` provides a minimal no-attribute resource. `NodeSdk.layer` and `WebSdk.layer` manage this automatically — only needed directly when composing individual OTel bridge layers.
+Provides the OTel `Resource` service used by all `@effect/opentelemetry` modules. `Resource.layer({ serviceName, serviceVersion, attributes })` builds from explicit config; `Resource.layerFromEnv(additionalAttributes?)` merges additional attributes with `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` (read with `Config.Record`, so a structured config value works too; keys and values are percent-decoded, and a variable with invalid encoding is discarded with a warning); `Resource.layerEmpty` provides a minimal no-attribute resource. `NodeSdk.layer` and `WebSdk.layer` manage this automatically — only needed directly when composing individual OTel bridge layers.
 
 ```ts
 import { OtelTracer, Resource } from "@effect/opentelemetry"

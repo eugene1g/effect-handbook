@@ -881,7 +881,7 @@ Use the smallest boundary that proves the claim:
 
 1. Pure tests for data transformations and constructors.
 2. `it.effect` with small fake Layers for orchestration, errors, time, and cancellation.
-3. Tests with real codecs and in-memory Effect runtimes such as `WorkflowEngine.layerMemory` or `TestRunner.layer`.
+3. Tests with real codecs and in-memory Effect runtimes such as `WorkflowEngine.layerMemory`, `TestRunner.layer`, or an MCP server driven through `McpTest.makeClient` (see [McpTest](../systems/mcp#mcptest)).
 4. A narrow adapter integration test for SQL, HTTP, filesystem, or a provider sandbox.
 5. A small end-to-end smoke test with the production Layer graph.
 6. A built-artifact test that launches what you actually ship.

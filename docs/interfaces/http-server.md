@@ -39,7 +39,7 @@ const app = Effect.gen(function*() {
 export const handler = HttpEffect.toWebHandler(app)
 ```
 
-For a layer-backed handler, retain the returned `dispose` function and await it during test/process teardown. Advanced streaming adapters use `scopeTransferToStream` so a request scope remains alive until the response body finishes; misuse can leak resources, so high-level server code should let the supplied host adapter manage it.
+For a layer-backed handler, retain the returned `dispose` function and await it during test/process teardown; calling it again returns the same promise. Pre-response handlers and `HttpMiddleware.withLoggerDisabled` apply to exactly one server request, and `HttpEffect.appendPreResponseHandlerUnsafe` takes the fiber context rather than the request. Advanced streaming adapters use `scopeTransferToStream` so a request scope remains alive until the response body finishes; misuse can leak resources, so high-level server code should let the supplied host adapter manage it.
 
 An already-aborted Web request is interrupted immediately. Aborting after headers have returned also interrupts the transferred response-body scope, even if nobody keeps pulling the body, so its resources are released; request abort listeners are removed when the request fiber ends. This is cancellation, not rollback of work already committed.
 
@@ -74,7 +74,7 @@ Compression negotiates `Accept-Encoding`, adds `Vary`, and skips statuses/bodies
 
 `effect/http/HttpStaticServer` — unstable
 
-A safe static-file application built over `FileSystem`, `Path`, and `HttpPlatform`. `make({ root, index?, spa?, cacheControl?, mimeTypes? })` returns an HTTP app; `layer({ ..., prefix? })` mounts GET routes in `HttpRouter`. It confines paths below the configured root, resolves directory indexes, derives MIME types, supports byte ranges and 206/416 responses, and handles ETag/last-modified conditionals with 304 responses.
+A safe static-file application built over `FileSystem`, `Path`, and `HttpPlatform`. `make({ root, index?, spa?, cacheControl?, mimeTypes? })` returns an HTTP app; `layer({ ..., prefix? })` mounts GET routes in `HttpRouter`. It confines paths below the configured root, resolves directory indexes, derives MIME types, supports byte ranges and 206/416 responses, and handles conditional requests: `If-Match` / `If-Unmodified-Since` failures answer `412` before cache validation and ranges, ETag/last-modified matches answer `304` (keeping `Content-Location`, `Date`, `Expires`, and `Vary`), and HTTP dates are read as UTC. A directory URL without a trailing slash is redirected with `301` to the slash form (query and router prefix preserved), so clients that do not follow redirects must request the canonical URL.
 
 ```ts
 import { HttpStaticServer } from "effect/http"
@@ -96,7 +96,7 @@ Set `spa: true` for eligible navigation requests to fall back to the index; it d
 
 HTTP trace propagation interop. `toHeaders(span)` emits W3C `traceparent` and compact B3. `fromHeaders(headers)` safely tries W3C, compact B3, then multi-header B3 and returns `Option<Tracer.ExternalSpan>`; `w3c`, `b3`, and `xb3` are individual decoders.
 
-Effect's normal HTTP client/server tracing already uses these helpers. Reach for them only when injecting context into, or extracting it from, a non-Effect HTTP library.
+Parsing is strict: trace and span IDs must be lowercase hex in `traceparent`, `b3`, and `X-B3-*`, and `traceparent` flags must be two lowercase hex digits; anything else returns `Option.none()` (probed: an uppercase `traceparent` starts a new trace instead of continuing it). Effect's normal HTTP client/server tracing already uses these helpers. Reach for them only when injecting context into, or extracting it from, a non-Effect HTTP library.
 
 ## MultipartParser
 
@@ -257,6 +257,8 @@ Run the normal-completion case as a separate test (a finite stream, a client tha
 - **A constructor that returns a live server and requires `Scope` must not close that `Scope` itself** — the caller owns the lifetime.
 - **Shutdown is graceful by default on Node.** Closing the serve scope stops accepting connections and gives in-flight requests up to `gracefulShutdownTimeout` (20 seconds unless set) to finish; a request still running after that is interrupted and answered with `503` (probed). `disablePreemptiveShutdown: true` removes that grace period. Size your orchestrator's termination grace period above the timeout, and see [owning lifetimes, startup, readiness, and shutdown](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown) and the [graceful entrypoint recipe](../recipes/graceful-entrypoint-and-shutdown).
 
+`NodeHttpServer.make` / `layer` / `layerConfig` also accept `Http2.createServer` and `Http2.createSecureServer` (including `allowHTTP1`): HTTP/2 requests hide pseudo-headers, `toURL` uses `:scheme` and `:authority`, and connection-specific response headers are dropped. `NodeHttpServerRequest.toIncomingMessage` / `toServerResponse` then return a union of the HTTP/1 and HTTP/2 objects, so narrow before using HTTP/1-only members. Request headers are converted to `Headers`, so `Headers.CurrentRedactedNames` applies when they are logged.
+
 **Reach for it when** wiring the actual listener, choosing a port, or swapping Node vs Bun by replacing one Layer.
 
 ## HttpServerRequest
@@ -287,6 +289,8 @@ const RaiseRoute = HttpRouter.add(
   })
 )
 ```
+
+Connection details: `remoteAddress` (replaced by trusted proxy middleware), `peerAddress` (always the transport peer), and `protocol` (`"http" | "https" | undefined`, set by trusted proxy middleware and read by `toURL`). `request.upgrade` takes over the raw connection, and `request.upgradeWith({ headers })` does the same while adding headers to the `101` response (WebSocket upgrades fail when headers are given); custom `HttpServerRequest` implementations must provide both.
 
 **Reach for it when** a handler needs the body, headers, query string, or cookies validated rather than stringly-typed.
 
@@ -333,7 +337,20 @@ const employeeResponse = HttpServerResponse.schemaJson(Employee)({ id: 1, name: 
 
 `effect/http/HttpMiddleware` — unstable
 
-Middleware as a plain function: takes the "rest of the app" (an `Effect` producing a response) and returns a new one. Built-ins: `logger` (applied automatically by `HttpRouter.serve` unless disabled), `tracer`, `cors`, `xForwardedHeaders`, `searchParamsParser`. Define custom middleware with `HttpMiddleware.make`. To modify the response, register via `HttpRouter.middleware` (the `serve`-level option runs around the whole chain but can't change the final response).
+Middleware as a plain function: takes the "rest of the app" (an `Effect` producing a response) and returns a new one. Built-ins: `logger` (applied automatically by `HttpRouter.serve` unless disabled), `tracer`, `cors`, `xForwardedHeaders`, `searchParamsParser`. Define custom middleware with `HttpMiddleware.make`.
+
+`HttpMiddleware.xForwardedHeaders({ trustedProxies })` takes a list of `IpNetwork`s or a predicate on the peer's `NetAddress.IpAddress`, and applies `X-Forwarded-*` only when the connecting peer is trusted. It reads `X-Forwarded-For` from the right, skipping trusted hops, so a client-spoofed leftmost entry is ignored; `X-Forwarded-Host` / `X-Forwarded-Proto` are used only when they line up one-to-one with it, replacing `host` and setting `request.protocol`. `request.peerAddress` keeps the transport peer after `remoteAddress` is replaced, and `HttpServerRequest.toURL` reads `request.protocol` rather than the raw header. **Migration:** the bare `HttpMiddleware.xForwardedHeaders` value became this function; pass your proxy networks explicitly.
+
+```ts
+import { HttpMiddleware } from "effect/http"
+import { IpNetwork } from "effect/net"
+
+export const behindLoadBalancer = HttpMiddleware.xForwardedHeaders({
+  trustedProxies: [IpNetwork.fromStringUnsafe("10.0.0.0/8")]
+})
+```
+
+The `tracer` middleware redacts the URL in the failure it records for a `5xx`, and `compression` ignores empty `Accept-Encoding` members such as `gzip,`. To modify the response, register via `HttpRouter.middleware` (the `serve`-level option runs around the whole chain but can't change the final response).
 
 ### Decompressing incoming bodies
 
@@ -381,7 +398,7 @@ Several server limits are **unbounded until you set them**. Decide each one expl
 
 | Concern | Default | Set it with |
 | --- | --- | --- |
-| Collected request body (`text`, `json`, `arrayBuffer`, buffered multipart total) | **no limit** | `HttpIncomingMessage.MaxBodySize` (a `ByteSize`), provided as a Layer or per route; on Node an over-limit request has its connection dropped rather than receiving a `413` (probed) |
+| Collected request body (`text`, `json`, `arrayBuffer`, buffered multipart total) | **no limit** | `HttpIncomingMessage.MaxBodySize` (a `ByteSize`), provided as a Layer or per route; an over-limit buffered or decompressed body fails with a `BodyTooLarge` `RequestParseError` answered `413` (probed on Node, which drains the body so the response reaches the client; Bun, Deno, and `toWebHandler` enforce it too) |
 | Multipart part count / file size | **no limit** | `Multipart.MaxParts`, `Multipart.MaxFileSize`, or per endpoint with `HttpApiSchema.asMultipart({ maxParts, maxFileSize, maxTotalSize })` |
 | Multipart text field size | 10 MiB | `Multipart.MaxFieldSize` |
 | Path parameter length, trailing-slash and case rules | router defaults | `HttpRouter.serve(app, { routerConfig })` |
@@ -389,7 +406,7 @@ Several server limits are **unbounded until you set them**. Decide each one expl
 | Headers hidden from logs and spans | `authorization`, `cookie`, `set-cookie`, `x-api-key` | `Headers.CurrentRedactedNames` |
 | Graceful shutdown window (Node) | 20 seconds | `gracefulShutdownTimeout` on the server Layer |
 
-Beyond what the library models, write down: header-size, connection-count, and keep-alive limits on the host (`node:http` server options, or the proxy in front); connect, header, idle, total, and drain timeouts (`Effect.timeout` per route for the total; the rest belong to the host or proxy); response size and streaming limits for exports; TLS termination; and **proxy trust** — apply `HttpMiddleware.xForwardedHeaders` only when every request really arrives through a proxy you control, because it replaces the request's host and remote address with client-supplied header values.
+Beyond what the library models, write down: header-size, connection-count, and keep-alive limits on the host (`node:http` server options, or the proxy in front); connect, header, idle, total, and drain timeouts (`Effect.timeout` per route for the total; the rest belong to the host or proxy); response size and streaming limits for exports; TLS termination; and **proxy trust** — `HttpMiddleware.xForwardedHeaders({ trustedProxies })` (see [HttpMiddleware](#httpmiddleware)) applies forwarded headers only for connections from proxies you name.
 
 For cookie-authenticated browsers: set `httpOnly`, `secure`, an explicit `sameSite`, and a narrow `path`; and because CORS does not stop a cross-site form post, protect every state-changing route with a CSRF defense (a same-site cookie policy plus an `Origin` check or a per-session token). WebSocket upgrades are not covered by CORS at all — check `Origin` in the upgrade handler.
 
@@ -441,6 +458,8 @@ export const RedactedHeaders = Layer.succeed(Headers.CurrentRedactedNames)([
 
 `Content-Length` values are parsed strictly across the HTTP modules: a malformed or unsafe value is ignored rather than coerced into a number.
 
+Typed date and `Retry-After` values: `Headers.parseHttpDate` / `formatHttpDate` read all three RFC 9110 date forms as UTC and write IMF-fixdate; `Headers.parseRetryAfter` accepts whole non-negative seconds or an HTTP date and returns a `RetryAfter` (a `Duration` or a `DateTime.Utc`), and `Headers.retryAfterDelay(value, now)` never returns a negative delay. Parse failures are `HeaderParseError`. `Schema.DateTimeUtcFromHttpDate` and `Schema.RetryAfterFromString` expose the same parsing for `HttpApi` headers.
+
 **Reach for it when** you manipulate headers directly, or need redaction to keep credentials out of logs.
 
 ## Cookies
@@ -449,6 +468,8 @@ export const RedactedHeaders = Layer.succeed(Headers.CurrentRedactedNames)([
 
 Immutable cookie jar plus a `Cookie` type with all attributes (`httpOnly`, `secure`, `sameSite`, `maxAge`, `path`, `domain`). Parse a request's `Cookie` header with `parseHeader`; `fromSetCookie` parses one or more response `Set-Cookie` header values into a jar. Build with `set`/`setUnsafe` and expire with `expireCookie`. The safe constructors validate the cookie name, value, domain, and path and return `CookiesError`; reserve `*Unsafe` forms for already-trusted values. The error's tag is `"CookiesError"`, so recover with `Effect.catchTag("CookiesError", ...)` and branch on `error.reason._tag` (`InvalidCookieName`, `InvalidCookieValue`, `InvalidCookieDomain`, `InvalidCookiePath`, …); `Cookies.isCookiesError` guards an unknown error down to this type. `fromSetCookie` skips any `Set-Cookie` header whose name is not a valid RFC 6265 token instead of storing it. On the server use `HttpServerResponse.setCookie`; on the client, a `Ref<Cookies>` wired via `HttpClient.withCookiesRef` gives a persistent session.
 
+For a client-side jar, `Cookies.mergeIntoArray(stored, url, cookies, now)` stores response cookies scoped to the response URL, and `Cookies.toRequestCookieHeader(stored, url, now)` selects the unexpired cookies matching a request's host, path, and scheme; `HttpClient.withCookiesRef` is built on both. Parsing follows RFC 6265: spaces around a name and value are trimmed, and a malformed `Max-Age` is ignored rather than read by numeric prefix.
+
 **Reach for it when** setting auth/session cookies on responses or maintaining a cookie jar across client calls.
 
 ## HttpMethod
@@ -456,6 +477,21 @@ Immutable cookie jar plus a `Cookie` type with all attributes (`httpOnly`, `secu
 `effect/http/HttpMethod` — unstable
 
 Type-level vocabulary for HTTP verbs: the `HttpMethod` union, the `all` set, `isHttpMethod` guard, and `hasBody` (true for methods this module treats as body-capable: POST, PUT, DELETE, PATCH, and QUERY; false for GET, HEAD, OPTIONS, and TRACE). `QUERY` is also in `all`, and `HttpClient`, `HttpRouter`, and `HttpApiEndpoint` each have a `query` constructor or accept the method.
+
+A received request's `method` (`HttpServerRequest.method`, and forwarded methods such as AI HTTP error details) is typed as `string`, because clients can send extension methods such as `PROPFIND`. **Migration:** an exhaustive `switch` on `request.method` needs a `default` branch, or narrow first with `HttpMethod.isHttpMethod`.
+
+```ts
+import { Effect } from "effect"
+import { HttpMethod, HttpServerRequest, HttpServerResponse } from "effect/http"
+
+export const describe = Effect.gen(function*() {
+  const request = yield* HttpServerRequest.HttpServerRequest
+  if (!HttpMethod.isHttpMethod(request.method)) {
+    return HttpServerResponse.empty({ status: 501 })
+  }
+  return HttpServerResponse.text(HttpMethod.hasBody(request.method) ? "has body" : "no body")
+})
+```
 
 **Reach for it when** branching on request method or validating a method string.
 
@@ -486,7 +522,7 @@ Immutable, order-preserving query-string model with correct repeated-key handlin
 
 ### URL credentials and query redaction
 
-`UrlParams.CurrentRedactedNames` governs inspection, HTTP spans, and HTTP error URLs. Defaults are `AWSAccessKeyId`, `Signature`, `sig`, and `X-Goog-Signature`; a custom list **replaces** them, so retain the defaults when adding names. Values can themselves be `Redacted` strings: inspection hides those independently of the name list, while the actual request sends their unwrapped values. Redaction changes diagnostics, not the wire request.
+`UrlParams.CurrentRedactedNames` governs inspection, HTTP spans, and HTTP error URLs. Defaults are `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`, `AWSAccessKeyId`, `Signature`, `sig`, and `X-Goog-Signature`; a custom list **replaces** them, so retain the defaults when adding names. Values can themselves be `Redacted` strings: inspection hides those independently of the name list, while the actual request sends their unwrapped values. Redaction changes diagnostics, not the wire request.
 
 `UrlParams.redactUrl(url, names?)` also hides URL userinfo (username/password), independent of query-name patterns. Use it for diagnostic URLs rather than logging `UrlParams.toString`, a raw URL, or an application-created error message. Fragments and arbitrary path secrets are not an application secret scrubber; avoid putting credentials there. Header redaction uses a separate [Headers reference](#headers).
 
@@ -538,7 +574,7 @@ const UploadRoute = HttpRouter.add(
 
 `effect/http/HttpServerError` — unstable
 
-Server tagged error family: `RequestParseError` (schema decode failed), `RouteNotFound`, `InternalError`, `ResponseError`, `ServeError` (listener couldn't bind). The framework maps these to sensible status codes (parse error → 400, missing route → 404); `causeResponse` turns a failure cause into a response.
+Server tagged error family: `RequestParseError` (schema decode failed), `RouteNotFound`, `InternalError`, `ResponseError`, `ServeError` (listener couldn't bind). The framework maps these to sensible status codes (parse error → 400, an over-limit body → 413, missing route → 404); `causeResponse` turns a failure cause into a response. Error messages include only the request method and path, never query values or URL credentials, so they are safe in span errors and logs; the full request is still on the error.
 
 **Reach for it when** you want to override how parse or not-found failures are rendered, or react to a bind failure on startup.
 

@@ -4,7 +4,7 @@ Effect v4 rebuilt Schema around a single `Codec` abstraction: a two-way, validat
 
 **This page covers the everyday codec work** (sections 1–9 below). [Schema in Depth](schema-in-depth) continues with annotations, serialization, recursion, parse options, optional fields, and effectful schemas; [Schema Tooling & Internals](schema-tooling) covers the AST, compilers, issues, JSON Schema, and `TestSchema`.
 
-> **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
+> **Official companion:** Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.1.0/packages/effect/SCHEMA.md) goes substantially deeper into codecs, constraints, transformations, serialization, generated tooling, integrations, and migration.
 >
 > **Official guides:** [Introduction to Effect Schema](https://effect.website/docs/v4/schema/introduction) (its parse-option and `transformOrFail` spellings are stale — see the sections below); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
@@ -183,7 +183,7 @@ const AuditedAction = Schema.Union([
 
 ### 4. Unions, literals, records, tuples
 
-`Union([...])` normally evaluates viable members in order, but it first uses literal sentinel fields to discard contradicted candidates. The same pruning applies to nested unions by collecting sentinels common to their members, so an error tree may omit branches already contradicted by the observed discriminator. `Literals([...])` is the array form of a literal union; supports `.pick([...])` and `.transform([...])`. `Schema.StringForLiteralAutocomplete` is an alias for `Schema.String` that editors treat as a plain string for autocomplete purposes; pair it with `Union` and `Literals` to accept any string while still suggesting the known literals (`Union([StringForLiteralAutocomplete, Literals(["GET", "POST"])])`). `Record(key, value)` takes two positional schemas. `Tuple([...])` takes an element array. Refined key schemas in a `Record` select matching properties rather than rejecting the whole object.
+`Union([...])` normally evaluates viable members in order, but it first uses literal sentinel fields to discard contradicted candidates. The same pruning applies to nested unions by collecting sentinels common to their members, so an error tree may omit branches already contradicted by the observed discriminator. `Literals([...])` is the array form of a literal union; supports `.pick([...])` and `.transform([...])`. `Schema.StringForLiteralAutocomplete` is an alias for `Schema.String` that editors treat as a plain string for autocomplete purposes; pair it with `Union` and `Literals` to accept any string while still suggesting the known literals (`Union([StringForLiteralAutocomplete, Literals(["GET", "POST"])])`). `Record(key, value)` takes two positional schemas. `Tuple([...])` takes an element array. Refined key schemas in a `Record` select matching properties rather than rejecting the whole object. A `Schema.Enum(...)` or literal-union key declares every member as a **required** property. Record values cannot be `Schema.optionalKey(...)` or `Schema.optional(...)` — construction throws, because an index signature already lets keys be absent; use `Schema.UndefinedOr(value)` to allow `undefined` values.
 
 ```ts
 import { Schema } from "effect"
@@ -225,7 +225,9 @@ const describe = CompAction.match({ _tag: "Promotion", fromLevel: 4, toLevel: 5 
 })
 ```
 
-`TaggedUnion` and a union augmented with `Schema.toTaggedUnion(tag)` also expose `.tag` (the property key used as discriminator, e.g. `"_tag"`) and `.discriminants` (an ordered tuple of their literal tag values). Duplicate or missing discriminants are rejected while building the augmented union. `toTaggedUnion` also rejects overlapping discriminants in known member tuples at compile time, including nested unions and collisions between numeric and string keys such as `1` and `"1"`. The same augmentation provides `.cases` (member schema per tag), `.guards`, `.isAnyOf([...tags])`, and `.matchOrElse(value, cases, orElse)`, which handles a subset of tags and hands every remaining member — typed as the residual union — to `orElse`.
+`.match` also has a data-last form, `CompAction.match({ Raise: ..., Promotion: ..., Bonus: ... })`, which returns a reusable function; each handler receives its narrowed member and the result type is the union of the handlers' returns.
+
+`TaggedUnion` and a union augmented with `Schema.toTaggedUnion(tag)` also expose `.tag` (the property key used as discriminator, e.g. `"_tag"`) and `.discriminants` (an ordered tuple of their literal tag values). Duplicate or missing discriminants are rejected (at runtime) while building the augmented union; there is no compile-time uniqueness check, so generic member lists type-check. The same augmentation provides `.cases` (member schema per tag), `.guards`, `.isAnyOf([...tags])`, and `.matchOrElse(value, cases, orElse)`, which handles a subset of tags and hands every remaining member — typed as the residual union — to `orElse`.
 
 **Tagged structs.** `Schema.tag("Raise")` is a literal field with a constructor default, and `Schema.TaggedStruct("Raise", fields)` is shorthand for a struct whose `_tag` is that field. **`make` fills the tag; decoding and encoding still require it on the wire.** When the external payload has no discriminator, `Schema.tagDefaultOmit` supplies it while decoding or constructing and strips it on encode.
 
@@ -317,7 +319,7 @@ const RaiseRecommendation = Schema.Struct({
 
 | Carrier | Checks |
 | --- | --- |
-| String | `isMinLength(n)`, `isMaxLength(n)`, `isBetweenLength(min, max)`, `isMinCodePoints(n)`, `isMaxCodePoints(n)`, `isBetweenCodePoints(min, max)`, `isNonEmpty()`, `isPattern(regExp)`, `isStartingWith`, `isEndingWith`, `isIncluding`, `isTrimmed`, `isLowercased`, `isUppercased`, `isCapitalized`, `isUncapitalized`, `isUUID(version?)`, `isGUID`, `isULID`, `isBase64`, `isBase64Url` |
+| String | `isMinLength(n)`, `isMaxLength(n)`, `isBetweenLength(min, max)`, `isMinCodePoints(n)`, `isMaxCodePoints(n)`, `isBetweenCodePoints(min, max)`, `isNonEmpty()`, `isPattern(regExp)`, `isStartingWith`, `isEndingWith`, `isIncluding`, `isTrimmed`, `isLowercased`, `isUppercased`, `isCapitalized`, `isUncapitalized`, `isUUID(version?)`, `isGUID`, `isULID`, `isBase64`, `isBase64Url`, `isAscii()` (ASCII characters only) |
 | Number | `isGreaterThan`, `isGreaterThanOrEqualTo`, `isLessThan`, `isLessThanOrEqualTo`, `isBetween({ minimum, maximum })`, `isInt`, `isInt32`, `isUint32`, `isFinite`, `isMultipleOf(n)` (throws for a zero or non-finite divisor) |
 | Array | the string length checks, plus `isUnique()` and `isUniqueKey()` (unique first elements in an array of `[key, value]` tuples) |
 | Map / Set, object | `isMinSize`, `isMaxSize`, `isBetweenSize`; `isMinProperties`, `isMaxProperties`, `isBetweenProperties`, `isPropertyNames(keySchema)` |

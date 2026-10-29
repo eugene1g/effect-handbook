@@ -34,7 +34,7 @@ const describe = (exit: Exit.Exit<number, string>) =>
 
 > **Note:** Use `Effect.catch` for error handling within effects. Use `Exit` at boundaries where a computation has *already finished* and you need to inspect the result as a value: awaiting a fiber, reading a finalizer's exit, or running at the app edge with `runSyncExit`.
 
-Inside an effect, `Effect.exit(self)` captures the complete outcome — typed failure, defect, and interruption — as a value with `E = never`; `Effect.result` captures only the typed failure. Construct exits with `Exit.succeed`, `Exit.fail`, `Exit.die`, `Exit.interrupt`, and `Exit.failCause(cause)`; classify them with `Exit.hasFails` / `Exit.hasDies` / `Exit.hasInterrupts`, and pull the first typed error out with `Exit.findErrorOption`. Test assertions should match on this structure, never on rendered failure text.
+Inside an effect, `Effect.exit(self)` captures the complete outcome — typed failure, defect, and interruption — as a value with `E = never`; `Effect.result` captures only the typed failure. Construct exits with `Exit.succeed`, `Exit.fail`, `Exit.die`, `Exit.interrupt`, and `Exit.failCause(cause)`; classify them with `Exit.hasFails` / `Exit.hasDies` / `Exit.hasInterrupts` — plain `boolean` checks, like their `Cause` counterparts, so a `false` does not narrow the exit; narrow with `Exit.isSuccess` / `Exit.isFailure` — and pull the first typed error out with `Exit.findErrorOption`. Test assertions should match on this structure, never on rendered failure text.
 
 Official guides: [Exit](https://effect.website/docs/v4/data-types/exit), [Unexpected Errors](https://effect.website/docs/v4/error-management/unexpected-errors).
 
@@ -87,16 +87,19 @@ Official guides: [Cause](https://effect.website/docs/v4/data-types/cause), [Para
 
 ### Recovering from a mixed Cause
 
-The typed recovery operators — `Effect.catch`, `catchTag` / `catchTags`, `catchIf`, `Effect.match`, `Effect.result`, `Effect.mapError`, and `Effect.orDie` — all look up the **first `Fail` reason** in the flat cause. If there is none, the cause passes through untouched, which is why they never swallow a pure defect or a pure interruption. If there is one, the handler's result becomes the *entire* outcome, and any `Die` or `Interrupt` reason recorded alongside it disappears:
+The typed recovery operators — `Effect.catch`, `catchTag` / `catchTags`, `catchIf`, `Effect.match`, `Effect.result`, `Effect.retry`, and `Effect.orDie` — look up the **first `Fail` reason** in the flat cause, with one rule first: **a defect takes precedence.** If the cause holds any `Die`, they do not recover; they turn every typed error into a defect and propagate it. If there is no `Fail`, the cause passes through untouched. An interruption beside a `Fail` does not block recovery, and is dropped when the handler's result replaces the outcome. `Effect.mapError` is not recovery: it maps every typed error in place and keeps all other reasons.
 
 | Input cause | `Effect.catch(() => fallback)` | `Effect.orDie` | Guarded `catchCause` (below) |
 | --- | --- | --- | --- |
 | `Die` only | unchanged — still a defect | unchanged | unchanged |
 | `Fail` only | success with the fallback | `Die(error)` | success with the fallback |
-| `Fail` + `Die` | **success** — the defect is lost | a single `Die(error)` — the original defect is lost | unchanged — both reasons kept |
+| `Fail` + `Die` | `Die(error)` + `Die(defect)` — the handler does not run | `Die(error)` + `Die(defect)` | unchanged — both reasons kept |
+| `Fail` + `Interrupt` | **success** — the interruption is lost | `Die(error)` — the interruption is lost | unchanged — both reasons kept |
 | two `Fail` reasons | the handler sees only the first | `Die(first)` | success with the fallback |
 
-So: **where mixed causes are possible and the other reasons matter, recover through `Effect.catchCause` with an explicit guard**, and never use `Effect.orDie` as a way to tidy an error union. `Effect.tapError` and the finalizer family observe without replacing, so they are safe.
+The runtime applies the same precedence when it combines outcomes itself: a typed failure followed by a dying finalizer, or a failing fiber whose interrupted sibling dies during cleanup, already yields `[Die(error), Die(defect)]`.
+
+So: **where an interruption or a second typed failure recorded alongside matters, recover through `Effect.catchCause` with an explicit guard**; recover from a defect only deliberately, with `Effect.catchDefect` or `catchCause`; and never use `Effect.orDie` as a way to tidy an error union. `Effect.tapError` and the finalizer family observe without replacing, so they are safe.
 
 ```ts
 import { Cause, Effect } from "effect"
@@ -156,7 +159,7 @@ Official guide: [Fibers](https://effect.website/docs/v4/concurrency/fibers) (its
 | `Effect.forkIn(effect, scope)` | a `Scope` you were handed, or captured with `Effect.scope` | that scope closes | "start it here, own it there" — forked inside an inner scope but owned by an outer one | the current scope is already the right owner |
 | `Effect.forkDetach(effect)` | nobody — the global scope | never, unless someone keeps the handle and interrupts it | process-lifetime work with a documented stop path | library and domain code. If nobody can say who interrupts a detached fiber, it is a leak. |
 
-Two corollaries: a long-lived loop should be *exposed as an effect* and run in the caller's fiber or scope rather than forked internally, and reusable code should not create root fibers. All four functions accept `{ startImmediately, uninterruptible }`. For dynamic populations of fibers use [FiberHandle](#fiberhandle), [FiberMap](#fibermap), or [FiberSet](#fiberset) instead of hand-kept handles; the worked example is [Structured Concurrency Through a Bounded Worker](../deep-dives/structured-concurrency-through-a-bounded-worker).
+Two corollaries: a long-lived loop should be *exposed as an effect* and run in the caller's fiber or scope rather than forked internally, and reusable code should not create root fibers. All four functions accept `{ startImmediately, uninterruptible }`. Forking into a scope that has already closed (`forkScoped` or `forkIn`) never runs the effect, even with those options: it returns an already-interrupted fiber. For dynamic populations of fibers use [FiberHandle](#fiberhandle), [FiberMap](#fibermap), or [FiberSet](#fiberset) instead of hand-kept handles; the worked example is [Structured Concurrency Through a Bounded Worker](../deep-dives/structured-concurrency-through-a-bounded-worker).
 
 ```ts
 import { Effect } from "effect"
@@ -209,7 +212,7 @@ const program = Effect.gen(function*() {
 
 `effect/FiberHandle` — stable
 
-A scoped holder for *at most one* fiber. Setting a new fiber interrupts the previous one (unless `onlyIfMissing` is passed); closing the owning scope interrupts the current fiber automatically. "Latest wins." The structured-concurrency answer to the `let current; current?.cancel(); current = start()` pattern.
+A scoped holder for *at most one* fiber. Setting a new fiber interrupts the previous one (unless `onlyIfMissing` is passed); closing the owning scope interrupts the current fiber automatically, and also waits for replaced fibers that are still running their interruption cleanup. "Latest wins." The structured-concurrency answer to the `let current; current?.cancel(); current = start()` pattern.
 
 ```ts
 import { Effect, FiberHandle } from "effect"
@@ -234,7 +237,7 @@ const makeBudgetRecomputer = Effect.gen(function*() {
 
 `effect/FiberMap` — stable
 
-A scoped map of fibers keyed by some value. Running work under a key replaces any existing fiber for that key (or skips with `onlyIfMissing`). Completed fibers remove themselves; closing the scope interrupts all remaining fibers. `FiberHandle` generalized from one slot to many, with the same leak-proof guarantee.
+A scoped map of fibers keyed by some value. Running work under a key replaces any existing fiber for that key (or skips with `onlyIfMissing`). Completed fibers remove themselves; closing the scope interrupts all remaining fibers, including replaced ones whose interruption cleanup is still running, and waits for them. `FiberHandle` generalized from one slot to many, with the same leak-proof guarantee.
 
 ```ts
 import { Effect, FiberMap } from "effect"
@@ -603,8 +606,8 @@ async function shutdown() {
 
 - **Forward the host's cancellation.** Every run method except `runSync` / `runSyncExit` takes `RunOptions`; pass the request's `AbortSignal` as `{ signal }` and an aborted request interrupts the fiber, which in turn aborts the signal handed to your Promise adapters ([section 8 of Core Runtime & Execution](core-runtime-execution#8-cancellable-adapters-for-promises-and-callbacks)). Check `signal.aborted` yourself first: the runner consults the signal only after the fiber's first synchronous run.
 - **Decide how outcomes cross the boundary.** `runPromise` rejects with the squashed cause; use `runPromiseExit` when the host must tell a typed failure from a defect from a cancellation. Treat only an interruption-only `Cause` as ordinary cancellation: an interrupted run can also contain cleanup defects, which must not be hidden.
-- **Stop admitting work before you dispose.** Flip a draining flag, let in-flight callbacks finish or interrupt them, and only then call `dispose()`. After disposal every run dies with `ManagedRuntime disposed`. Disposal itself is idempotent — a second `dispose()` releases nothing twice — which keeps hot-reload and double shutdown hooks safe. `runtime.disposeEffect` is the same operation as an `Effect`, for shutdown that is itself composed in Effect.
-- **The first run pays for the Layer.** Services are built lazily on first use, so a startup failure surfaces on the first callback. Hosts that want to fail at boot warm the runtime with `await runtime.context()` (or one `runPromise(Effect.void)`).
+- **Stop admitting work before you dispose.** Flip a draining flag, let in-flight callbacks finish or interrupt them, and only then call `dispose()`. After disposal every run dies with `ManagedRuntime disposed`. Disposal itself is idempotent — a second `dispose()` releases nothing twice, and a call made while a disposal is in progress waits for that disposal to finish — which keeps hot-reload and double shutdown hooks safe. Disposal runs uninterruptibly; interrupting a waiting call only stops the wait. `runtime.disposeEffect` is the same operation as an `Effect`, for shutdown that is itself composed in Effect.
+- **The first run pays for the Layer.** Services are built lazily on first use, so a startup failure surfaces on the first callback. A failed build is cached: later runs return the same failure without rebuilding, so retry transient failures inside the layer, or dispose the runtime and make a new one. Hosts that want to fail at boot warm the runtime with `await runtime.context()` (or one `runPromise(Effect.void)`).
 
 ```ts
 import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect"

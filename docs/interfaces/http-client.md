@@ -4,7 +4,7 @@ Effect 4 ships three stacked layers: a fully typed **HTTP client** (request as v
 
 Four cooperating modules: `HttpClient` is the service you acquire and decorate with policy; `HttpClientRequest` is an immutable request built with pipes; `HttpClientResponse` decodes a raw response through a Schema; `HttpClientError` is the tagged error family for transport/status/body failures. Composing a schema decoder also adds `SchemaError`. Idiomatic use: wrap the union in a domain service so callers never touch headers.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpClient example](https://github.com/Effect-TS/effect/tree/effect%404.0.5/ai-docs/src/50_http-client) builds a typed client service.
+> **Official example:** Effect's release-matched [`ai-docs` HttpClient example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/50_http-client) builds a typed client service.
 
 ## HttpClient
 
@@ -104,17 +104,22 @@ class Hris extends Context.Service<Hris, {
 | `tap` / `tapRequest` / `tapError` | Observe requests/responses/errors without changing them. |
 | `catch` / `catchTag` / `catchTags` | Recover *inside the client*: both overloads of `catch` require the handler to produce another `HttpClientResponse`. To recover to any other value, use `Effect.catch` on the result of `client.execute(request)`. |
 | `transformResponse` | Wrap every response Effect — the hook for a client-wide `Effect.timeout`. |
-| `withCookiesRef` | Maintain a cookie jar across requests via a `Ref<Cookies>`. |
+| `withCookiesRef` | Maintain a cookie jar in a `Ref<ReadonlyArray<Cookie>>`: response cookies are merged per response URL and sent only to a matching host, path, and scheme. |
+| `withCircuitBreaker` | Stop calling an origin that keeps failing; see [below](#circuit-breaking). Experimental. |
+
+`HttpClient.isTransientError(error)` and `HttpClient.isTransientResponse(response)` are the predicates `retryTransient` uses (timeouts, `TransportError`, and the transient statuses), exported for custom `retry` policies and circuit classifiers.
+
+**Migration:** `withCookiesRef` takes `Ref<ReadonlyArray<Cookies.Cookie>>` instead of `Ref<Cookies>`. Seed it with `Cookies.mergeIntoArray`, or with cookies that set a `domain`; a host-less cookie in the seed is never sent.
 
 `withRateLimiter` can learn limits and reset delays from response headers and automatically retry HTTP 429 responses. Those 429 retries are **unlimited by default**: set `times` to a finite production budget, or `times: 0` to return/fail on the first 429. `responseHeaders` remaps non-standard limit/remaining/reset/retry header names. `disableResponseInspection` disables adaptive updates and header delays, but deliberately does *not* disable the 429 retry loop.
 
-`followRedirects` defaults to at most ten hops and follows Fetch-style method changes: POST becomes GET for 301/302, and non-GET/HEAD becomes GET for 303. On a cross-origin redirect it strips `authorization`, `proxy-authorization`, and `cookie` before issuing the next request, preventing credentials from leaking to the new origin. When the hop limit is reached it returns the last `3xx` response rather than failing. A failure in request preprocessing (a failing `mapRequestEffect`) does not bypass response-level recovery such as `HttpClient.catch` when redirects are enabled.
+`followRedirects` defaults to at most ten hops and follows Fetch-style method changes: POST becomes GET for 301/302, and non-GET/HEAD becomes GET for 303. On a cross-origin redirect it strips `authorization`, `proxy-authorization`, and `cookie` before issuing the next request, preventing credentials from leaking to the new origin. When the hop limit is reached it returns the last `3xx` response rather than failing; an invalid `Location` also returns the redirect response unchanged. The next request uses the resolved `Location` exactly as sent (its query is not re-encoded), a switch to GET also drops the body headers (`Content-Encoding`, `Content-Language`, `Content-Location`), and each discarded redirect body is released. A failure in request preprocessing (a failing `mapRequestEffect`) does not bypass response-level recovery such as `HttpClient.catch` when redirects are enabled.
 
 > **Warning:** **With `FetchHttpClient` the platform `fetch` follows redirects before Effect ever sees them** (probed on Node 26: a `302` arrives as the final `200`, and `response.url` reports the final URL). `HttpClient.followRedirects` — and any per-hop validation you hang on it — only takes over when the underlying fetch is told not to: provide `FetchHttpClient.RequestInit` with `{ redirect: "manual" }`. In a browser a manual redirect is an opaque response, so hop-by-hop control is a server-side technique.
 
 ### Retries, time budgets, and cancellation
 
-`retryTransient` honors a valid `Retry-After` on a response or response-bearing error: integer seconds or an HTTP date, measured against the Effect Clock. Its delay is the **maximum** of the schedule delay and the server's delay, not an additional sleep; malformed headers fall back to the schedule and past dates add no wait. The header does not make a non-transient response retryable or override the schedule/count limit. `withRateLimiter` also interprets HTTP dates as dates, not seconds.
+`retryTransient` honors a valid `Retry-After` on a response or response-bearing error: integer seconds or an HTTP date, measured against the Effect Clock. Its delay is the **maximum** of the schedule delay and the server's delay, not an additional sleep; malformed headers (negative, fractional, or exponent values such as `1.5` or `1e3`) fall back to the schedule and past dates add no wait. `Headers.parseRetryAfter` / `Headers.retryAfterDelay` expose the same parsing. The header does not make a non-transient response retryable or override the schedule/count limit. `withRateLimiter` also interprets HTTP dates as dates, not seconds.
 
 - **Every call gets a finite budget.** No decorator adds a timeout for you. `HttpClient.transformResponse(Effect.timeout("10 seconds"))` bounds each attempt when placed *before* a retry decorator and the whole call when placed *after* it.
 - **Interruption cancels the request, not just the wait.** The client hands the platform an `AbortSignal` and aborts it when the calling fiber is interrupted — by a timeout, a lost race, or a closed scope (probed: the remote server observes the disconnect). Wrapping a non-Effect SDK yourself? Forward the signal `Effect.tryPromise` gives you; see the [request-cancellation recipe](../recipes/request-cancellation-through-a-host).
@@ -150,6 +155,25 @@ export const makeHrisClients = Effect.gen(function*() {
     )
 
   return { reads, writeOnce, idempotentWrite } as const
+})
+```
+
+### Circuit breaking
+
+`HttpClient.withCircuitBreaker({ breaker, key?, classify? })` guards each request with a [`CircuitBreaker`](../tooling/persistence#circuitbreaker) and adds `CircuitBreakerError` to the client's error channel when a circuit rejects a call. Circuits are keyed by request origin unless `key` says otherwise. The default `HttpClient.circuitBreakerClassifier` counts transport failures, timeouts, and 408/500/502/503/504 as failures (carrying any `Retry-After` hint), ignores 429, and counts every other response as success; supply `classify` to treat, for example, a `200` with an error body as a failure. The same status rules apply whether a status arrives as a response or as a `StatusCodeError` from `filterStatusOk`; other errors are ignored. `CircuitBreaker.make` needs a `CircuitBreakerStore` (such as `CircuitBreaker.layerStoreMemory()`) and a `Scope`. Both APIs are experimental.
+
+```ts
+// @effect-diagnostics experimentalApiUsage:off
+import { Effect } from "effect"
+import { HttpClient } from "effect/http"
+import { CircuitBreaker } from "effect/persistence"
+
+export const guardedClient = Effect.gen(function*() {
+  const breaker = yield* CircuitBreaker.make({
+    tripPolicy: CircuitBreaker.consecutive(5),
+    openDuration: "30 seconds"
+  })
+  return (yield* HttpClient.HttpClient).pipe(HttpClient.withCircuitBreaker({ breaker }))
 })
 ```
 
@@ -209,7 +233,7 @@ export const assertPublicDestination = Effect.fn("assertPublicDestination")(func
 
 `effect/http/FetchHttpClient` — unstable
 
-The `fetch`-backed `HttpClient` implementation. Provide `FetchHttpClient.layer` anywhere a client is needed. Works in browsers, serverless, Node 18+, and Bun. Swap the underlying `fetch` via `FetchHttpClient.Fetch` (tests or custom agent); set default `RequestInit` options via `FetchHttpClient.RequestInit`.
+The `fetch`-backed `HttpClient` implementation. Provide `FetchHttpClient.layer` anywhere a client is needed. Works in browsers, serverless, Node, Bun, and Deno. Swap the underlying `fetch` via `FetchHttpClient.Fetch` (tests or custom agent); set default `RequestInit` options via `FetchHttpClient.RequestInit`.
 
 ```ts
 import { Effect, Layer } from "effect"
@@ -222,7 +246,9 @@ const ClientLayer = FetchHttpClient.layer.pipe(
 )
 ```
 
-Per-request `method`, `headers`, `body`, and the abort `signal` always come from the client and override the same fields in `RequestInit`; everything else (`credentials`, `cache`, `redirect`, `integrity`) is yours to set. A `bodyStream` request is sent as a Web `ReadableStream` with `duplex: "half"`, and any `content-length` header is dropped, because `fetch` computes framing itself. CORS, cookie, redirect, and streaming-upload behavior is the runtime's, not Effect's, so test uploads on the host you deploy to.
+Per-request `method`, `headers`, `body`, and the abort `signal` always come from the client and override the same fields in `RequestInit`; everything else (`credentials`, `cache`, `redirect`, `integrity`) is yours to set. A `bodyStream` request is sent as a Web `ReadableStream` with `duplex: "half"`, and any `content-length` header is dropped, because `fetch` computes framing itself. On a runtime whose `fetch` cannot stream request bodies, a stream body fails with an `EncodeError` before anything is sent, instead of silently uploading `[object ReadableStream]`; provide `FetchHttpClient.StreamBodyFallback` set to `"buffer"` to collect the stream in memory and send it whole (unsafe for large or unbounded uploads). Support is detected once, on the first stream body, using the global `Request`. CORS, cookie, redirect, and streaming-upload behavior is otherwise the runtime's, not Effect's, so test uploads on the host you deploy to.
+
+`HttpClientResponse.toWeb(response)` returns the original Web `Response` of a fetch-backed response as `Some` (and `None` for other backends), so its body can be handed to a platform API such as Cloudflare R2 without copying.
 
 **Reach for it when** you want the portable, zero-dependency client — which is most of the time. Use `NodeHttpClient`/`BunHttpClient` only when you need native streaming or connection-pool control.
 
@@ -277,7 +303,7 @@ export const compressed = HttpClientRequest.post("https://api.example.com/import
 
 For client-wide compression use `HttpClient.mapRequestEffect(HttpClientRequest.compressBody("gzip"))`. Retry preprocessing recompresses each attempt: compress a large replayable body once before `execute` instead. Compression does not make a one-shot stream replayable. Fetch streaming uploads still need runtime support for `duplex: "half"`; Safari/Firefox support must not be assumed.
 
-`NodeHttpClient.makeDispatcherOptions` / `layerDispatcherOptions` accept typed Undici agent options: `connect: { socketPath }` for Unix sockets (or Windows named pipes), and `connect: { ca, cert, key, servername, rejectUnauthorized }` for TLS/mTLS. The scoped dispatcher is destroyed on release. URL origin still supplies the Host header/path for Unix connections. This is native-transport configuration, not portable Fetch behavior. Per-request Undici timeouts override agent header/body timeouts; use `Effect.timeout` for application budgets. Never disable certificate verification as a routine fix for a connection error.
+`NodeHttpClient.makeDispatcherOptions` / `layerDispatcherOptions` accept typed Undici agent options: `connect: { socketPath }` for Unix sockets (or Windows named pipes), and `connect: { ca, cert, key, servername, rejectUnauthorized }` for TLS/mTLS. The scoped dispatcher is destroyed on release. URL origin still supplies the Host header/path for Unix connections. `BunHttpClient.layerOptions` and `DenoHttpClient.layerOptions` give the same typed Unix-socket and TLS settings through each runtime's native fetch options. `NodeHttpClient.layerNodeHttp` encodes `FormData` bodies without loading `undici`. This is native-transport configuration, not portable Fetch behavior. Per-request Undici timeouts override agent header/body timeouts; use `Effect.timeout` for application budgets. Never disable certificate verification as a routine fix for a connection error.
 
 **Reach for it when** a request needs more than a URL, or when you want a reusable request transform.
 
@@ -349,6 +375,8 @@ const safe = Effect.gen(function*() {
 ```
 
 `HttpClient.retryTransient` covers transport/timeouts plus statuses 408, 429, 500, 502, 503, and 504 — these are rarely caught by hand solely to implement retry.
+
+An `HttpClientError` is safe to log: its message and `toJSON` (and inspection) show the request as its method and redacted URL and the response as its status, never request headers, query values, or bodies. The full `request` and `response` remain available as properties, so do not serialize those yourself into logs or client-facing errors.
 
 ### Three failure classes
 

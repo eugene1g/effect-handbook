@@ -5,7 +5,7 @@ Instrument business work once with structured logs, metrics, and spans; select a
 ## Contract
 
 - **Classification:** Runnable example; complete `observability.ts`.
-- **Install:** `pnpm add effect@4.0.5`
+- **Install:** `pnpm add effect@4.1.0`
 - **Run locally:** Node 26+: `OTEL_EXPORTER_OTLP_ENDPOINT= node observability.ts`
 - **Run with an OTLP collector:** `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 node observability.ts`
 - **Expected local output:** one JSON log event containing `order accepted`, `service=orders`, and `orderId=ord-42`, followed by `{"orderId":"ord-42","status":"accepted"}`. Timestamp and fiber/span identifiers vary.
@@ -89,7 +89,7 @@ console.log(JSON.stringify(await Effect.runPromise(main)))
 
 ## Why these primitives?
 
-Logs, spans, and metrics are fiber-aware Effect operations, so annotations and parent spans propagate without parameter plumbing. The exporter remains a Layer: tests can omit it, local runs can use JSON, and production can install OTLP without changing business logic. `Otlp.layerJson` is the compact default for all three signals and owns batching, HTTP export, retry behavior, and shutdown flush. Reach for the separate `@effect/opentelemetry` package's `NodeSdk` instead only when an existing OpenTelemetry setup (its SDK config, its exporters, its instrumentation) is already in place; new projects use `effect/observability`'s `Otlp`.
+Logs, spans, and metrics are fiber-aware Effect operations, so annotations and parent spans propagate without parameter plumbing. The exporter remains a Layer: tests can omit it, local runs can use JSON, and production can install OTLP without changing business logic. `Otlp.layerJson` is the compact default for all three signals and owns batching, HTTP export, retry behavior, and shutdown flush. Reach for the separate `@effect/opentelemetry` package's `NodeSdk` (imported from `@effect/opentelemetry/NodeSdk`; the package root does not re-export it) instead only when an existing OpenTelemetry setup (its SDK config, its exporters, its instrumentation) is already in place; new projects use `effect/observability`'s `Otlp`.
 
 Define metric values at module scope so updates with the same name/attributes share one registry entry. Avoid sensitive identifiers in annotations unless the telemetry policy explicitly permits them.
 

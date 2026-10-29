@@ -7,7 +7,7 @@ Keep transient failures typed, classify them in the Schedule, fork the retrying 
 ## Contract
 
 - **Classification:** Runnable example; complete `retry-test-clock.ts`.
-- **Install:** `pnpm add effect@4.0.5`
+- **Install:** `pnpm add effect@4.1.0`
 - **Run:** Node 26+: `node retry-test-clock.ts`
 - **Expected output:** `{"value":"ready","attempts":3}` immediately; no three-second wall-clock wait.
 - **Before provision:** the test program is `Effect<Result, TransientError, never>`. Clock is a defaulted context reference, so using time does not add a compile-time requirement.

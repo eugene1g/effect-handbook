@@ -10,11 +10,11 @@ Fork variants and fiber ownership live in [Core Runtime & Execution](../foundati
 
 `effect/Semaphore` — stable
 
-A counting semaphore with a fixed permit pool. Fibers that need to do work acquire one or more permits; if insufficient permits are free they suspend until permits are released. Waiters are scanned in registration order, but a smaller later request can overtake a larger request whose permit count is unavailable. Do not assume strict FIFO fairness with mixed permit counts.
+A counting semaphore with a fixed permit pool. Fibers that need to do work acquire one or more permits; if insufficient permits are free they suspend until permits are released. Waiters are scanned in registration order and the first one whose request fits the free permits goes next; a new request that would fit is queued behind an earlier waiter that also fits rather than overtaking it. A smaller request can still overtake a *larger* earlier request whose permit count is unavailable, so do not assume strict FIFO fairness with mixed permit counts.
 
 `withPermits(n)(effect)` acquires n permits, runs the effect, and releases them on success, failure, or interruption. `withPermit` is the single-permit mutual-exclusion alias. `withPermitsIfAvailable` is the non-blocking variant that runs only if permits are currently free.
 
-For a lower-level protocol, `take(n)` manually acquires permits and `release(n)` returns them; `takeIfAvailable(n)` returns `false` immediately without acquiring when the count is unavailable. Prefer the bracketed `with*` helpers unless ownership genuinely spans multiple operations, because manual acquisition must be released on every exit.
+For a lower-level protocol, `take(n)` manually acquires permits and `release(n)` returns them; `takeIfAvailable(n)` returns `false` immediately without acquiring when the count is unavailable. Prefer the bracketed `with*` helpers unless ownership genuinely spans multiple operations, because manual acquisition must be released on every exit. When the permits should live as long as a `Scope` — a lease held across several steps of a scoped workflow — use `Semaphore.takeScoped(sem, n)` (or `sem.takeScoped(n)`): it waits interruptibly, then takes the permits and registers their release on the scope in one uninterruptible step, so acquired permits are always returned when the scope closes.
 
 ```ts
 import { Effect, Semaphore } from "effect"
@@ -73,7 +73,7 @@ Official guide: [Semaphore](https://effect.website/docs/v4/concurrency/semaphore
 
 `effect/PartitionedSemaphore` — unstable
 
-A semaphore with a shared permit pool where waiters are grouped by a partition key. Released permits are distributed to waiting partitions in round-robin order (not global FIFO), preventing any one busy partition from starving others.
+A semaphore with a shared permit pool where waiters are grouped by a partition key. Released permits are distributed to waiting partitions in round-robin order (not global FIFO), preventing any one busy partition from starving others. A waiter that needs several permits is completed before the rotation moves on, so multi-permit waiters in different partitions cannot deadlock by each holding part of what they need.
 
 API mirrors plain `Semaphore` but every acquire/wrap call takes a partition key first. `PartitionedSemaphore.make` takes `{ permits }`; the type parameter `K` is the partition key type.
 
@@ -119,7 +119,7 @@ A fiber-safe FIFO queue for passing values from producers to consumers: each val
 | `Queue.sliding(n)` | The oldest buffered value is evicted | `offer` returns `true` — the eviction is **not** reported | The oldest values | Only the latest state matters (progress, presence, prices) |
 | `Queue.unbounded()` | Never full | Nothing | Nothing, until memory runs out | The producer is already bounded by something else you can name |
 
-`Queue.make({ capacity, strategy })` is the general constructor: omit `capacity` for an unbounded queue, and `strategy` defaults to `"suspend"`. `Queue.bounded(0)` is a rendezvous queue — it buffers nothing, and an `offer` completes only when a consumer takes the value. In every variant `offer` also returns `false` once the queue has ended, failed, or shut down.
+`Queue.make({ capacity, strategy })` is the general constructor: omit `capacity` for an unbounded queue, and `strategy` defaults to `"suspend"`. `Queue.bounded(0)` is a rendezvous queue — it buffers nothing, and an `offer` completes only when a consumer takes the value. In every variant `offer` also returns `false` once the queue has ended, failed, or shut down. `offerAll` copies the values it buffers, so mutating the caller's array afterwards does not change what consumers receive.
 
 ```ts
 import { Cause, Effect, Queue } from "effect"
@@ -568,6 +568,24 @@ const makeQuery = Effect.gen(function*() {
 })
 ```
 
+**Waiters are served in arrival order.** Capacity freed by a release, an ended reservation, a new acquisition, or a strategy reclaim goes to the longest-waiting borrower, so a burst of late arrivals cannot starve a fiber that has been queued longer.
+
+**Sampling occupancy.** `Pool.stats(pool)` (unstable) returns a `Pool.Stats` snapshot `{ idle, used, pending, min, max }` for metrics such as connection-pool gauges. Only successfully acquired items count; an item is `used` while borrowed or reserved, and an invalidated item stays `used` until its last borrower returns it — its replacement is acquired meanwhile, so `idle + used` can briefly exceed `max`. A borrower that has been woken but has not yet taken its item is not counted in `pending`.
+
+```ts
+import { Effect, Pool } from "effect"
+
+declare const openSession: Effect.Effect<{ readonly id: string }>
+
+const program = Effect.scoped(
+  Effect.gen(function*() {
+    const pool = yield* Pool.make({ acquire: openSession, size: 4 })
+    const { idle, used, pending } = yield* Pool.stats(pool)
+    yield* Effect.log(`hris sessions idle=${idle} used=${used} waiting=${pending}`)
+  })
+)
+```
+
 `pool.config`, `pool.state`, and `Pool.PoolItem` exist for custom `Pool.Strategy` implementations — the pool tracks a usage counter and a linked list of available items internally. Treat these fields as implementation detail; application code should not read them.
 
 Use when expensive resource acquisition (connections, client handles, API sessions) must be amortized across many fibers with automatic lifecycle management.
@@ -613,7 +631,7 @@ const program = Effect.scoped(
 )
 ```
 
-**Omitting `idleTimeToLive` is not the same as `0`.** With the option omitted, the scope that releases the last borrow runs the finalizer and waits for it, so "disconnected" is logged before that scope finishes closing. Any finite duration, including `0` or `Duration.zero`, instead schedules the release on a forked fiber that the closing scope does not wait for; an infinite duration keeps the idle resource until invalidation or until the `RcRef`'s own scope closes.
+**Omitting `idleTimeToLive` is not the same as `0`.** With the option omitted, the scope that releases the last borrow runs the finalizer and waits for it, so "disconnected" is logged before that scope finishes closing. Any finite duration, including `0` or `Duration.zero`, instead schedules the release on a forked fiber that the closing scope does not wait for; an infinite duration keeps the idle resource until invalidation or until the `RcRef`'s own scope closes. Nobody awaits that forked idle-expiry release, so if it fails the failure is logged at `References.UnhandledLogLevel` rather than lost; a release that a closing scope does wait for still fails that scope.
 
 `RcRef.invalidate(ref)` forces the next `get` to acquire a fresh resource. Existing borrows are unaffected and keep their already-acquired value until their scope closes.
 
@@ -623,7 +641,7 @@ Use when multiple concurrent scopes need to share one expensive resource and you
 
 `effect/RcMap` — stable
 
-Like `RcRef`, but keyed. An `RcMap<K, A>` runs a `lookup` effect the first time a given key is requested, shares the resource among all active borrows for that key, and releases it when the last borrow closes (with optional idle TTL). Multiple keys are fully independent with separate reference counts. An optional `capacity` caps live entries; exceeding it fails with `Cause.ExceededCapacityError`.
+Like `RcRef`, but keyed. An `RcMap<K, A>` runs a `lookup` effect the first time a given key is requested, shares the resource among all active borrows for that key, and releases it when the last borrow closes (with optional idle TTL). Multiple keys are fully independent with separate reference counts. An optional `capacity` caps entries, idle ones included; a new key beyond it fails with `Cause.ExceededCapacityError` — existing entries are never evicted to make room.
 
 ```ts
 import { Duration, Effect, RcMap } from "effect"
@@ -669,6 +687,8 @@ const program = Effect.scoped(
 ```
 
 `RcMap.keys(map)` inspects active keys. `RcMap.invalidate(map, key)` forces re-acquisition on next use. `touch` resets a key's idle TTL without using the resource. `RcMap.getOption(map, key)` borrows an entry only if it already exists: it returns `Option.none()` without running `lookup` for an absent key, and otherwise retains the entry for the current `Scope` exactly like `get` — useful for "flush the regional client if one is open" paths that must not open a connection just to close it.
+
+When the `RcMap`'s owner scope closes, it attempts every entry's release, clears the map, and then fails with all release defects together (this also covers resources managed through `LayerMap`). Releases nobody observes — idle expiry, or the lookup of a caller interrupted before it received its entry — are logged at `References.UnhandledLogLevel`.
 
 Use for per-key resource management where keys are dynamic and resources should be released when no longer needed.
 

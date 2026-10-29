@@ -21,6 +21,7 @@ import {
 
 // The audited release, escaped for use inside a RegExp, so header assertions follow handbook.ts.
 const releaseVersionPattern = handbookRelease.version.replaceAll(".", String.raw`\.`)
+const editionIdPattern = handbookRelease.version.split(".").slice(0, 2).join(String.raw`\.`)
 
 const root = path.resolve(import.meta.dirname, "..")
 
@@ -141,9 +142,9 @@ test("builds grouped links for root, Pages base, and an absolute site URL", () =
   assert.match(index, /\[Capability catalog\]\(\/effect-handbook\/effect-4-catalog\.json\)/)
   assert.match(index, /\[Example inventory and validation plan\]\(\/effect-handbook\/effect-4-examples\.json\)/)
   assert.match(index, /\[llms-full\.txt\]\(\/effect-handbook\/llms-full\.txt\)/)
-  assert.match(index, new RegExp(String.raw`This is the \*\*4\.0 edition\*\* \(effect@${releaseVersionPattern}\)`))
+  assert.match(index, new RegExp(String.raw`This is the \*\*${editionIdPattern} edition\*\* \(effect@${releaseVersionPattern}\)`))
   assert.match(index, /## Editions\n/)
-  assert.match(index, new RegExp(String.raw`- \[4\.0 — effect@${releaseVersionPattern}\]\(\/effect-handbook\/4\.0\/llms\.txt\): audited \d{4}-\d{2}-\d{2} \(latest, this file\)\.`))
+  assert.match(index, new RegExp(String.raw`- \[${editionIdPattern} — effect@${releaseVersionPattern}\]\(\/effect-handbook\/${editionIdPattern}\/llms\.txt\): audited \d{4}-\d{2}-\d{2} \(latest, this file\)\.`))
   assert.match(index, /## Domain bundles/)
   assert.match(index, /\(~\d+(\.\d)?K words\)/)
   assert.match(index, /## Intent and primitive map/)

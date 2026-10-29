@@ -380,6 +380,8 @@ AsyncResult.map(r, (a) => a + 1)               // map success channel
 AsyncResult.flatMap(r, (a) => AsyncResult.success(a * 2))
 ```
 
+The `is*` guards above narrow. `AsyncResult.isInterrupted` (a failure whose cause is only interruption) returns a plain `boolean` and does not; check `isFailure` first when you need the `Failure` type.
+
 ### Rendering: `match`, `matchWithWaiting`, and the fluent `builder`
 
 Three idioms, increasing in power. `match` is the exhaustive 3-way switch. `matchWithWaiting` collapses `Initial` + `waiting` into one "loading" branch and splits failures into typed errors vs. defects — usually what a UI wants:
@@ -792,11 +794,11 @@ Hydration.hydrate(clientRegistry, window.__ATOMS__)
 //  encoded values are loaded by key via registry.setSerializable(...)
 ```
 
-> **Source note:** `encodeInitialAs: "ignore"` is the default; `"value-only"` emits the encoded `Initial` value. `"promise"` attaches a live `resultPromise`, so it is only suitable for a streaming transport that preserves promises—not JSON embedded in HTML. `Hydration.toValues` narrows dehydrated entries for transports that need the concrete record shape. `hydrate` applies values by key and does not reject older `dehydratedAt` timestamps, so ordering and freshness remain the caller's responsibility. `dehydrate` tolerates a bad codec: an atom whose current value fails to encode with a `SchemaError` is skipped and the rest of the registry is still emitted, so one mis-declared schema costs a client refetch rather than the whole SSR payload.
+> **Source note:** `encodeInitialAs: "ignore"` is the default; `"value-only"` emits the encoded `Initial` value. `"promise"` attaches a live `resultPromise`, so it is only suitable for a streaming transport that preserves promises—not JSON embedded in HTML. `Hydration.toValues` narrows dehydrated entries for transports that need the concrete record shape. `hydrate` applies values by key and notifies existing subscribers immediately. It does not consult `dehydratedAt`, but it does protect `AsyncResult` atoms already in the registry: an incoming `Initial` does not replace a non-`Initial` result, and an older `Success` (by its timestamp) does not replace a newer one. Plain values and failures are always applied, so packet ordering otherwise remains the caller's responsibility. A value that fails schema decoding is skipped and the atom computes on the client; a seeded effect or stream atom still runs on mount unless it was marked `Atom.serializable({ key, schema, skipInitialRun: true })`. `dehydrate` tolerates a bad codec: an atom whose current value fails to encode with a `SchemaError` is skipped and the rest of the registry is still emitted, so one mis-declared schema costs a client refetch rather than the whole SSR payload.
 
 For an async atom, the serialization schema must cover the whole `AsyncResult`, not only its success value. Construct it with `AsyncResult.Schema({ success: UserSchema, error: UserErrorSchema })`.
 
-For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.0.5/packages/effect/SCHEMA.md) for the long-form treatment.
+For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.1.0/packages/effect/SCHEMA.md) for the long-form treatment.
 
 `withReactivity` preserves the underlying initial-value target, so a preloaded serializable atom still refreshes the correct source atom.
 

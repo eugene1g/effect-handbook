@@ -7,7 +7,7 @@ Build the service graph once, call it from Promise-based callbacks many times, a
 ## Contract
 
 - **Classification:** Runnable example; complete `managed-runtime.ts`.
-- **Install:** `pnpm add effect@4.0.5`
+- **Install:** `pnpm add effect@4.1.0`
 - **Run:** Node 26+: `node managed-runtime.ts`
 - **Expected output:** `Hello, Ada`, `Hello, Grace`, then `runtime disposed`.
 - **Before the bridge:** `greet(name)` is `Effect<string, never, GreetingService>`.

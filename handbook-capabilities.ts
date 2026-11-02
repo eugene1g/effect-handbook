@@ -166,7 +166,7 @@ function capability(id, domain, symbols, importPath, stability, tasks, summary, 
     requirements,
     lifetime,
     platform,
-    since: Object.freeze({ relation: "availableBy", version: "4.1.0" }),
+    since: Object.freeze({ relation: "availableBy", version: "4.1.2" }),
     page,
     anchor,
     snippetIds

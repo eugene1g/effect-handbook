@@ -5,8 +5,8 @@
   "versions": [
     {
       "id": "4.1",
-      "effectVersion": "4.1.0",
-      "auditedAt": "2026-10-29",
+      "effectVersion": "4.1.2",
+      "auditedAt": "2026-11-02",
       "ref": null
     },
     {

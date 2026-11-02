@@ -476,7 +476,7 @@ assert.equal(rpcResult.failure.reason.message, "Received empty HTTP response fro
 checked("RpcClientError can occur after sending a request and receiving an HTTP response")
 
 console.log(JSON.stringify({
-  effect: "4.1.0",
+  effect: "4.1.2",
   nodeNativeTypeScript: true,
   checks
 }, null, 2))

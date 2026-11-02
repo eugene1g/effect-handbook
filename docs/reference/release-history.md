@@ -6,6 +6,20 @@ It is a curated reader's changelog, not a copy of Effect's. Entries keep only wh
 
 **Reading it when you upgrade.** Find the entry for the version you are pinned to, then read every entry above it. Each entry's items link to the handbook section that now owns the topic. Read that section rather than the summary line. Editions are published per `major.minor` (see [Match the edition to the installed Effect version](agent-guide#match-the-edition-to-the-installed-effect-version)); a patch release updates its edition in place and gets its own entry here.
 
+## `effect@4.1.2` — audited 2026-11-02
+
+Edition **4.1** (patch update). Tag [`effect@4.1.2`](https://github.com/Effect-TS/effect/tree/effect%404.1.2), commit [`506eef14`](https://github.com/Effect-TS/effect/commit/506eef143bcc1750ce58920aac1e45da7265d103), published 2026-11-02. Baseline: `effect@4.1.0`.
+
+### Changes in Effect that matter to readers
+
+This entry records a dependency-only refresh, not a complete release-delta or source audit. Consult the [upstream changelog](https://github.com/Effect-TS/effect/blob/effect%404.1.2/packages/effect/CHANGELOG.md) for changes since 4.1.0; coverage of newly added APIs remains outside this update.
+
+### Changes in the handbook
+
+- Updated the validation package's `effect` and matching `@effect/*` dependencies to 4.1.2, with exact release-age exclusions and a regenerated workspace lockfile.
+- Kept `@effect/tsgo` at 0.63.0 and its existing diagnostic configuration unchanged. The full example suite is validated against the updated runtime packages.
+- Updated central release metadata and reproducible installation pins. The previous full source audit remains the baseline; see [Version and validation scope](../#version-and-validation-scope).
+
 ## `effect@4.1.0` — audited 2026-10-29
 
 Edition **4.1** (new edition; the 4.0 edition is frozen at `effect@4.0.5`). Tag [`effect@4.1.0`](https://github.com/Effect-TS/effect/tree/effect%404.1.0), commit [`9a91b192`](https://github.com/Effect-TS/effect/commit/9a91b1926a5fbfaffd302a7a41a94d4d53a1154e), published 2026-10-29. Baseline: `effect@4.0.5` (published 2026-10-15). Range reviewed: all package changelogs, changesets, and 579 commits covering published 4.0.6, 4.0.7, and 4.1.0. npm omits `gitHead`; the package integrity, provenance, and published source were checked against the release tag.

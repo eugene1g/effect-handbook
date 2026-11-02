@@ -98,11 +98,11 @@ const pageRelated = Object.freeze({
 
 export const handbookRelease = Object.freeze({
   package: "effect",
-  version: "4.1.0",
-  tag: "effect@4.1.0",
-  commit: "9a91b1926a5fbfaffd302a7a41a94d4d53a1154e",
-  publishedAt: "2026-10-29T04:09:37.471Z",
-  auditedAt: "2026-10-29"
+  version: "4.1.2",
+  tag: "effect@4.1.2",
+  commit: "506eef143bcc1750ce58920aac1e45da7265d103",
+  publishedAt: "2026-11-02T04:27:38.068Z",
+  auditedAt: "2026-11-02"
 })
 
 function upstreamUrl(kind: "blob" | "tree", pathname: string): string {

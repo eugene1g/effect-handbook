@@ -243,7 +243,7 @@ Once a human decision exists, the application appends a `tool-approval-response`
 
 `setNeedsApproval` covers "a human must say yes". It does not cover "authenticate, authorize at execution time, claim an idempotency record, and only then invoke". For that, stop the framework from resolving tool calls at all: pass `disableToolCallResolution: true`, inspect the proposed calls, run your own protocol, and dispatch through the toolkit's `handle`.
 
-The default is still strict tool-call validation: disabled resolution leaves encoded parameters checked against the schema. If the application must receive malformed arguments or undeclared names to run its own repair loop, also set `toolCallValidation: "deferred"`. Those model-generated calls have `unknown` parameters, including when no toolkit is supplied; allow-list the name and decode/normalize parameters **before** applying the gates below. Provider-executed calls remain validated. Do not add deferred mode to the example below without adding that explicit validation boundary.
+The default is still strict tool-call validation: disabled resolution leaves user-tool parameters in their JSON encoding, typed as `Schema.Json`. Decode that JSON with `Schema.toCodecJson(tool.parametersSchema)` before applying typed policy gates, and pass the original JSON to `handle`. If the application must receive malformed arguments or undeclared names to run its own repair loop, also set `toolCallValidation: "deferred"`. Those model-generated calls have `unknown` parameters, including when no toolkit is supplied; allow-list the name and decode/normalize parameters **before** applying the gates below. Provider-executed calls remain validated. Do not add deferred mode to the example below without adding that explicit validation boundary.
 
 **Contextual.** `ActionLedger` is the application's tenant-scoped idempotency store and `Authorizer` its policy port; both are bound to the authenticated actor before this code runs.
 
@@ -301,8 +301,11 @@ export const proposeThenSubmit = Effect.fn("proposeThenSubmit")(function*(questi
 
   const submitted: Array<string> = []
   for (const call of response.toolCalls) {
-    yield* authorizer.authorize(call.id, call.params)
-    const operationId = yield* ledger.claim(call.id, call.params)
+    const params = yield* Schema.decodeUnknownEffect(
+      Schema.toCodecJson(SubmitPolicyException.parametersSchema)
+    )(call.params)
+    yield* authorizer.authorize(call.id, params)
+    const operationId = yield* ledger.claim(call.id, params)
 
     // `handle` and the full consumption of its stream stay in one Effect, so
     // interrupting this request also interrupts the handler fiber.
@@ -330,7 +333,7 @@ export const proposeThenSubmit = Effect.fn("proposeThenSubmit")(function*(questi
 
 The mutation is a protocol with a ledger, not a function call:
 
-1. **Decode and normalize** the arguments (the toolkit does the decode; `params` above is still the encoded form, which for this schema is identical).
+1. **Decode and normalize** the arguments before authorization (the example decodes the tool's JSON codec; `handle` separately decodes the original JSON before invoking the handler).
 2. **Resolve actor and tenant from trusted context**, authorize at execution time, and verify any approval against the call id, an argument digest, the actor, the tenant, its expiry, and the policy version you expected.
 3. **Derive the idempotency key from a server-issued operation id**, the tenant, the operation kind, and the normalized intent — not from the tool-call id, which changes when the model retries.
 4. **Claim the ledger entry atomically and persist `dispatched` before invoking.** A duplicate claim converges on the first outcome instead of dispatching again.

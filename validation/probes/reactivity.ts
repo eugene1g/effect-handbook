@@ -119,7 +119,7 @@ assert.equal(
 )
 
 console.log(JSON.stringify({
-  target: "effect@4.1.2",
+  target: "effect@4.1.3",
   probes: 13,
   status: "pass"
 }))

@@ -2,20 +2,20 @@
   "$schema": "./target.schema.json",
   "schemaVersion": 1,
   "effect": {
-    "version": "4.1.2",
-    "tag": "effect@4.1.2",
-    "commit": "506eef143bcc1750ce58920aac1e45da7265d103",
-    "publishedAt": "2026-11-02T04:27:38.068Z",
-    "auditedAt": "2026-11-02"
+    "version": "4.1.3",
+    "tag": "effect@4.1.3",
+    "commit": "7865dbbb7b6a91691921dbb4febedf3ab94a348b",
+    "publishedAt": "2026-11-10T03:21:45.289Z",
+    "auditedAt": "2026-11-10"
   },
   "tools": {
     "node": ">=26 <27",
     "pnpm": "11.18.0",
     "typescript": "7.0.2",
     "nodeTypes": "26.2.0",
-    "effectTsgo": "0.63.0",
+    "effectTsgo": "0.67.7",
     "vitest": "5.0.5",
-    "doctest": "4.1.2"
+    "doctest": "4.1.3"
   },
   "toolingExceptions": {
     "@effect/tsgo": "Compiler tooling follows its own release line and is pinned separately."

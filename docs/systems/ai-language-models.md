@@ -113,7 +113,7 @@ When the `toolkit` you pass carries handlers, `generateText`, `generateObject`, 
 | `concurrency` | `"unbounded"` | **Set a number whenever a handler touches a rate-limited or stateful dependency**, because one model turn may request many tool calls and they all start at once by default. |
 | `disableToolCallResolution` | `false` | **Pass `true` when the application must run its own gates (authorization, approval, idempotency claim) before any handler executes.** The tools are still advertised to the model; no handler runs. |
 
-With `disableToolCallResolution: true` under the default strict validation, the response carries tool calls whose `params` stay in their **encoded** form (they are still checked against the parameter schema's encoded side, so a malformed call fails with `InvalidOutputError`), no handler result is produced for them, and handler errors and handler services drop out of the call's error and requirement types. Dispatch a call yourself through the toolkit's `handle(name, encodedParams, toolCallId?, parseOptions?)`, which decodes the parameters, runs the handler, and returns a `Stream` of `{ result, encodedResult, isFailure, failureOrigin, preliminary }` values: preliminary results first, then the final one. The optional `SchemaAST.ParseOptions` tune the parameter decode; `{ onExcessProperty: "error" }` rejects arguments the schema does not declare. With `failureMode: "error"` a parameter failure fails the returned Effect and a handler failure fails the stream instead of producing a final value.
+With `disableToolCallResolution: true` under the default strict validation, user-tool `params` stay in their **JSON encoding**, typed as `Schema.Json` (a malformed call still fails with `InvalidOutputError`). Decode with `Schema.toCodecJson(tool.parametersSchema)` before passing arguments to typed authorization or policy code. No handler result is produced, and handler errors and handler services drop out of the call's error and requirement types. Dispatch a call yourself through the toolkit's `handle(name, jsonParams, toolCallId?, parseOptions?)`, which decodes the JSON parameters, runs the handler, and returns a `Stream` of `{ result, encodedResult, isFailure, failureOrigin, preliminary }` values: preliminary results first, then the final one. Pass the original JSON to `handle`, not the decoded domain value: a `Schema.Date` parameter, for example, travels as an ISO string. The optional `SchemaAST.ParseOptions` tune the parameter decode; `{ onExcessProperty: "error" }` rejects arguments the schema does not declare. With `failureMode: "error"` a parameter failure fails the returned Effect and a handler failure fails the stream instead of producing a final value.
 
 For an application-owned validation loop, combine `disableToolCallResolution: true` with `toolCallValidation: "deferred"`. Model-generated calls then carry `unknown` parameters and may name undeclared tools, even without a toolkit. Validate the name and decode/normalize the arguments before authorization or dispatch. Strict validation remains the default; provider-executed calls remain validated in deferred mode too. Anthropic, OpenAI, and OpenAI-compatible providers support this option. Deferring validation is not permission to execute arbitrary names or arguments.
 
@@ -151,7 +151,10 @@ const proposeAndSubmit = Effect.fn("proposeAndSubmit")(function*(notes: string) 
 
   const requestIds: Array<string> = []
   for (const call of response.toolCalls) {
-    yield* authorizeRaise(call.id, call.params)
+    const params = yield* Schema.decodeUnknownEffect(
+      Schema.toCodecJson(SubmitRaise.parametersSchema)
+    )(call.params)
+    yield* authorizeRaise(call.id, params)
     // Run `handle` and drain its stream in the same Effect: the handler is a
     // child fiber of this call, so interrupting the request interrupts it too.
     const results = yield* toolkit.handle(call.name, call.params, call.id)

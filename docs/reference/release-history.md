@@ -6,6 +6,23 @@ It is a curated reader's changelog, not a copy of Effect's. Entries keep only wh
 
 **Reading it when you upgrade.** Find the entry for the version you are pinned to, then read every entry above it. Each entry's items link to the handbook section that now owns the topic. Read that section rather than the summary line. Editions are published per `major.minor` (see [Match the edition to the installed Effect version](agent-guide#match-the-edition-to-the-installed-effect-version)); a patch release updates its edition in place and gets its own entry here.
 
+## `effect@4.1.3` — audited 2026-11-10
+
+Edition **4.1** (patch update). Tag [`effect@4.1.3`](https://github.com/Effect-TS/effect/tree/effect%404.1.3), commit [`7865dbbb`](https://github.com/Effect-TS/effect/commit/7865dbbb7b6a91691921dbb4febedf3ab94a348b), published 2026-11-10. Baseline: `effect@4.1.2`.
+
+### Changes in Effect that matter to readers
+
+This entry records a dependency and example-validation refresh, not a complete release-delta or source audit. Consult the [upstream changelog](https://github.com/Effect-TS/effect/blob/effect%404.1.3/packages/effect/CHANGELOG.md) for changes since 4.1.2; coverage of newly added APIs remains outside this update.
+
+- **Tool-call JSON boundary:** unresolved user-tool parameters are now typed `Schema.Json`, and `Toolkit.handle` decodes their JSON codec rather than the schema's ordinary encoded form ([#10332](https://github.com/Effect-TS/effect/pull/10332)). Decode `Schema.toCodecJson(tool.parametersSchema)` before typed policy checks, but pass the original JSON to `handle`. See [Tool-call resolution](../systems/ai-language-models#tool-call-resolution-concurrency-and-manual-dispatch) and [Mutation gates](../deep-dives/building-a-production-ai-capability#keep-the-framework-from-executing-a-mutation-before-your-gates-run).
+
+### Changes in the handbook
+
+- Updated `effect` and every pinned release-train `@effect/*` dependency from 4.1.2 to 4.1.3, including doctest, platform, SQL, AI, React, GraphQL, telemetry, and Vitest integrations.
+- Updated the separately versioned `@effect/tsgo` compiler tooling from 0.63.0 to 0.67.7; retained strict diagnostics and the existing advisory `unstableApiUsage` exception.
+- Repaired both application-gate examples to decode JSON before authorization and idempotency checks, without casting away the new parameter type.
+- Updated central release metadata, runtime-probe provenance, reproducible installation pins, exact release-age exclusions, and the workspace lockfile. The previous full source audit remains the baseline; see [Version and validation scope](../#version-and-validation-scope).
+
 ## `effect@4.1.2` — audited 2026-11-02
 
 Edition **4.1** (patch update). Tag [`effect@4.1.2`](https://github.com/Effect-TS/effect/tree/effect%404.1.2), commit [`506eef14`](https://github.com/Effect-TS/effect/commit/506eef143bcc1750ce58920aac1e45da7265d103), published 2026-11-02. Baseline: `effect@4.1.0`.

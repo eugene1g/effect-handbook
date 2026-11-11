@@ -5,7 +5,7 @@ Instrument business work once with structured logs, metrics, and spans; select a
 ## Contract
 
 - **Classification:** Runnable example; complete `observability.ts`.
-- **Install:** `pnpm add effect@4.1.3`
+- **Install:** `pnpm add effect@4.1.4`
 - **Run locally:** Node 26+: `OTEL_EXPORTER_OTLP_ENDPOINT= node observability.ts`
 - **Run with an OTLP collector:** `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 node observability.ts`
 - **Expected local output:** one JSON log event containing `order accepted`, `service=orders`, and `orderId=ord-42`, followed by `{"orderId":"ord-42","status":"accepted"}`. Timestamp and fiber/span identifiers vary.

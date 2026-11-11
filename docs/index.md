@@ -1,6 +1,6 @@
 # The Effect 4 Handbook — A Guided Tour of Effect v4
 
-> Source-grounded guide for humans and coding agents. Validation target refreshed **2026-11-10** to published `effect@4.1.3`, tag [`effect@4.1.3`](https://github.com/Effect-TS/effect/tree/effect%404.1.3), commit [`7865dbbb`](https://github.com/Effect-TS/effect/commit/7865dbbb7b6a91691921dbb4febedf3ab94a348b) (released 2026-11-10). Each module is labelled with its public import path and stability marker.
+> Source-grounded guide for humans and coding agents. Validation target refreshed **2026-11-11** to published `effect@4.1.4`, tag [`effect@4.1.4`](https://github.com/Effect-TS/effect/tree/effect%404.1.4), commit [`289a53f7`](https://github.com/Effect-TS/effect/commit/289a53f7b1fc40049219c6e69022db2fb859c356) (released 2026-11-11). Each module is labelled with its public import path and stability marker.
 
 ---
 
@@ -8,7 +8,7 @@
 
 ### Version and validation scope
 
-This edition validates examples against published `effect@4.1.3` — not unreleased `main`. The 4.1.0 source audit covered all 143 modules exported from the `effect` root barrel, all 22 public `effect/<area>` families (251 modules), the 33 public packages, their tests and examples, and every canonical Markdown page in this site. The 4.1.3 update is a dependency and example-validation refresh, not a new full source audit or an inventory of newly added APIs. Examples are checked with pnpm, Node's native TypeScript execution, TypeScript 7.0.2 in strict mode, and Effect `@effect/tsgo` 0.67.7 diagnostics. Short fragments may declare application-specific boundaries.
+This edition validates examples against published `effect@4.1.4` — not unreleased `main`. The 4.1.0 source audit covered all 143 modules exported from the `effect` root barrel, all 22 public `effect/<area>` families (251 modules), the 33 public packages, their tests and examples, and every canonical Markdown page in this site. The 4.1.4 update is a dependency and example-validation refresh, not a new full source audit or an inventory of newly added APIs. Examples are checked with pnpm, Node's native TypeScript execution, TypeScript 7.0.2 in strict mode, and Effect `@effect/tsgo` 0.67.7 diagnostics. Short fragments may declare application-specific boundaries.
 
 All chapters and deep dives inherit this edition's audit target. Edition URLs identify `major.minor`; the release above, the site footer, and generated Markdown headers identify the exact audited patch. Chapter prose states the behavior directly; explicit version numbers are reserved for release history, migration boundaries, reproducible installation, and pinned source links.
 

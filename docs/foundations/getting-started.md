@@ -9,7 +9,7 @@ Everything else in this handbook assumes a project where Effect is installed, Ty
 Effect 4 is the `latest` release on npm: a plain `pnpm add effect` installs it. Pin the exact version anyway, so that an upgrade is a deliberate, audited change rather than a side effect of a fresh install.
 
 ```sh
-pnpm add effect@4.1.3 @effect/platform-node@4.1.3
+pnpm add effect@4.1.4 @effect/platform-node@4.1.4
 pnpm add -D typescript@7 @types/node
 ```
 

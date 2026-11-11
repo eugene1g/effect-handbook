@@ -6,6 +6,20 @@ It is a curated reader's changelog, not a copy of Effect's. Entries keep only wh
 
 **Reading it when you upgrade.** Find the entry for the version you are pinned to, then read every entry above it. Each entry's items link to the handbook section that now owns the topic. Read that section rather than the summary line. Editions are published per `major.minor` (see [Match the edition to the installed Effect version](agent-guide#match-the-edition-to-the-installed-effect-version)); a patch release updates its edition in place and gets its own entry here.
 
+## `effect@4.1.4` — audited 2026-11-11
+
+Edition **4.1** (patch update). Tag [`effect@4.1.4`](https://github.com/Effect-TS/effect/tree/effect%404.1.4), commit [`289a53f7`](https://github.com/Effect-TS/effect/commit/289a53f7b1fc40049219c6e69022db2fb859c356), published 2026-11-11. Baseline: `effect@4.1.3`.
+
+### Changes in Effect that matter to readers
+
+This entry records a dependency and example-validation refresh, not a complete release-delta or source audit. Consult the [upstream changelog](https://github.com/Effect-TS/effect/blob/effect%404.1.4/packages/effect/CHANGELOG.md) for changes since 4.1.3; coverage of newly added APIs remains outside this update.
+
+### Changes in the handbook
+
+- Updated `effect` and every pinned release-train `@effect/*` dependency from 4.1.3 to 4.1.4, including doctest, platform, SQL, AI, React, GraphQL, telemetry, and Vitest integrations.
+- Retained `@effect/tsgo` 0.67.7, the latest published compiler tooling, with unchanged strict diagnostics and the existing advisory `unstableApiUsage` exception.
+- Updated central release metadata, runtime-probe provenance, reproducible installation pins, exact release-age exclusions, and the workspace lockfile. The previous full source audit remains the baseline; see [Version and validation scope](../#version-and-validation-scope).
+
 ## `effect@4.1.3` — audited 2026-11-10
 
 Edition **4.1** (patch update). Tag [`effect@4.1.3`](https://github.com/Effect-TS/effect/tree/effect%404.1.3), commit [`7865dbbb`](https://github.com/Effect-TS/effect/commit/7865dbbb7b6a91691921dbb4febedf3ab94a348b), published 2026-11-10. Baseline: `effect@4.1.2`.

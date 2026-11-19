@@ -17,7 +17,7 @@ pnpm add -D typescript@7 @types/node
 
 | Install when you need | Package |
 | --- | --- |
-| The core, plus every `effect/<area>` family (HTTP, RPC, SQL client, CLI, AI, cluster, workflow, …) | `effect` — no runtime dependencies |
+| The core, plus every `effect/<area>` family (HTTP, RPC, SQL client, CLI, AI, JOSE, cluster, workflow, …) | `effect` — no runtime dependencies |
 | A process entrypoint, file system, HTTP server or client for a host | `@effect/platform-node`, `@effect/platform-bun`, `@effect/platform-deno`, `@effect/platform-browser` |
 | A SQL driver | `@effect/sql-pg`, `@effect/sql-pglite`, `@effect/sql-sqlite-node`, and the other `@effect/sql-*` packages |
 | A language-model provider | `@effect/ai-openai`, `@effect/ai-anthropic`, `@effect/ai-openrouter`, `@effect/ai-openai-compat` |
@@ -33,7 +33,7 @@ The library's floor and this handbook's validation target are different things. 
 | --- | --- | --- |
 | TypeScript | 5.9 or newer; TypeScript 7 recommended | 7.0.2 |
 | Node.js | 22.19 or newer (the README's general minimum; `@effect/platform-node`, `@effect/platform-node-shared`, and `@effect/opentelemetry` declare `engines.node >=22.19.0`); on Deno, `@effect/platform-deno` declares `engines.deno >=2.9.3` | 26, which runs `.ts` entrypoints directly |
-| Test runner | `@effect/vitest` and `@effect/doctest` require Vitest 5; `@effect/atom-react` requires React 19 | Vitest 5.0.5 |
+| Test runner | `@effect/vitest` and `@effect/doctest` require Vitest 5; `@effect/atom-react` requires React 19 | Vitest 5.1.1 |
 | Type checking | `strict: true` | `strict` plus the flags below |
 | Module format | ESM only: the packages are `"type": "module"` with no CommonJS build | `module: NodeNext` |
 
@@ -157,7 +157,7 @@ Stability is a per-API contract declared with a JSDoc tag, not an import path; s
 | Badge | Promise | What carries it |
 | --- | --- | --- |
 | stable (`@stability stable`) | semantic versioning: breaking changes only in a major release | most of the root barrel — `Effect`, `Layer`, `Schema`, `Stream`, `Config`, the data structures, most `Tx*` transactional modules — plus `TestClock` from `effect/testing` and the text codecs under `effect/encoding` (`Base64`, `Base64Url`, `Hex`, `EncodingError`) |
-| unstable (`@stability unstable`) | **may break in a minor release** | the subsystem families `effect/ai`, `cli`, `cluster`, `devtools`, `eventlog`, `http`, `http-api`, `net`, `observability`, `persistence`, `process`, `reactivity`, `rpc`, `schema`, `socket`, `sql`, `workers`, `workflow`; root-barrel modules such as `Arbitrary`, `FileSystem`, `Path`, `ExecutionPlan`, `LayerMap`, `Graph`, and `ByteSize` (each module section shows its badge); `TestConsole` and `TestSchema`; the remaining `effect/encoding` codecs; some advanced `Schema` APIs; and every API that exposes a third-party dependency (driver options in `@effect/sql-*`, provider clients in `@effect/ai-*`, `@effect/opentelemetry`) |
+| unstable (`@stability unstable`) | **may break in a minor release** | the subsystem families `effect/ai`, `cli`, `cluster`, `devtools`, `eventlog`, `http`, `http-api`, `jose`, `net`, `observability`, `persistence`, `process`, `reactivity`, `rpc`, `schema`, `socket`, `sql`, `workers`, `workflow`; root-barrel modules such as `Arbitrary`, `FileSystem`, `Path`, `ExecutionPlan`, `LayerMap`, `Graph`, and `ByteSize` (each module section shows its badge); `TestConsole` and `TestSchema`; the remaining `effect/encoding` codecs; some advanced `Schema` APIs; and every API that exposes a third-party dependency (driver options in `@effect/sql-*`, provider clients in `@effect/ai-*`, `@effect/opentelemetry`) |
 | experimental (`@stability experimental`) | may break in a **patch** release | `effect/graphql`; `Host`, `Dns`, and `AddressResolver` in `effect/net`; the related host and DNS schemas in `Schema` |
 
 "Unstable" describes the API contract, not the quality: HTTP, SQL, and RPC are what production Effect applications are built on. It does change how you depend on them. **Pin exact versions, read the release notes before every upgrade, and keep leaf area imports behind a small service you own** so a rename touches one file. The maintainers' stated plan is to promote these families to stable as production feedback settles them.

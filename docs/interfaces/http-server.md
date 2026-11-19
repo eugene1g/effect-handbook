@@ -39,9 +39,11 @@ const app = Effect.gen(function*() {
 export const handler = HttpEffect.toWebHandler(app)
 ```
 
-For a layer-backed handler, retain the returned `dispose` function and await it during test/process teardown; calling it again returns the same promise. Pre-response handlers and `HttpMiddleware.withLoggerDisabled` apply to exactly one server request, and `HttpEffect.appendPreResponseHandlerUnsafe` takes the fiber context rather than the request. Advanced streaming adapters use `scopeTransferToStream` so a request scope remains alive until the response body finishes; misuse can leak resources, so high-level server code should let the supplied host adapter manage it.
+For a layer-backed handler, retain the returned `dispose` function and await it during test/process teardown; calling it again returns the same promise. Pre-response handlers and `HttpMiddleware.withLoggerDisabled` apply to exactly one server request, and `HttpEffect.appendPreResponseHandlerUnsafe` takes the fiber context rather than the request. Advanced streaming adapters use `scopeTransferToStream` so a request scope remains alive until the response body finishes: the scope then closes with the body stream's exit, but only once *both* the body has ended and the request has finished, including middleware and tracing, so request finalizers never run before a middleware or span that still uses request resources. `scopeDisableClose` turns off only the close at the end of the request; whoever disabled it must close the scope on every path. Misuse can leak resources, so high-level server code should let the supplied host adapter manage both.
 
-An already-aborted Web request is interrupted immediately. Aborting after headers have returned also interrupts the transferred response-body scope, even if nobody keeps pulling the body, so its resources are released; request abort listeners are removed when the request fiber ends. This is cancellation, not rollback of work already committed.
+**The app runs uninterruptibly unless it opts in.** `toHandled`, and therefore `toWebHandler`, `HttpServer.serve`, and the Node, Bun, and Deno adapters, run the app, its middleware, and the response send in an uninterruptible region. A client disconnect, an aborted `request.signal`, or a server shutdown requests interruption immediately, but it takes effect only once the app has produced its response — unless the app makes itself interruptible. `HttpRouter` routes (and therefore every `HttpApi` handler) are interruptible unless added with `uninterruptible: true`; a bare app passed to `HttpEffect.toWebHandler` or `HttpServer.serve` needs `Effect.interruptible(app)`.
+
+Aborting after headers have returned interrupts the transferred response-body scope, even if nobody keeps pulling the body, so its resources are released; request abort listeners are removed when the request fiber ends. This is cancellation, not rollback of work already committed.
 
 ## HttpIncomingMessage
 
@@ -74,7 +76,7 @@ Compression negotiates `Accept-Encoding`, adds `Vary`, and skips statuses/bodies
 
 `effect/http/HttpStaticServer` — unstable
 
-A safe static-file application built over `FileSystem`, `Path`, and `HttpPlatform`. `make({ root, index?, spa?, cacheControl?, mimeTypes? })` returns an HTTP app; `layer({ ..., prefix? })` mounts GET routes in `HttpRouter`. It confines paths below the configured root, resolves directory indexes, derives MIME types, supports byte ranges and 206/416 responses, and handles conditional requests: `If-Match` / `If-Unmodified-Since` failures answer `412` before cache validation and ranges, ETag/last-modified matches answer `304` (keeping `Content-Location`, `Date`, `Expires`, and `Vary`), and HTTP dates are read as UTC. A directory URL without a trailing slash is redirected with `301` to the slash form (query and router prefix preserved), so clients that do not follow redirects must request the canonical URL.
+A safe static-file application built over `FileSystem`, `Path`, and `HttpPlatform`. `make({ root, index?, spa?, cacheControl?, mimeTypes? })` returns an HTTP app; `layer({ ..., prefix? })` mounts GET routes in `HttpRouter`. It confines paths below the configured root, resolves directory indexes, derives MIME types, supports byte ranges and 206/416 responses, and handles conditional requests: `If-Match` / `If-Unmodified-Since` failures answer `412` before cache validation and ranges, ETag/last-modified matches answer `304` (keeping `Content-Location`, `Date`, `Expires`, and `Vary`; `If-None-Match` is parsed as a list of quoted entity tags, so a tag that itself contains a comma still matches), and HTTP dates are read as UTC. A directory URL without a trailing slash is redirected with `301` to the slash form (query and router prefix preserved), so clients that do not follow redirects must request the canonical URL.
 
 ```ts
 import { HttpStaticServer } from "effect/http"
@@ -183,11 +185,11 @@ Layer.launch(ServerLayer).pipe(NodeRuntime.runMain)
 
 Abstract server service plus the functions that run an HTTP app. `HttpServer.serve(handler)` binds an app-effect to the bound socket; `HttpServer.logAddress`/`withLogAddress` log the listen address; `HttpServer.layerServices` supplies platform-neutral services to a handler. Provide a concrete server Layer — `NodeHttpServer.layer(createServer, { port })` or the Bun equivalent.
 
-The service's `address` field is a [`NetAddress.SocketAddress`](platform-runtime-hosts#netaddress) — an `InetAddress` (IP plus port) or a `UnixPathAddress`, replacing the old `TcpAddress | UnixAddress` pair. Narrow it with `NetAddress.isInetAddress` before reading `port`, or render it with `HttpServer.formatAddress(address)`. `NodeHttpServer.layerTest` binds port `0` and supplies an `HttpClient` already prefixed with the assigned address. On Bun and Deno, a listen address that cannot be converted fails the Layer with `ServeError`.
+The service's `address` field is a [`NetAddress.SocketAddress`](platform-runtime-hosts#netaddress) — an `InetAddress` (IP plus port) or a `UnixPathAddress`, replacing the old `TcpAddress | UnixAddress` pair. Narrow it with `NetAddress.isInetAddress` before reading `port`, or render it with `HttpServer.formatAddress(address)`. `NodeHttpServer.layerTest` binds port `0` and supplies an `HttpClient` already prefixed with the assigned address. On Bun and Deno, a listen address that cannot be converted fails the Layer with `ServeError`, and a request that arrives while the listener is bound but no app is being served yet is answered `503 Service Unavailable` with `Cache-Control: no-store` and an advisory `Retry-After: 1`, rather than a `404` a cache or health check could mistake for a missing route.
 
 ### Request work stays in the request fiber
 
-Every request runs in a fiber the server owns, inside a request `Scope`. When the client goes away before the response has finished, the host adapter interrupts that fiber (Node marks the interrupt as a client abort; for a request that had not started responding, the logger records `499`), so finalizers run and downstream calls are cancelled. That guarantee holds only while the work is *in* the fiber:
+Every request runs in a fiber the server owns, inside a request `Scope`. When the client goes away before the response has finished, the host adapter interrupts that fiber (Node marks the interrupt as a client abort; for a request that had not started responding, the logger records `499`), so finalizers run and downstream calls are cancelled. The interrupt lands only where the handler is interruptible: `HttpRouter` routes and `HttpApi` handlers are by default, while a bare app given to `HttpServer.serve` runs uninterruptibly until it has produced its response unless wrapped in `Effect.interruptible` (see [HttpEffect](#httpeffect); probed with `toWebHandler`: the plain app ran to completion and answered `200`, the interruptible one stopped and answered `499`). The guarantee also holds only while the work is *in* the fiber:
 
 | Escape | What is lost |
 | --- | --- |
@@ -255,7 +257,7 @@ Run the normal-completion case as a separate test (a finite stream, a client tha
 - **Let the OS pick the port in tests** (listen on `0`, then take the real port from `HttpServer.address`), because a hard-coded port breaks as soon as test files run in parallel.
 - **Prove release at the OS level.** Build the server Layer into a `Scope` you hold, show that binding a plain `node:net` server to the same host and port fails with `EADDRINUSE`, close the `Scope`, and show that the same bind now succeeds. A finalizer flag, or a bind to a *different* ephemeral port, is not evidence that the listener is gone.
 - **A constructor that returns a live server and requires `Scope` must not close that `Scope` itself** — the caller owns the lifetime.
-- **Shutdown is graceful by default on Node.** Closing the serve scope stops accepting connections and gives in-flight requests up to `gracefulShutdownTimeout` (20 seconds unless set) to finish; a request still running after that is interrupted and answered with `503` (probed). `disablePreemptiveShutdown: true` removes that grace period. Size your orchestrator's termination grace period above the timeout, and see [owning lifetimes, startup, readiness, and shutdown](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown) and the [graceful entrypoint recipe](../recipes/graceful-entrypoint-and-shutdown).
+- **Shutdown is graceful by default on Node, Bun, and Deno.** Closing the serve scope stops accepting connections and gives in-flight requests up to `gracefulShutdownTimeout` (20 seconds unless set) to finish; a request still running after that is interrupted and answered with `503` (probed on Node). An uninterruptible handler is not cut short: shutdown waits for it to finish even after the timeout. On Node, connected WebSockets are sent a `1001` (Going Away) close frame as soon as shutdown starts, other upgraded connections are ended, and any still open when the timeout expires are destroyed; Bun likewise force-closes the connections left at the timeout, so an unread request body cannot hold shutdown open. `disablePreemptiveShutdown: true` removes the grace period, and on Node then destroys upgraded connections right after closing them, so a close frame may not reach the peer — prefer a short timeout when clients need it. Size your orchestrator's termination grace period above the timeout, and see [owning lifetimes, startup, readiness, and shutdown](../deep-dives/owning-lifetimes-startup-readiness-and-shutdown) and the [graceful entrypoint recipe](../recipes/graceful-entrypoint-and-shutdown).
 
 `NodeHttpServer.make` / `layer` / `layerConfig` also accept `Http2.createServer` and `Http2.createSecureServer` (including `allowHTTP1`): HTTP/2 requests hide pseudo-headers, `toURL` uses `:scheme` and `:authority`, and connection-specific response headers are dropped. `NodeHttpServerRequest.toIncomingMessage` / `toServerResponse` then return a union of the HTTP/1 and HTTP/2 objects, so narrow before using HTTP/1-only members. Request headers are converted to `Headers`, so `Headers.CurrentRedactedNames` applies when they are logged.
 
@@ -289,6 +291,8 @@ const RaiseRoute = HttpRouter.add(
   })
 )
 ```
+
+`request.stream` of a request without a body is an empty stream rather than a failure, on the core request and on Node, Bun, and Deno alike, so a streaming handler needs no special case for a bodyless `POST`. Buffered reads (`text`, `json`, `arrayBuffer`, `urlParamsBody`) honor [`HttpIncomingMessage.MaxBodySize`](#edge-policy-checklist) on every adapter, including requests built with `HttpServerRequest.fromClientRequest`.
 
 Connection details: `remoteAddress` (replaced by trusted proxy middleware), `peerAddress` (always the transport peer), and `protocol` (`"http" | "https" | undefined`, set by trusted proxy middleware and read by `toURL`). `request.upgrade` takes over the raw connection, and `request.upgradeWith({ headers })` does the same while adding headers to the `101` response (WebSocket upgrades fail when headers are given); custom `HttpServerRequest` implementations must provide both.
 
@@ -350,7 +354,7 @@ export const behindLoadBalancer = HttpMiddleware.xForwardedHeaders({
 })
 ```
 
-The `tracer` middleware redacts the URL in the failure it records for a `5xx`, and `compression` ignores empty `Accept-Encoding` members such as `gzip,`. To modify the response, register via `HttpRouter.middleware` (the `serve`-level option runs around the whole chain but can't change the final response).
+The `tracer` middleware redacts the URL in the failure it records for a `5xx`, and also redacts the query and header names an `HttpApi` endpoint declares with [`HttpApi.RedactedNames`](http-api#httpapi) in that request's span, and `compression` ignores empty `Accept-Encoding` members such as `gzip,`. To modify the response, register via `HttpRouter.middleware` (the `serve`-level option runs around the whole chain but can't change the final response).
 
 ### Decompressing incoming bodies
 
@@ -378,7 +382,7 @@ const withTiming = HttpMiddleware.make((app) =>
 
 > **Warning:** The built-in `logger` middleware is on by default via `HttpRouter.serve`. Pass `{ disableLogger: true }` to `serve`, or layer `HttpRouter.disableLogger`, to opt out. It logs the method, the path *without* its query string, and the status; a failed request also logs its `Cause`, so keep secrets `Redacted` rather than relying on the logger to hide them.
 
-> **Warning:** **`HttpRouter.cors()` with no options answers `Access-Control-Allow-Origin: *`.** Pass an allow-list for anything that is not a public, credential-free API. With a predicate or two or more `allowedOrigins`, the request's `Origin` is echoed only when it is allowed, and `Vary: Origin` is always sent — merged with any `Vary` the response or compression already set — so a shared cache cannot serve one origin's answer to another. A single allowed origin is sent as a constant, also with `Vary: Origin`. With `allowedHeaders` left empty, a preflight reflects whatever `Access-Control-Request-Headers` the browser asked for. `allowedMethods` defaults to `GET`, `HEAD`, `PUT`, `PATCH`, `POST`, and `DELETE`; a browser only sends a cross-origin `QUERY` request after you add `"QUERY"` to that list.
+> **Warning:** **`HttpRouter.cors()` with no options answers `Access-Control-Allow-Origin: *`.** Pass an allow-list for anything that is not a public, credential-free API. With a predicate or two or more `allowedOrigins`, the request's `Origin` is echoed only when it is allowed (a predicate is called only for requests that carry an `Origin` header; a request without one gets no allow-origin header), and `Vary: Origin` is always sent — merged with any `Vary` the response or compression already set — so a shared cache cannot serve one origin's answer to another. A single allowed origin is sent as a constant, also with `Vary: Origin`. With `allowedHeaders` left empty, a preflight reflects whatever `Access-Control-Request-Headers` the browser asked for. `allowedMethods` defaults to `GET`, `HEAD`, `PUT`, `PATCH`, `POST`, and `DELETE`; a browser only sends a cross-origin `QUERY` request after you add `"QUERY"` to that list.
 
 ```ts
 import { HttpRouter } from "effect/http"
@@ -404,7 +408,7 @@ Several server limits are **unbounded until you set them**. Decide each one expl
 | Path parameter length, trailing-slash and case rules | router defaults | `HttpRouter.serve(app, { routerConfig })` |
 | CORS origins | `*` | `HttpRouter.cors({ allowedOrigins, credentials })` |
 | Headers hidden from logs and spans | `authorization`, `cookie`, `set-cookie`, `x-api-key` | `Headers.CurrentRedactedNames` |
-| Graceful shutdown window (Node) | 20 seconds | `gracefulShutdownTimeout` on the server Layer |
+| Graceful shutdown window (Node, Bun, Deno) | 20 seconds | `gracefulShutdownTimeout` on the server Layer |
 
 Beyond what the library models, write down: header-size, connection-count, and keep-alive limits on the host (`node:http` server options, or the proxy in front); connect, header, idle, total, and drain timeouts (`Effect.timeout` per route for the total; the rest belong to the host or proxy); response size and streaming limits for exports; TLS termination; and **proxy trust** — `HttpMiddleware.xForwardedHeaders({ trustedProxies })` (see [HttpMiddleware](#httpmiddleware)) applies forwarded headers only for connections from proxies you name.
 
@@ -426,7 +430,7 @@ Unified body representation shared by client requests and server responses. The 
 
 `effect/http/Headers` — unstable
 
-Immutable, case-insensitive header map with redaction support. `Headers.fromInput` builds one; pure operations: `get`/`set`/`merge`/`remove`. `redact` (and the `CurrentRedactedNames` reference) strips sensitive headers like `authorization` from logs and traces automatically.
+Immutable, case-insensitive header map with redaction support. `Headers.fromInput` builds one — from a record (array values are joined with `", "`) or from an iterable of pairs, where repeated names are likewise joined rather than the last one winning (do not forward a joined `set-cookie` as one header; read `response.cookies` instead); pure operations: `get`/`set`/`merge`/`remove`. `redact` (and the `CurrentRedactedNames` reference) strips sensitive headers like `authorization` from logs and traces automatically.
 
 ```ts
 import { Headers } from "effect/http"
@@ -466,7 +470,7 @@ Typed date and `Retry-After` values: `Headers.parseHttpDate` / `formatHttpDate` 
 
 `effect/http/Cookies` — unstable
 
-Immutable cookie jar plus a `Cookie` type with all attributes (`httpOnly`, `secure`, `sameSite`, `maxAge`, `path`, `domain`). Parse a request's `Cookie` header with `parseHeader`; `fromSetCookie` parses one or more response `Set-Cookie` header values into a jar. Build with `set`/`setUnsafe` and expire with `expireCookie`. The safe constructors validate the cookie name, value, domain, and path and return `CookiesError`; reserve `*Unsafe` forms for already-trusted values. The error's tag is `"CookiesError"`, so recover with `Effect.catchTag("CookiesError", ...)` and branch on `error.reason._tag` (`InvalidCookieName`, `InvalidCookieValue`, `InvalidCookieDomain`, `InvalidCookiePath`, …); `Cookies.isCookiesError` guards an unknown error down to this type. `fromSetCookie` skips any `Set-Cookie` header whose name is not a valid RFC 6265 token instead of storing it. On the server use `HttpServerResponse.setCookie`; on the client, a `Ref<Cookies>` wired via `HttpClient.withCookiesRef` gives a persistent session.
+Immutable cookie jar plus a `Cookie` type with all attributes (`httpOnly`, `secure`, `sameSite`, `maxAge`, `path`, `domain`). Parse a request's `Cookie` header with `parseHeader`; `fromSetCookie` parses one or more response `Set-Cookie` header values into a jar. Build with `set`/`setUnsafe` and expire with `expireCookie`. The safe constructors validate the cookie name, value, domain, and path and return `CookiesError`; reserve `*Unsafe` forms for already-trusted values. The error's tag is `"CookiesError"`, so recover with `Effect.catchTag("CookiesError", ...)` and branch on `error.reason._tag` (`InvalidCookieName`, `InvalidCookieValue`, `InvalidCookieDomain`, `InvalidCookiePath`, …); `Cookies.isCookiesError` guards an unknown error down to this type. `fromSetCookie` skips any `Set-Cookie` header whose name is not a valid RFC 6265 token instead of storing it. On the server use `HttpServerResponse.setCookie`; on the client, a `Ref<ReadonlyArray<Cookies.Cookie>>` wired via [`HttpClient.withCookiesRef`](http-client#httpclient) gives a persistent session.
 
 For a client-side jar, `Cookies.mergeIntoArray(stored, url, cookies, now)` stores response cookies scoped to the response URL, and `Cookies.toRequestCookieHeader(stored, url, now)` selects the unexpired cookies matching a request's host, path, and scheme; `HttpClient.withCookiesRef` is built on both. Parsing follows RFC 6265: spaces around a name and value are trimmed, and a malformed `Max-Age` is ignored rather than read by numeric prefix.
 
@@ -476,9 +480,9 @@ For a client-side jar, `Cookies.mergeIntoArray(stored, url, cookies, now)` store
 
 `effect/http/HttpMethod` — unstable
 
-Type-level vocabulary for HTTP verbs: the `HttpMethod` union, the `all` set, `isHttpMethod` guard, and `hasBody` (true for methods this module treats as body-capable: POST, PUT, DELETE, PATCH, and QUERY; false for GET, HEAD, OPTIONS, and TRACE). `QUERY` is also in `all`, and `HttpClient`, `HttpRouter`, and `HttpApiEndpoint` each have a `query` constructor or accept the method.
+Type-level vocabulary for HTTP verbs: the `HttpMethod` union, the `all` set, `isHttpMethod` guard, and `hasBody` (false for GET, HEAD, OPTIONS, and TRACE, true for POST, PUT, DELETE, PATCH, QUERY, and any other string; given an `HttpMethod` it narrows to `HttpMethod.WithBody`, given a plain `string` it returns a `boolean`). `QUERY` is also in `all`, and `HttpClient`, `HttpRouter`, and `HttpApiEndpoint` each have a `query` constructor or accept the method.
 
-A received request's `method` (`HttpServerRequest.method`, and forwarded methods such as AI HTTP error details) is typed as `string`, because clients can send extension methods such as `PROPFIND`. **Migration:** an exhaustive `switch` on `request.method` needs a `default` branch, or narrow first with `HttpMethod.isHttpMethod`.
+A received request's `method` (`HttpServerRequest.method`, `HttpClientRequest.method`, since a client request converted from a Web or server request can carry any method, and forwarded methods such as AI HTTP error details) is typed as `string`, because clients can send extension methods such as `PROPFIND`. **Migration:** an exhaustive `switch` on `request.method` needs a `default` branch, or narrow first with `HttpMethod.isHttpMethod`.
 
 ```ts
 import { Effect } from "effect"

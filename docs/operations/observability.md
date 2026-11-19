@@ -4,7 +4,7 @@ _Effect ships structured logging, spans, and metrics as first-class runtime citi
 
 This page covers instrumentation. Getting signals out of the process — OTLP, Prometheus, DevTools, and the OpenTelemetry SDK bridge — is on [Telemetry Export](telemetry-export).
 
-> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/08_observability) cover production logging and OTLP tracing.
+> **Official examples:** Effect's release-matched [`ai-docs` observability examples](https://github.com/Effect-TS/effect/tree/effect%404.1.4/ai-docs/src/08_observability) cover production logging and OTLP tracing.
 
 ## Designing signals
 
@@ -447,9 +447,13 @@ The runtime and the exporters record several things without any code from you, s
 | --- | --- |
 | Each `Effect.log*` call inside the span becomes a span event: event name = message, attributes = log annotations + `effect.fiberId` + `effect.logLevel`, plus `effect.cause` when a `Cause` was logged | `Logger.tracerLogger` — only while it is in the logger set (see [Installing and swapping loggers](#installing-and-swapping-loggers)) |
 | The span ends with the wrapped effect's `Exit` (`SpanStatus` = `Ended` with `exit`) on success, failure, **and interruption** | `Effect.withSpan` / `Effect.fn` |
-| Success → status OK | `OtlpTracer` and `@effect/opentelemetry` |
-| Failure or defect → status ERROR with the first error's message, plus one `exception` event per error (type, message, stack trace) | `OtlpTracer` and `@effect/opentelemetry` |
+| Success → status `Unset`, never `OK`; with `@effect/opentelemetry`, a status you set directly on the OpenTelemetry span is kept | `OtlpTracer` and `@effect/opentelemetry` |
+| Failure or defect → status ERROR with the first error's message, plus one `exception` event per error (type, message, stack trace); a failure with no error to report, such as an empty `Cause`, leaves the status `Unset` | `OtlpTracer` and `@effect/opentelemetry` |
 | Interruption only → status `Unset` with attribute `effect.fiber.interrupted: true` (no error event) | `OtlpTracer` and `@effect/opentelemetry` |
+
+`Unset` on success follows the OpenTelemetry convention that `OK` is an explicit decision by the application, not an instrumentation default. Query "failed spans" as `status = ERROR` and "healthy spans" as `status != ERROR`; to mark a span `OK` on purpose under `@effect/opentelemetry`, call `setStatus` on the span from `OtelTracer.currentOtelSpan`.
+
+> **Migration:** Exported spans from `OtlpTracer` and `OtelTracer` used to carry status `OK` on success. Dashboards, alerts, and tail-sampling rules that match `status = OK` stop matching; rewrite them as `status != ERROR`.
 
 **A span is frozen once it ends.** Later `end`, `attribute`, `event`, and `addLinks` calls are ignored, so logs and `Effect.annotateCurrentSpan` from a fiber that outlives its span (one forked with `Effect.forkDetach`, say) do not modify it, `OtlpTracer` never exports a span twice, and the DevTools tracer sends nothing more for it. Attach such work to its own span. Interrupting a fiber inside `Effect.withSpan` or `Effect.fn` records the interruption once.
 

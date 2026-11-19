@@ -1,6 +1,6 @@
 # MCP Servers
 
-`effect/ai` ships a Model Context Protocol implementation: the wire schemas, the protocol adapters for every supported MCP revision, `McpServer`, which exposes your Effect services as tools, resources, and prompts over stdio or streamable HTTP, an experimental `McpClient` for calling other MCP servers, and `McpTest` for testing a server in memory. Tools reuse the same `Tool` and `Toolkit` definitions as [AI & Language Models](ai-language-models). For an end-to-end walkthrough, read the [MCP deep dive](../deep-dives/exposing-an-effect-application-over-mcp).
+`effect/ai` ships a Model Context Protocol implementation: the wire schemas, the protocol adapters for every supported MCP revision, `McpServer`, which exposes your Effect services as tools, resources, prompts, and Agent Skills over stdio or streamable HTTP, an experimental `McpClient` for calling other MCP servers, and `McpTest` for testing a server in memory. Tools reuse the same `Tool` and `Toolkit` definitions as [AI & Language Models](ai-language-models). For an end-to-end walkthrough, read the [MCP deep dive](../deep-dives/exposing-an-effect-application-over-mcp).
 
 ## McpSchema
 
@@ -9,6 +9,8 @@
 The complete Model Context Protocol (MCP) wire format as Effect `Schema`s and `Rpc` definitions: requests/results, resources and resource templates, prompts, completions, capabilities, and JSON-RPC error codes. The typed contract `McpServer` is built on.
 
 Commonly used helpers: `McpSchema.param(name, schema)` declares typed parameters inside resource URI templates; `Role`, `Annotations`, and error types are also referenced directly. The heavier protocol machinery (Initialize, ListResources, CallTool, notifications) is consumed by the server runtime and by `McpClient`.
+
+The Skills extension adds `McpSchema.Skill` (a `skills/list` / `skills/get` entry: the `SKILL.md` URI, its frontmatter, and either a manifest of `SkillResource` entries — `uri`, `sha256:` `digest`, `size` — or `"dynamic"`) and `McpSchema.SkillFrontmatter`, the Agent Skills frontmatter fields (`name`, `description`, optional `license`, `compatibility`, string-valued `metadata`, `allowed-tools`, plus any extra keys).
 
 JSON-valued fields — `_meta`, `structuredContent`, capability records, and similar — are checked only one level deep when decoding and are typed as `unknown` or `Readonly<Record<string, unknown>>`, so narrow them before use. `McpServer` still rejects a tool result that is not JSON when it serializes a `2026-07-28` response. JSON-RPC errors on the wire carry only `code`, `message`, and optional `data`.
 
@@ -108,25 +110,29 @@ Layer.launch(ServerLayer).pipe(NodeRuntime.runMain)
 
 | Handler outcome | Wire result | Logged and reported to `ErrorReporter` |
 | --- | --- | --- |
-| Success | `isError: false`; the encoded result as JSON text, plus `structuredContent` **only when it is a JSON object** (never `null` or an array, which MCP forbids there) | no |
+| Success | `isError: false`; the result's JSON encoding (the same encoding the advertised `outputSchema` describes, so a `Schema.Date` is an ISO string) as JSON text, plus `structuredContent` **only when it is a JSON object** (never `null` or an array, which MCP forbids there). A result that is `undefined`, such as a `Schema.Void` tool's, has empty `content` and no `structuredContent` | no |
 | Arguments fail the parameter schema (a `Tool.Strict` tool also rejects undeclared properties) | Protocols `2024-11-05`, `2025-03-26`, `2025-06-18`: a JSON-RPC `InvalidParams` error listing every missing or invalid field, and every unknown key for a strict tool, in one response. Protocols `2025-11-25` and `2026-07-28`: an `isError: true` result carrying that same combined validation message, so the calling model can correct itself | no |
 | Declared `failure`, `failureMode: "error"`, value is an `Error` instance | `isError: true` with that error's `message` — an empty message falls back to the failure's encoded value, so a bare tagged error is still legible | no |
-| Declared `failure`, `failureMode: "error"`, any other value | `isError: true` with the failure encoded through its schema as JSON text | no |
-| Declared `failure`, `failureMode: "return"` | `isError: true` with the encoded failure payload as JSON text | no |
+| Declared `failure`, `failureMode: "error"`, any other value | `isError: true` with the failure's JSON encoding (its schema's JSON codec, so `bigint`, `Map`, or `Option` values survive) as text | no |
+| Declared `failure`, `failureMode: "return"` | `isError: true` with the failure payload's JSON encoding as text | no |
 | An undeclared failure or `AiError`, a defect, or a result that fails its `success` schema or cannot be serialized | Protocols `2025-11-25` and `2026-07-28`: `isError: true` with a fixed internal-error message. Earlier protocols: a JSON-RPC `-32603 Internal error` (not `-32602 Invalid params`). Either way, details never reach the client | yes |
 
 A failed call never carries `structuredContent`. Declared failures are part of the tool's contract, so the server sends them to the client and does not log or report them; everything else is logged at error level and handed to the configured `ErrorReporter`s, so provide one when you need alerting on tool faults (see [Observability](../operations/observability)). Both failure modes produce `isError: true`: choose `"error"` when the client should read a short message, and `"return"` when it should receive the structured failure payload. Either way the declared failure is visible to the client, so keep secrets and internal detail out of it.
 
-Tool input schemas follow `Tool.Strict`: a strict tool advertises `additionalProperties: false` and the server rejects extra arguments, while a non-strict tool advertises `additionalProperties: true` and ignores them. A top-level `$ref` in a parameter schema is inlined, and an identified `success` output schema is likewise normalized to an object root, because MCP requires an object at the root. Calling `McpServer.toolkit` with a tool whose parameter schema is not an object schema fails fast with a clear, named error instead of a dispatch-time failure. In a protocol that omits string `structuredContent`, a result whose single text block is already the exact JSON encoding of that string is returned as plain text rather than duplicated.
+Arguments are decoded with the parameter schema's **JSON codec**, so a `Schema.Date` parameter accepts the ISO string a client sends, and the advertised `inputSchema` describes that encoding. Tool input schemas follow `Tool.Strict`: a strict tool advertises `additionalProperties: false` and the server rejects extra arguments, while a non-strict tool advertises `additionalProperties: true` and ignores them. A top-level `$ref` in a parameter schema is inlined (following chains of identified aliases), and an identified `success` output schema is likewise normalized to an object root, because MCP requires an object at the root. Calling `McpServer.toolkit` with a tool whose parameter schema is not an object schema fails fast with a clear, named error instead of a dispatch-time failure. In a protocol that omits string `structuredContent`, a result whose single text block is already the exact JSON encoding of that string is returned as plain text rather than duplicated.
 
 - **Server identity can carry icons.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `icons: ReadonlyArray<McpSchema.Icon>` (`src`, optional `mimeType`, `sizes`, `theme`). The `McpSchema.Resource`, `ResourceTemplate`, `Prompt`, and `Tool` schemas have the same optional field for entries registered through the lower-level `McpServer` registry service.
+- **Resource reads report their MIME type.** A resource registered with `mimeType` whose handler returns a string or `Uint8Array` carries that `mimeType` in its `resources/read` contents, not only in `resources/list`, so MCP Apps hosts can render `text/html;profile=mcp-app` UI resources.
+- **Lists are a single page.** `tools/list`, `resources/list`, `resources/templates/list`, and `prompts/list` return everything in one page and never issue a cursor; a request that supplies a `cursor` (even `""`) fails with `InvalidParams`.
 - **Prompt and resource callbacks receive decoded values.** `McpServer.prompt` / `registerPrompt` pass `content` the *decoded* type of each `parameters` schema, and resource templates resolve over both stdio and Streamable HTTP.
 - **A non-recursive tool schema root is sent once.** `tools/list` inlines it without also publishing it under `$defs`, so a custom `toJsonSchema` `$ref` into the root's own definition (such as `#/$defs/Note/properties/title` when `Note` is the tool schema) no longer resolves; point such references at the inline schema instead.
+- **Each `layerStdio` builds its own protocol.** Several stdio servers can sit in one layer graph as long as each is given its own `Stdio`; they still share the memoized `McpServer` registry. When stdin closes, the server lets accepted requests finish, ends open `subscriptions/listen` streams, and exits with code `0` under the default teardown (as `NodeRuntime.runMain` uses) rather than the `130` of an external interrupt.
 - **Effect RPC control messages are off.** MCP servers use the JSON-RPC serialization with `controlMessages: false`, so `@effect/rpc/*` notifications from an MCP client neither stop a stdio server nor make it write `@effect/rpc/Pong` to stdout.
 - **Tool annotation titles survive `tools/list`.** On the `2025-06-18` and `2025-11-25` protocol revisions, a tool's annotation `title` is reported in `tools/list` responses alongside its top-level `title` and behavioral hints.
 - **Server `extensions` are advertised, not implemented.** `layer`, `layerStdio`, `layerHttp`, and `run` accept `extensions`, a record keyed `vendor/name` with JSON settings, reported in the server capabilities of `initialize` and `server/discover`. `2026-07-28` discovery lists only object-valued settings. Behavior behind an extension is your code; Effect ships no extension helpers.
+- **Progress belongs to its request.** A progress notification queued by a handler is dropped once its request completes, is cancelled, or its client disconnects, so a late `progress` never reaches a client after the result; progress sent outside any request is delivered as before.
 - **Stateful clients only hear about changes after they initialize.** List-change notifications for registrations made before a session client's `initialize` was handled are not sent to it, over stdio, HTTP sessions, and custom transports.
-- **Cache hints for stateless clients.** `layer`, `layerStdio`, `layerHttp`, and `layerHttpRequestScoped` accept `cacheHints`, which set how long `2026-07-28` clients may treat discovery and list results as fresh: `cacheHints: { tools: { ttl: "1 minute", cacheScope: "private" } }`. The keys are `discover`, `tools`, `resources`, `resourceTemplates`, and `prompts`; omitted keys and every `resources/read` result keep `{ ttlMs: 0, cacheScope: "private" }`, and earlier revisions ignore the option. `ttl` is any `Duration.Input`, sent as whole milliseconds rounded down; a non-finite or negative `ttl`, or a scope other than `"private"`, fails the Layer with `IllegalArgumentError`. These are hints only — the server caches nothing and still applies visibility and per-call checks — but a positive `ttl` lets a client keep showing a list after registrations or per-request visibility change, and a client shared between users can reuse one user's list for another.
+- **Cache hints for stateless clients.** `layer`, `layerStdio`, `layerHttp`, and `layerHttpRequestScoped` accept `cacheHints`, which set how long `2026-07-28` clients may treat discovery and list results as fresh: `cacheHints: { tools: { ttl: "1 minute", cacheScope: "private" } }`. The keys are `discover`, `tools`, `resources`, `resourceTemplates`, `prompts`, and `skills` (for `skills/list`, `skills/get`, and `resources/directory/read`); omitted keys and every `resources/read` result keep `{ ttlMs: 0, cacheScope: "private" }`, and earlier revisions ignore the option. `ttl` is any `Duration.Input`, sent as whole milliseconds rounded down; a non-finite or negative `ttl`, or a scope other than `"private"`, fails the Layer with `IllegalArgumentError`. These are hints only — the server caches nothing and still applies visibility and per-call checks — but a positive `ttl` lets a client keep showing a list after registrations or per-request visibility change, and a client shared between users can reuse one user's list for another.
 
 ### Request-scoped HTTP and typed requirements
 
@@ -154,9 +160,10 @@ Some services exist only per request — above all, the caller. Every service a 
 - **The transport discharges what it supplies** (`McpServer.ProvidedServices`): every transport supplies `Scope`, the HTTP transports supply `HttpServerRequest`, and `McpServerClient` is supplied only when every adapter in a literal `protocols` tuple is session-based. Mixing in `v2026_07_28`, or widening the tuple to `ProtocolAdapter[]`, leaves `McpServerClient` for middleware to provide.
 - **`layerHttp` and `layerHttpRequestScoped` turn every other marker into an `HttpRouter.Request` requirement**, so an `HttpRouter.middleware<{ provides: Principal }>` provided to the transport Layer satisfies a tool that declares `dependencies: [Principal]` — and its own `401` responses keep working. On stdio and custom transports, use MCP middleware.
 - **`McpServer.middleware<{ provides: S }>()(fn)`** creates MCP middleware: `fn(effect, { method, target, payload, requestContext, headers, sessionId })` wraps each `tools/call`, `resources/read`, `prompts/get`, and `completion/complete`, and provides `S` with `Effect.provideService`. `headers` are empty on stdio, custom transports, and in-process calls. Provide `mw.layer` to the registrations it should wrap, or use `mw.layerGlobal` (or `{ global: true }`) for every request on the server; global middleware runs outside local middleware, and middleware provided both ways runs once. A middleware that itself needs `S` per request gets it from one combined outside it: `a.combine(b)` runs `b` outside `a`. A low-level `McpServer.McpServer.addTool` registration only sees local middleware when it passes `services`, so wrap such tools with global middleware.
+- **Skills are covered too.** Middleware also wraps `skills/get` (its `target` is the skill's `SKILL.md` URI); `skills/list` and `resources/directory/read` are list requests, checked once per skill. A hidden skill is left out of both lists and `skills/get` fails as not registered; its files are ordinary resources under their own URIs.
 - **Middleware failures are protocol errors.** Fail with an `McpSchema.McpErrorBase` value — a `Schema.Error` spreading `McpErrorBase.fields`, typically with a code from `-32000` to `-32019` — and the client receives a JSON-RPC error with that `code`, `message`, and `data`, never a tool result. Any numeric code is sent as is, so pick custom codes from the implementation-defined range. Defects are logged, reported to the `ErrorReporter`, and sent as `InternalError`. Middleware never runs for `initialize`.
 - **Request services win.** A service a registration captured with `Layer.provide` is only a default that the request's own context overrides, on every transport. To read construction-time services in a resource or prompt, read them in `Layer.unwrap` and close over them.
-- **`McpServer.visibility(check)`** is middleware whose check returns a boolean per request: a hidden registration is left out of list results, and calling, reading, getting, or completing it fails exactly as if it were not registered. On list requests the middleware outside the innermost visibility runs once per registration, with an `undefined` `payload`, and a failing check fails the whole list rather than hiding anything. No `list_changed` notification is sent when visibility changes. Unlike `EnabledWhen`, visibility runs your middleware and so can depend on the authenticated caller.
+- **`McpServer.visibility(check)`** is middleware whose check returns a boolean per request: a hidden registration is left out of list results, and calling, reading, getting, or completing it fails exactly as if it were not registered — on `2026-07-28` HTTP a hidden tool is reported as unknown before its `x-mcp-header` parameters are checked, so a header mismatch cannot reveal it. On list requests the middleware outside the innermost visibility runs once per registration, with an `undefined` `payload`, and a failing check fails the whole list rather than hiding anything. No `list_changed` notification is sent when visibility changes. Unlike `EnabledWhen`, visibility runs your middleware and so can depend on the authenticated caller.
 
 ```ts
 import { Context, Effect, Layer, Schema } from "effect"
@@ -274,6 +281,55 @@ export const LockCycle = Layer.effectDiscard(McpServer.McpServer.use((server) =>
 
 - **Authenticate by wrapping the HTTP layer.** `layerHttp` does not authenticate. Provide typed route middleware to it — `McpServer.layerHttp({ ..., registrations }).pipe(Layer.provide(BearerAuth.layer))`, where `BearerAuth = HttpRouter.middleware<{ provides: Principal }>()(...)` — and its routes are wrapped, because `router.add` applies the route middleware found where a route is registered; routes merged beside it (a public metadata route) are not. Declare `Principal` as a tool `dependency` (or read it in a resource or prompt handler): `layerHttp` turns that request-level requirement into the `HttpRouter` requirement `BearerAuth.layer` satisfies, so a composition that forgets the middleware does not compile. A low-level `addTool` handler may require only `McpRequestContext`, so it reads the principal with `Effect.serviceOption` and fails closed.
 
+### Skills
+
+`McpServer.skill({ uri, files, annotations? })` (a registration Layer) and `McpServer.registerSkill(options)` (its Effect form) publish an [Agent Skill](https://agentskills.io/) under the MCP Skills extension (SEP-2640). `uri` addresses the skill's `SKILL.md`, normally `skill://<path>/SKILL.md`; its last directory segment is the skill's name and must equal the frontmatter `name`. `files` (`McpServer.SkillOptions`) maps paths relative to the skill root to `McpServer.SkillFile` values — a string, a `Uint8Array`, or `{ content, mimeType? }` (otherwise the MIME type comes from the extension) — and must include `SKILL.md`.
+
+- **What clients get.** Every file is a resource served verbatim; the bytes are copied at registration. `skills/list` and `skills/get` return each skill with its parsed frontmatter and a manifest of every file's SHA-256 digest and size, and `resources/directory/read` browses the skill namespace. The server declares the `io.modelcontextprotocol/skills` extension once a skill is registered, on every supported protocol revision.
+- **Validation at build time.** The Layer fails with `IllegalArgumentError` for a name that does not match the URI, a `SKILL.md` without YAML frontmatter, frontmatter that is not a valid `McpSchema.SkillFrontmatter` (for example a non-string `metadata` value), a file path that leaves the skill, more than 512 files or 16 MiB, a skill directory that contains or lies inside another skill's, or a file URI already registered as a resource. Registering a resource at a skill file's URI afterwards is a defect.
+- **Quote ambiguous YAML.** Clients may parse frontmatter as YAML 1.1, which turns `yes` or `1.0` into a boolean or number; quote such strings.
+- Digests use `crypto.subtle`, so the runtime must provide WebCrypto.
+
+```ts
+import { Layer } from "effect"
+import { McpProtocol, McpServer } from "effect/ai"
+
+const MeritCycleSkill = McpServer.skill({
+  uri: "skill://comp/merit-cycle/SKILL.md",
+  files: {
+    "SKILL.md": `---
+name: merit-cycle
+description: Draft and review merit proposals with the comp tools
+---
+
+Read references/bands.md before proposing any increase.
+`,
+    "references/bands.md": "Proposals above the band maximum need an HRBP exception.\n"
+  }
+})
+
+export const SkillsServer = McpServer.layerHttp({
+  name: "Comp Server",
+  version: "1.0.0",
+  path: "/mcp",
+  protocols: [McpProtocol.v2026_07_28, McpProtocol.v2025_11_25],
+  registrations: Layer.mergeAll(MeritCycleSkill)
+})
+```
+
+A skill tells an agent how to use your tools; it grants nothing. Hosts must ignore `allowed-tools` and similar permission-widening frontmatter unless the user approved it, and your handlers still authorize every call.
+
+### Tracing
+
+Every request runs in a server span that follows the OpenTelemetry MCP semantic conventions; `RpcServer` tracing is off for MCP.
+
+- **Names.** `{method} {target}` for `tools/call` and `prompts/get` (for example `tools/call comp_get_salary_band`), otherwise the bare method. Resource URIs stay out of span names.
+- **Attributes.** `mcp.method.name`, `mcp.protocol.version`, `jsonrpc.request.id`, `mcp.session.id` (HTTP sessions), `network.transport` (`tcp` or `pipe`), `gen_ai.operation.name: "execute_tool"` and `gen_ai.tool.name` for tool calls, `gen_ai.prompt.name`, and `mcp.resource.uri` for resource reads and subscriptions. Tool arguments are recorded as `gen_ai.tool.call.arguments` only when `Toolkit.RecordToolArguments` is `true`.
+- **Parenting.** A W3C `traceparent` in `params._meta` becomes the span's parent, so a client's trace continues into the server; the transport span (the HTTP server span) is then linked rather than parenting it. `_meta` claims other than `traceparent` are ignored.
+- **Status.** A tool result with `isError: true` sets `error.type: "tool_error"`. A JSON-RPC error sets `rpc.status_code`; request errors (parse error, invalid request, method not found, invalid params, resource not found) leave the span successful, while server errors also set `error.type` to the code.
+
+> **Migration:** MCP spans are no longer named `McpServer.*` and no longer carry `rpc.*` attributes other than `rpc.status_code`. Update dashboards, sampling rules, and alerts to the names and attributes above.
+
 For the full architecture — protocol eras, catalog design, OAuth resource-server middleware, sealed `requestState`, a dual-era confirmation gate, idempotency, and in-process tests — read [Exposing an Effect Application over MCP](../deep-dives/exposing-an-effect-application-over-mcp).
 
 **Reach for it when** you want capabilities usable from Claude Desktop, an IDE, or any MCP client — without writing JSON-RPC by hand.
@@ -282,17 +338,19 @@ For the full architecture — protocol eras, catalog design, OAuth resource-serv
 
 `effect/ai/McpClient` — experimental
 
-A scoped client for **calling another MCP server** over stdio or Streamable HTTP, on the `2025-11-25` or `2026-07-28` protocol revision. The transport fixes the revision: pass one `protocol` adapter; the client does not negotiate. It covers discovery (`listTools`, `listPrompts`, `listResources`), `callTool`, `getPrompt`, `readResource`, and adapting the remote tools to a `Toolkit`. Resource templates, completion, logging, subscriptions, roots, sampling, elicitation, OAuth, and retries are not implemented: server requests other than `ping` get method-not-found, and a `2026-07-28` `input_required` result fails with reason `UnsupportedError`.
+A scoped client for **calling another MCP server** over stdio or Streamable HTTP, on the `2025-11-25` or `2026-07-28` protocol revision. The transport fixes the revision: pass one `protocol` adapter; the client does not negotiate. It covers discovery (`listTools`, `listPrompts`, `listResources`), `callTool`, `getPrompt`, `readResource`, the Skills extension, and adapting the remote tools to a `Toolkit`. `client.capabilities` holds the server's advertised `McpSchema.ServerCapabilities`. Resource templates, completion, logging, subscriptions, roots, sampling, elicitation, OAuth, and retries are not implemented: server requests other than `ping` get method-not-found, and a `2026-07-28` `input_required` result fails with reason `UnsupportedError`.
 
 - **Layers own the connection.** `McpClient.layerHttp({ name, version, protocol, url, headers? })` needs an `HttpClient`; a session-era HTTP session is closed with `DELETE` when the scope ends. `McpClient.layerStdio({ name, version, protocol, command })` spawns the server through `ChildProcessSpawner` (for example `NodeServices.layer`); on close it shuts stdin, waits five seconds, then sends `SIGTERM` and, five seconds later, `SIGKILL`. Without a Layer, provide a `McpClient.Transport` from `McpClient.http` / `McpClient.stdio` to `McpClient.make` inside `Effect.scoped`, and keep every use inside that scope.
 - **`callTool` takes a discovered descriptor**, not a name, because on `2026-07-28` HTTP its `x-mcp-header` annotations decide which arguments are mirrored into headers. Without `schema` it returns the whole `McpSchema.CallToolResult`, including `isError: true` results — the caller decides. With `schema` it decodes `structuredContent` (the schema's decoding services become requirements) and a tool-reported error fails with reason `ToolError`, which keeps the result. Remote input schemas are metadata only; arguments are not validated against them.
-- **Deadlines and limits.** Initialization and each complete discovery scan share one deadline (`timeout`, default 60 seconds). `callTool`, `getPrompt`, and `readResource` are unbounded unless given `{ timeout }`. Discovery follows cursors and fails with `LimitError` after 100 pages, 10,000 items, or a repeated cursor; a missing server capability makes a list empty and a retrieval fail with `UnsupportedError`. Messages over `maxMessageBytes` (16 MiB by default) are rejected both ways. The client never retries, so a `TimeoutError` says nothing about whether the server completed the call, and it creates no spans.
+- **Deadlines and limits.** Initialization and each complete discovery scan share one deadline (`timeout`, default 60 seconds). `callTool`, `getPrompt`, `readResource`, `getSkill`, and `readSkillResource` are unbounded unless given `{ timeout }`. Discovery follows cursors and fails with `LimitError` after a repeated cursor or the page and item limits — 100 and 10,000 by default, set for the client with `discoveryLimits: { maxPages, maxItems }` and per call with `{ limits }` (nonnegative safe integers, otherwise `ConfigurationError`); a missing server capability makes a list empty and a retrieval fail with `UnsupportedError`. Messages over `maxMessageBytes` (16 MiB by default) are rejected both ways. The client never retries, so a `TimeoutError` says nothing about whether the server completed the call, and it creates no spans.
 - **`McpClient.toolkit(client, prefix?)`** snapshots the remote tools as a `Toolkit.WithHandler` that `LanguageModel` accepts, non-strict, with `McpClientError` as each tool's `failureMode: "error"` failure. Results become text; binary content and tool-reported errors fail the handler. Build a new toolkit to see server changes. Treat these tools like any [externally sourced tool](ai-language-models): they run code you do not control.
+- **`McpClient.toolkit(client, options)`** configures that binding. `tools` binds an **approved snapshot** of descriptors instead of discovering, so a server cannot add or change a tool until you re-approve it. `resultMode: "complete"` returns the whole `CallToolResult` and sends its content to the model as text and file parts; `failureMode: "return"` hands `McpClientError` failures (transport errors included, and `ToolError` with the failed result) back to the model. `timeout` bounds each call. `trustAnnotations: true` copies the server's hints into `Tool.Readonly` / `Destructive` / `Idempotent` / `OpenWorld` / `Title` but never sets approval. `transformTool(tool, descriptor)` derives each tool before binding — `setNeedsApproval`, `annotate`, `addDependency` — keeping its name, schemas, and failure mode. Each tool is a `McpClient.RemoteTool<ResultMode, FailureMode, Requirements>` annotated with its `McpClient.ToolDescriptor`, which is server-provided and untrusted.
+- **Skills.** Pass `extensions: { skills: true }` to declare the extension; without it the skill methods fail with `ConfigurationError`. `listSkills()` returns every `McpSchema.Skill` (none when the server does not declare the extension; an invalid entry fails the listing unless `onInvalidSkill` collects it), `getSkill({ uri })` fetches one by its `SKILL.md` URI, and `readResourceDirectory({ uri })` lists a skill directory when the server declares `directoryRead`. Read skill files with `readSkillResource({ skill, uri })`, not `readResource`: it reads only files in the skill's manifest (or directory, for a `"dynamic"` skill) and fails with `ValidationError` unless the bytes match the listed digest and size and a `SKILL.md`'s frontmatter equals the listed one. Only `name` and `description` are checked on received frontmatter; decode with `McpSchema.SkillFrontmatter` for the rest, and never let `allowed-tools` widen permissions without user approval.
 
 ```ts
 // @effect-diagnostics experimentalApiUsage:off
 import { Effect, Layer, Schema } from "effect"
-import { McpClient, McpProtocol } from "effect/ai"
+import { McpClient, McpProtocol, type McpSchema } from "effect/ai"
 import { FetchHttpClient } from "effect/http"
 
 const ReportsMcp = McpClient.layerHttp({
@@ -304,6 +362,21 @@ const ReportsMcp = McpClient.layerHttp({
 }).pipe(Layer.provide(FetchHttpClient.layer))
 
 const Headcount = Schema.Struct({ count: Schema.Number })
+
+// A reviewed snapshot of the server's tools; anything else stays unbound.
+declare const approvedTools: ReadonlyArray<McpSchema.Tool>
+
+export const reportsToolkit = Effect.gen(function*() {
+  const client = yield* McpClient.McpClient
+  return yield* McpClient.toolkit(client, {
+    prefix: "reports__",
+    tools: approvedTools,
+    timeout: "10 seconds",
+    // Every remote write needs a human decision before it runs.
+    transformTool: (tool, descriptor) =>
+      descriptor.annotations?.readOnlyHint === true ? tool : tool.setNeedsApproval(true)
+  })
+}).pipe(Effect.provide(ReportsMcp))
 
 export const headcount = (orgUnit: string) =>
   Effect.gen(function*() {

@@ -13,7 +13,7 @@ Represent the long-lived application as a Layer, put every background fiber and 
 - **Program type:** `Layer.launch(WorkerLive)` is `Effect<never, never, never>` after the Layer has no unsatisfied dependencies.
 - **Required Layers:** `WorkerLive` is the application Layer. Real production workers may additionally require Config, database, HTTP, and observability Layers.
 - **Lifetime and interruption:** `NodeRuntime.runMain` installs SIGINT/SIGTERM handling and interrupts the main fiber. `Layer.launch` closes the Layer scope; the scoped child is interrupted and its finalizer runs.
-- **Exit code:** `0` on success, `130` when the Cause holds only interruptions (the Ctrl+C / SIGTERM path here), otherwise the failing error's `[Runtime.errorExitCode]` or `1`. The runner calls `process.exit` only *after* teardown, and only when a signal arrived or the code is non-zero.
+- **Exit code:** `0` on success, `130` when the Cause holds only interruptions (the Ctrl+C / SIGTERM path here), otherwise the failing error's `[Runtime.errorExitCode]` or `1`. An interruption annotated with `Runtime.InterruptExitCode` uses that code instead of `130` when every interruption in the Cause carries one (the largest wins). The runner calls `process.exit` only *after* teardown, and only when a signal arrived or the code is non-zero.
 
 ## Complete file
 
@@ -58,7 +58,7 @@ The core runtime keeps the process alive on its own now — a reference-counted 
 | --- | --- | --- |
 | Signals | SIGINT and SIGTERM interrupt the main fiber. A repeated signal does not force an exit: the process ends when the finalizers do, so every finalizer needs its own bound. | none — give slow finalizers a timeout |
 | Error reporting | A failure that is not interruption-only is logged once with `Effect.logError` | `disableErrorReporting: true`, or set `[Runtime.errorReported] = false` on an error class that was already reported |
-| Exit code | `Runtime.defaultTeardown`: `0` / `130` / `[Runtime.errorExitCode]` or `1` | `teardown: (exit, onExit) => …` |
+| Exit code | `Runtime.defaultTeardown`: `0` / `130` / `[Runtime.errorExitCode]` or `1` | `teardown: (exit, onExit) => …`; or, for a component that ends the program by interrupting the main fiber on purpose, `Fiber.interruptAs(fiber, undefined, Context.make(Runtime.InterruptExitCode, 0))` — RPC and MCP stdio servers do this after stdin closes, so they exit `0` |
 
 Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime). The tagged source additionally uses `130` for an interruption-only exit and listens for SIGTERM as well as SIGINT; this page follows the source. The runner itself is described in [Core Runtime & Execution](../foundations/fibers-scopes-runtimes#runtime).
 

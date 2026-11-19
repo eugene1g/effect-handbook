@@ -27,7 +27,7 @@ The same `Toolkit` value serves both surfaces. Define each tool once with `Tool.
 
 **What Effect does not ship.** Say this plainly in design reviews so nobody waits for it:
 
-- **Only a minimal MCP client.** [`McpClient`](../systems/mcp#mcpclient) (experimental) discovers and calls a remote server's tools, prompts, and resources on `2025-11-25` or `2026-07-28`, and `McpClient.toolkit` hands the remote tools to a model. It has no OAuth, retries, sampling, elicitation, or subscriptions, and remote tools still follow the rules for [dynamic and MCP-sourced tools](building-a-production-ai-capability#adjacent-capabilities-same-discipline).
+- **Only a minimal MCP client.** [`McpClient`](../systems/mcp#mcpclient) (experimental) discovers and calls a remote server's tools, prompts, resources, and Agent Skills on `2025-11-25` or `2026-07-28`, and `McpClient.toolkit` hands the remote tools (or an approved snapshot of them) to a model. It has no OAuth, retries, sampling, elicitation, or subscriptions, and remote tools still follow the rules for [dynamic and MCP-sourced tools](building-a-production-ai-capability#adjacent-capabilities-same-discipline).
 - **No OAuth helpers.** Nothing verifies tokens, serves protected-resource metadata, or issues challenges. You write a middleware and a route; this guide shows both.
 - **No Tasks extension helpers.** Long-running work has no built-in task handle. Return a job id from a tool and expose its status as a tool or resource. The server's `extensions` option advertises extension capabilities, but implementing an extension is your code.
 - **No full legacy HTTP transport.** `layerHttp` implements the single-endpoint Streamable HTTP topology only: no standalone GET event stream, no event resumption, and no session expiry. Client-initiated session termination is available as an opt-in: pass `allowSessionTermination: true` and DELETE on the session path interrupts active requests and returns `404` for subsequent ones.
@@ -38,7 +38,7 @@ The same `Toolkit` value serves both surfaces. Define each tool once with `Tool.
 
 Pick the transport by who launches the process.
 
-- **stdio** (`McpServer.layerStdio`) — the client starts your server as a subprocess and speaks newline-delimited JSON-RPC over stdin/stdout. Use it for desktop assistants and IDEs on the user's machine. The process runs as the user, so authentication is the operating system's job. Stdout carries protocol frames only: route logs to stderr, or the first log line corrupts the stream.
+- **stdio** (`McpServer.layerStdio`) — the client starts your server as a subprocess and speaks newline-delimited JSON-RPC over stdin/stdout. Use it for desktop assistants and IDEs on the user's machine. The process runs as the user, so authentication is the operating system's job. Stdout carries protocol frames only: route logs to stderr, or the first log line corrupts the stream. When the client closes stdin, accepted requests finish, open subscriptions end, and the process exits with code `0`.
 - **Streamable HTTP** (`McpServer.layerHttp`) — your server listens and remote clients POST JSON-RPC to one path. Use it for shared, multi-tenant deployments. You must authenticate every request.
 
 `layerHttp` provides `McpServer`, can fail to build with `Cause.IllegalArgumentError`, and requires `HttpRouter.HttpRouter` plus whatever its `registrations` still need per request (next section): it registers a POST route at `path` on whatever router is in context, and answers GET, PUT, PATCH, and OPTIONS on that path with `405`. DELETE also returns `405` unless session termination is explicitly enabled. Its boundary checks are strict:
@@ -66,7 +66,8 @@ For a serverless host such as Cloudflare Workers, choose `McpServer.layerHttpReq
 - **Any replica can answer.** Session-era sessions live in an in-memory map in the process that issued them, so session clients need sticky routing; stateless requests do not.
 - **Delivery is at most once per attempt.** A client that loses a response retries with a new JSON-RPC id. The server cannot tell a retry from a new intent, so writes need idempotency keys derived from the intent, never from the request id.
 - **Cancellation is a closed stream.** On stateless HTTP, `notifications/cancelled` is accepted and ignored; the client cancels by closing the response stream, which interrupts your handler's fiber. Interruption can land anywhere before your commit, so make writes atomic and idempotent.
-- **Logging and progress follow the request.** A per-request log level in `_meta` sets `References.CurrentLogLevel` for the handler, and progress notifications reach the client only for the `progressToken` its request carried.
+- **Logging and progress follow the request.** A per-request log level in `_meta` sets `References.CurrentLogLevel` for the handler, and progress notifications reach the client only for the `progressToken` its request carried, and only until that request completes, is cancelled, or disconnects.
+- **Traces follow the client.** A W3C `traceparent` in `params._meta` parents the server's `tools/call <name>` span, so one trace spans the agent and your handlers (see [Tracing](../systems/mcp#tracing)).
 
 ### Registrations and request-level services
 
@@ -170,6 +171,8 @@ Choose the primitive by who decides to use it.
 | Prompt | The user, from a menu | A reusable task template that steers the model through your tools | `review-merit-proposals` |
 
 When in doubt, make it a tool: every client supports tools, and support for resources and prompts varies by host. Never make a write a resource or a prompt.
+
+To teach agents a workflow across several tools — "read the band before drafting, never submit without confirmation" — publish an Agent Skill with [`McpServer.skill`](../systems/mcp#skills): a `SKILL.md` plus supporting files that hosts with the Skills extension discover and load. A skill is guidance, like a description; it never grants permissions, and handlers keep enforcing every rule it states.
 
 ### Names, descriptions, and annotations
 
@@ -868,7 +871,7 @@ Read the gate as four guarantees. The user confirms the exact proposal ids and t
 
 **Outcomes.** The [tool outcome table](../systems/mcp#mcpserver) lists what a client receives for each toolkit handler outcome on each protocol era. Design to its two categories:
 
-- **Declared failures** (`failure` on `Tool.make`) are part of the contract. The client receives them as an `isError: true` result — the error's `message` under `failureMode: "error"` when it is an `Error` with a message, otherwise the schema-encoded payload — and the server neither logs nor reports them. Use them for outcomes the model can act on: band not found, insufficient scope, a conflicting request id. They are visible to the client, so keep internal detail out.
+- **Declared failures** (`failure` on `Tool.make`) are part of the contract. The client receives them as an `isError: true` result — the error's `message` under `failureMode: "error"` when it is an `Error` with a message, otherwise the payload's JSON encoding through the failure schema — and the server neither logs nor reports them. Use them for outcomes the model can act on: band not found, insufficient scope, a conflicting request id. They are visible to the client, so keep internal detail out.
 - **Everything else** — undeclared failures, defects, results that fail their own `success` schema — reaches the client only as a fixed internal-error message, and is logged at error level and handed to every configured `ErrorReporter`. Turn infrastructure failures into defects with `Effect.orDie` rather than widening the tool's contract with them.
 
 In the low-level `addTool` path, the mapping is yours: a handler's `InternalError` message is sent to the client as an `isError` result on `2025-11-25` and later, so put only a fixed message in it, and log or report the cause yourself.
@@ -1098,4 +1101,5 @@ Handler logic itself — scope checks, idempotency, tenant filters — is ordina
 - **Idempotency.** Every write keyed by intent (natural key or a scoped client request id), claimed atomically with the write, first outcome replayed; never keyed on the JSON-RPC id.
 - **Failures.** Domain outcomes declared; infrastructure failures turned into defects; an `ErrorReporter` provided to the capability Layers; fixed messages in low-level `InternalError`s.
 - **Audit.** Subject, client id, tenant, tool, arguments digest, and idempotency key recorded for every write; `clientInfo` treated as self-reported.
+- **Tracing.** Dashboards keyed on the OpenTelemetry MCP span names (`tools/call <name>`) and `mcp.*` attributes; tool arguments recorded only where traces may hold user data (`Toolkit.RecordToolArguments`).
 - **Upgrades.** All MCP modules are unstable: pin Effect, rerun the in-process suite and the catalog snapshot on every upgrade.

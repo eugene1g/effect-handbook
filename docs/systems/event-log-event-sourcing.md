@@ -295,7 +295,38 @@ A plaintext server: accepts unencrypted batches, runs registered handlers server
 
 Duplicate and conflict detection is indexed once per incoming batch: `Storage.entriesAfter` receives the batch as an optional third argument (custom storages that ignore it keep working) and returns `RemoteEntry` values, and SQL storage creates a `<prefix>_event_key_idx` index on startup. Inside a SQL transaction, publication waits for the outermost commit and is dropped on rollback.
 
-During the `Authenticate` handshake, `EventLogServerAuthorization`'s identity check runs before the server resolves (or creates) the session's signing-key binding, so a rejected identity never causes a session-auth binding to be looked up or persisted on its behalf.
+During the `Authenticate` handshake the server first calls `EventLogServerAuthorization.authorizeIdentity({ publicKey, signingPublicKey })`, then verifies the signature against the presented signing key, and only then resolves (or creates) the identity's signing-key binding. A rejected identity or a bad signature therefore never looks up or persists a binding, and a verified key that differs from the identity's existing binding is rejected like a bad signature.
+
+An identity's `publicKey` is an identifier, not a secret, and nothing ties it to a signing key: without a policy, the first signing key that authenticates for a `publicKey` is bound. To close that first-use window, record each identity's signing key when you provision it (`EventLogSessionAuth.deriveSigningPublicKey(identity)` returns it) and reject any other key in `authorizeIdentity`. The server always passes `signingPublicKey`; the field is optional only for source compatibility, so a policy that checks it should reject when it is absent.
+
+```ts
+import { Effect, Layer } from "effect"
+import { Mac } from "effect/crypto"
+import { EventLogServerUnencrypted } from "effect/eventlog"
+
+const { EventLogServerAuthError, EventLogServerAuthorization } = EventLogServerUnencrypted
+
+// The signing keys recorded at provisioning time, by identity public key.
+declare const provisionedSigningKey: (
+  publicKey: string
+) => Effect.Effect<Uint8Array<ArrayBuffer> | undefined>
+
+export const AuthorizationLive = Layer.succeed(EventLogServerAuthorization, {
+  authorizeRead: () => Effect.void,
+  authorizeWrite: () => Effect.void,
+  authorizeIdentity: Effect.fn("authorizeIdentity")(function*({ publicKey, signingPublicKey }) {
+    const expected = yield* provisionedSigningKey(publicKey)
+    if (
+      expected === undefined || signingPublicKey === undefined ||
+      !Mac.timingSafeEqual(expected, signingPublicKey)
+    ) {
+      return yield* new EventLogServerAuthError({ reason: "Forbidden", publicKey })
+    }
+  })
+})
+```
+
+The same check is available to a custom server: `EventLogServer.layerRpcHandlers({ authorizeIdentity })` calls `authorizeIdentity(publicKey, signingPublicKey)` with both keys.
 
 Use when the server is trusted and should run handlers/projections on synced events without an encryption layer.
 
@@ -303,7 +334,7 @@ Use when the server is trusted and should run handlers/projections on synced eve
 
 `effect/eventlog` — unstable
 
-Challenge-response auth for sync sessions. A peer proves control of a session signing key (Ed25519): the server issues a short-lived challenge with `makeSessionAuthChallenge`; the client signs a canonical payload (remote id + challenge + event-log public key + signing key) via `signSessionAuthPayload`; the server verifies with `verifySessionAuthenticateRequest`. Domain-separated by the `"eventlog-auth-v1"` context string.
+Challenge-response auth for sync sessions. A peer proves control of a session signing key (Ed25519): the server issues a short-lived challenge with `makeSessionAuthChallenge`; the client signs a canonical payload (remote id + challenge + event-log public key + signing key) via `signSessionAuthPayload`; the server verifies with `verifySessionAuthenticateRequest`. Domain-separated by the `"eventlog-auth-v1"` context string. `EventLogServer` keeps each pending challenge on the RPC connection that asked for it: overlapping `Hello`s share it until `Authenticate` consumes it, it expires after `SessionAuthChallengeTimeToLiveMillis`, and it is released when the client disconnects, so challenges cannot pile up across connections. `deriveSigningPublicKey(identity)` returns, as an `Effect<Uint8Array>`, the Ed25519 signing public key an identity will present (derived from its private key on the WebCrypto reference) — record it at provisioning time for the authorization policy above.
 
 Use when understanding or customizing how clients authenticate to an event-log server before replicating.
 

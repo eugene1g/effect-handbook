@@ -119,7 +119,7 @@ A fiber-safe FIFO queue for passing values from producers to consumers: each val
 | `Queue.sliding(n)` | The oldest buffered value is evicted | `offer` returns `true` — the eviction is **not** reported | The oldest values | Only the latest state matters (progress, presence, prices) |
 | `Queue.unbounded()` | Never full | Nothing | Nothing, until memory runs out | The producer is already bounded by something else you can name |
 
-`Queue.make({ capacity, strategy })` is the general constructor: omit `capacity` for an unbounded queue, and `strategy` defaults to `"suspend"`. `Queue.bounded(0)` is a rendezvous queue — it buffers nothing, and an `offer` completes only when a consumer takes the value. In every variant `offer` also returns `false` once the queue has ended, failed, or shut down. `offerAll` copies the values it buffers, so mutating the caller's array afterwards does not change what consumers receive.
+`Queue.make({ capacity, strategy })` is the general constructor: omit `capacity` for an unbounded queue, and `strategy` defaults to `"suspend"`. `Queue.bounded(0)` is a rendezvous queue — it buffers nothing, and an `offer` completes only when a consumer takes the value; an `offerAll` hands one value to each taker already waiting and suspends with the rest until more takers arrive. The other zero-capacity variants also hand values only to waiting takers: `Queue.dropping(0)` rejects an offer (`false`, or the remainder from `offerAll`) when nobody is waiting, and `Queue.sliding(0)` gives waiting takers the newest values and silently discards an offer nobody is waiting for — it still returns `true`. In every variant `offer` also returns `false` once the queue has ended, failed, or shut down. `offerAll` copies the values it buffers, so mutating the caller's array afterwards does not change what consumers receive.
 
 ```ts
 import { Cause, Effect, Queue } from "effect"
@@ -522,7 +522,7 @@ const fetchManagerAndReport = (managerId: string, reportId: string) =>
 | `Pool.get(pool)` | Until the surrounding `Scope` closes | `Scope` |
 | `Pool.reserve(pool, item)` | Takes an already-leased item out of shared circulation until the `Scope` closes; only meaningful when `concurrency > 1` | `Scope` |
 
-Both `use` and `get` wait when every item is busy and the pool is at `max`, and fail with the acquisition error `E` when creating a new item fails. After the pool's scope closes they are interrupted.
+Both `use` and `get` wait when every item is busy and the pool is at `max`, and fail with the acquisition error `E` when creating a new item fails. After the pool's scope closes they are interrupted. The pool keeps its items in a child of that scope which closes only when the pool itself shuts down, so finalizers registered in the same scope after the pool was made — which run first, in reverse order — can still borrow from it, even when idle items have expired and a fresh one must be acquired.
 
 The `concurrency` option allows multiple fibers to share a single pooled item simultaneously — useful for thread-safe libraries where serialization is not needed. Set `targetUtilization` to control how full existing items must be before a new one is created; it defaults to `1` and the implementation clamps it to the inclusive range `0.1`–`1`.
 
@@ -686,7 +686,7 @@ const program = Effect.scoped(
 )
 ```
 
-`RcMap.keys(map)` inspects active keys. `RcMap.invalidate(map, key)` forces re-acquisition on next use. `touch` resets a key's idle TTL without using the resource. `RcMap.getOption(map, key)` borrows an entry only if it already exists: it returns `Option.none()` without running `lookup` for an absent key, and otherwise retains the entry for the current `Scope` exactly like `get` — useful for "flush the regional client if one is open" paths that must not open a connection just to close it.
+`RcMap.keys(map)` inspects active keys. `RcMap.invalidate(map, key)` forces re-acquisition on next use. `touch` resets a key's idle TTL without using the resource. Idle time, `touch` included, is measured on the `Clock` of the context the map was made in, and the idle-expiry fiber runs in that context rather than the last borrower's: to drive expiry with `TestClock`, build the map under the test clock; a borrower that provides another `Clock` does not change when its entry expires. `RcMap.getOption(map, key)` borrows an entry only if it already exists: it returns `Option.none()` without running `lookup` for an absent key, and otherwise retains the entry for the current `Scope` exactly like `get` — useful for "flush the regional client if one is open" paths that must not open a connection just to close it.
 
 When the `RcMap`'s owner scope closes, it attempts every entry's release, clears the map, and then fails with all release defects together (this also covers resources managed through `LayerMap`). Releases nobody observes — idle expiry, or the lookup of a caller interrupted before it received its entry — are logged at `References.UnhandledLogLevel`.
 

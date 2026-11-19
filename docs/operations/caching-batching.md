@@ -2,7 +2,7 @@
 
 Caching avoids repeating the same lookup result; batching combines many logically independent requests into fewer physical calls. `Cache` stores both successful and failed lookup `Exit` values, while `ScopedCache` owns resource lifetimes. `Request` and `RequestResolver` describe data fetching so Effect can deduplicate and batch it safely.
 
-> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/05_batching) builds a batched `RequestResolver`.
+> **Official example:** The release-matched [`ai-docs` batching example](https://github.com/Effect-TS/effect/tree/effect%404.1.4/ai-docs/src/05_batching) builds a batched `RequestResolver`.
 
 > **Official guides:** [Batching](https://effect.website/docs/v4/batching) (it enables batching with `Effect.forEach(..., { batching: true })`, an option `Effect.forEach` does not have — see [RequestResolver](#requestresolver) for what triggers a batch here). These guides track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
@@ -341,7 +341,9 @@ const program = Effect.scoped(
 
 > **Warning:** If your value has no resources to release, use `Cache` instead. `ScopedCache` runs scope machinery on every entry. Reach for it only when your lookup calls `Effect.acquireRelease`, opens a socket, or otherwise needs cleanup on eviction.
 
-`ScopedCache.makeWith` accepts the same `(exit, key) => Duration` policy as `Cache.makeWith`, and the [key](#keys-are-logical-values) and [failure TTL](#failure-and-freshness-policy) guidance applies unchanged. Three lifetime details are specific to it: `ScopedCache.invalidateAll` detaches every entry from the table *before* closing the entry scopes (concurrently), so an entry that a finalizer re-creates is kept and released later instead of being discarded unreleased; `invalidateAll` and owner-scope shutdown attempt every entry release and then propagate all release defects together, and a release failure discovered by expiry during a `keys` / `values` / `entries` scan, where no caller observes it, is logged at `References.UnhandledLogLevel`; and after the cache's own scope has closed, `get`, `set`, `refresh`, and the invalidation operations are interrupted rather than reopening anything. A shared lookup also survives any single caller's interruption — if every waiter leaves while the lookup is still pending, the lookup itself is interrupted and its scope closed, and missing-key lookups (including `refresh`) run in a daemon fiber so one caller's cancellation never corrupts the entry for the others.
+`ScopedCache.makeWith` accepts the same `(exit, key) => Duration` policy as `Cache.makeWith`, and the [key](#keys-are-logical-values) and [failure TTL](#failure-and-freshness-policy) guidance applies unchanged. Three lifetime details are specific to it: `ScopedCache.invalidateAll` detaches every entry from the table *before* closing the entry scopes (concurrently), so an entry that a finalizer re-creates is kept and released later instead of being discarded unreleased; `invalidateAll` and owner-scope shutdown attempt every entry release and then propagate all release defects together, and a release failure discovered by expiry during a `keys` / `values` / `entries` scan, where no caller observes it, is logged at `References.UnhandledLogLevel`; and after the cache's own scope has closed, `get`, `set`, `refresh`, and the invalidation operations are interrupted rather than reopening anything — including a `get` or `getOption` already waiting on a lookup that finishes after the close, whose fresh entry scope is closed instead of cached. A shared lookup also survives any single caller's interruption — if every waiter leaves while the lookup is still pending, the lookup itself is interrupted and its scope closed, and missing-key lookups (including `refresh`) run in a daemon fiber so one caller's cancellation never corrupts the entry for the others.
+
+**Lookups are not traced under the caller's span.** An entry is shared by every later caller, so a lookup does not inherit the span active when `get` or `refresh` triggered it; spans created inside the lookup become children of the span that was active when the cache was constructed, if any, and the entry's finalizers do not keep the first caller's span alive. A caller that needs the wait in its own trace wraps the `get` in `Effect.withSpan`, which times the wait without parenting the shared lookup.
 
 **When to use:** the cached value holds a resource (live connection, file handle, in-process child) that must be released precisely on expiry or eviction.
 
@@ -394,6 +396,8 @@ The completion helpers are Effect-returning counterparts of `entry.completeUnsaf
 | `Request.completeEffect(entry, effect)` | Whatever `effect` produces — runs it, then completes with its success or typed failure |
 
 An entry can be completed once; later completions are ignored.
+
+Requests are structural values: `Equal.equals` and `Hash` read a request's own fields, whatever order they were supplied in, so two `new GetEmployeeById({ id: 42 })` values are the same key for `RequestResolver.withCache`. The comparison reads fields only, not the class — give requests that share a field shape and a cache a `_tag` (`Request.TaggedClass`).
 
 **When to use:** building a `RequestResolver`. `Request` is the typed declaration of what each resolver call produces; it is rarely used in isolation.
 

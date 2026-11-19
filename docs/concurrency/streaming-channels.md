@@ -2,7 +2,7 @@
 
 `Stream<A, E, R>` is a pull-based source: the consumer requests the next chunk, the stream computes it (possibly failing with `E`, needing services `R`), emits the chunk, and waits. This pull loop provides automatic back-pressure. `Sink<A, In, L, E, R>` folds chunks into a final answer. `Channel` is the bidirectional primitive both are built from. In practice: live in `Stream` 95% of the time; reach for `Channel` only when authoring a new operator.
 
-> **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
+> **Official examples:** Effect's release-matched [`ai-docs` Stream examples](https://github.com/Effect-TS/effect/tree/effect%404.1.4/ai-docs/src/03_stream) cover creation, transformation, consumption, and NDJSON encoding.
 >
 > **Official guides:** [Introduction to Streams](https://effect.website/docs/v4/stream/introduction), [Sink introduction](https://effect.website/docs/v4/sink/introduction); section-specific guides are linked where they apply. These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
@@ -157,6 +157,7 @@ Official guide: [Creating Streams](https://effect.website/docs/v4/stream/creatin
 | Rate control | `throttle` / `debounce(duration)` / `schedule(schedule)` | `throttle` is a token bucket charged per *chunk* via `cost(chunk)`: `"shape"` delays, `"enforce"` drops the whole over-budget chunk (`rechunk(1)` first for per-element dropping), `burst` raises the bucket to `units + burst`. `debounce` emits only the last value after a quiet period. `schedule` spaces every element by a `Schedule`. |
 | Keyed sub-streams | `groupByKey(f)` / `groupBy` | Emits `[key, Stream]` pairs; consume them with `flatMap(..., { concurrency: "unbounded" })` or a finite bound. Each key owns a queue (`bufferSize`, default 4096 elements); `idleTimeToLive` retires quiet keys, which matters when the key space is large. If a substream consumer stops early, the underlying queue is shut down so the source is not left hanging; when the upstream ends or fails, every open group ends too. |
 | Dedupe | `changes` | Drops consecutive elements that are `Equal.equals`. |
+| Runs of equal keys | `groupAdjacentBy(f)` | Emits `[key, NonEmptyArray]` for each run of consecutive elements whose keys are `Equal.equals`; a later run with the same key is a separate group. It holds only the current run, and when upstream fails the run in progress is emitted before the error. |
 | Text framing | `decodeText` / `splitLines` / `encodeText` | `decodeText` decodes incrementally, so a multi-byte character may straddle chunks; on normal completion an incomplete trailing character becomes U+FFFD (`Channel.decodeText(encoding, { fatal: true })` turns it into a defect instead). `splitLines` accepts `\n`, `\r\n`, and a lone `\r`, and carries an incomplete line to the next pull. |
 | Shape the output | `drain` / `intersperse` | `drain` keeps a stream's effects but emits nothing, so it can be `merge`d in as a background side-stream. `intersperse` inserts a separator between elements. |
 
@@ -783,7 +784,7 @@ const sampleGrant = new EquityGrant({
 })
 ```
 
-> **Warning:** Blank lines raise `NdjsonError` by default. Pass `{ ignoreEmptyLines: true }` to `decodeString` / `decodeSchemaString` to skip them. Handle failures with `Stream.catchTag("NdjsonError", ...)`.
+> **Warning:** Blank lines raise `NdjsonError` by default. Pass `{ ignoreEmptyLines: true }` to any decoder (`decode`, `decodeString`, `decodeSchema`, `decodeSchemaString`, and the duplex variants) to skip them; a line holding only spaces or tabs counts as blank. Handle failures with `Stream.catchTag("NdjsonError", ...)`.
 
 Both text lines and UTF-8 code points may straddle incoming chunks: the decoder buffers either boundary correctly. You do not need to align network chunks to newlines or character boundaries.
 
@@ -853,7 +854,7 @@ const runEvents = payrollRunFeed.pipe(
 )
 ```
 
-Decoding limits the pending event to 10 MiB of **string code units** by default, not UTF-8 bytes; set `{ maxEventSize }` on `decode` / `decodeDataSchema` when the protocol needs a different bound, and handle an oversized event as `SseError` with an `EventTooLarge` reason. Line endings may be `\n`, `\r\n`, or `\r`, mixed freely within one stream. Encoding also splits all three forms into separate `data:` lines, so a lone carriage return cannot discard the rest of the payload. Generated [`HttpApiClient`](../interfaces/http-api#httpapiclient) methods accept the same decode options per call as `sseOptions`.
+Decoding limits the pending event to 10 MiB of **string code units** by default, not UTF-8 bytes; set `{ maxEventSize }` on `decode` / `decodeDataSchema` when the protocol needs a different bound, and handle an oversized event as `SseError` with an `EventTooLarge` reason. Line endings may be `\n`, `\r\n`, or `\r`, mixed freely within one stream. Encoding also splits all three forms into separate `data:` lines, so a lone carriage return cannot discard the rest of the payload, and it removes CR and LF from `event` and `id` values (and NUL from `id`), so a caller-supplied event name or ID cannot inject extra fields or events into the stream. Generated [`HttpApiClient`](../interfaces/http-api#httpapiclient) methods accept the same decode options per call as `sseOptions`.
 
 By default, a named event with **no `data:` line** is dropped, as in the WHATWG algorithm. Opt into `Sse.decode({ dispatchEmptyNamedEvents: true })` for protocols such as graphql-sse that use `event: complete\n\n`; it emits `{ event: "complete", data: "" }` (plus any inherited ID). This is distinct from an explicit empty `data:` line, which already dispatches an empty payload. Long unterminated lines split across chunks are accumulated and joined at the line ending rather than repeatedly rescanned; keep the size limit even with that parsing improvement.
 
@@ -863,7 +864,7 @@ By default, a named event with **no `data:` line** is dropped, as in the WHATWG 
 
 `effect/encoding/Csv` — unstable
 
-Streaming RFC 4180 CSV over text (`decodeString` / `encodeString`) or UTF-8 bytes (`decode` / `encode`). Cells are strings kept exactly as written; quoted fields may contain delimiters, line breaks, and doubled quotes. Decoders accept LF, CRLF, and CR and strip a leading BOM. With `{ headers: true }` the first record supplies unique field names and every later record becomes an object of the same width; a duplicate header or a row of a different width fails with `CsvError` (`kind: "Header"`, plus one-based `record` and `line`); malformed quoting is `kind: "Syntax"` with a `column`. `delimiter` is one character (default `","`), `maxRecordSize` bounds one record in UTF-16 code units (default 1 MiB, exceeding it is `kind: "RecordSize"`; `Infinity` disables it), and `ignoreEmptyLines` skips blank records instead of reading them as one empty cell. Invalid options throw when the channel is created.
+Streaming RFC 4180 CSV over text (`decodeString` / `encodeString`) or UTF-8 bytes (`decode` / `encode`). Cells are strings kept exactly as written; quoted fields may contain delimiters, line breaks, and doubled quotes. Decoders accept LF, CRLF, and CR and strip a leading BOM. With `{ headers: true }` the first record supplies unique field names and every later record becomes an object of the same width; a duplicate header or a row of a different width fails with `CsvError` (`kind: "Header"`, plus one-based `record` and `line`); malformed quoting is `kind: "Syntax"` with a `column`. Records completed before the failing one, including those in the same input chunk, are emitted before the `CsvError`. `delimiter` is one character (default `","`), `maxRecordSize` bounds one record in UTF-16 code units (default 1 MiB, exceeding it is `kind: "RecordSize"`; `Infinity` disables it), and `ignoreEmptyLines` skips blank records instead of reading them as one empty cell. Invalid options throw when the channel is created.
 
 `decodeSchemaString(schema)(options?, parseOptions?)` and `encodeSchemaString(schema)(options?)` wrap the schema in `Schema.toCodecStringTree` by default, so columns can be `Schema.Number`, `Schema.Boolean`, or `Schema.Date`; with header records, an empty cell for an optional property decodes as a missing key. Pass `disableCodecs: true` to use the schema exactly as given. The encoder writes `"\r\n"` after every record unless `newline: "\n"`, takes `columns` from a struct's encoded keys, and writes them as the first record with `headers: true`.
 
@@ -951,7 +952,7 @@ const entries = Stream.make(feed).pipe(
 // [{ name: "entry", attributes: { id: "1" }, children: [{ name: "title", attributes: {}, children: ["Q1 & Q2"] }] }, ...]
 ```
 
-The decoder never reads external resources and never expands entities declared in a DOCTYPE — a reference to one fails with an `Unsupported` `XmlError` — so XXE and entity-expansion attacks do not apply. It does not validate against a DTD or schema and reports names as written, without resolving namespaces. Failures are an `XmlError` with `kind` `"Syntax"`, `"Unsupported"`, `"Limit"`, or `"InvalidEvent"`, and decoder errors carry a one-based `line` and `column`. `maxTokenSize` (default 10 MiB), `maxDepth` (default 1024), and `elements`' `maxElementSize` (default 16 MiB) bound memory; lower them for untrusted input.
+The decoder never reads external resources and never expands entities declared in a DOCTYPE — a reference to one fails with an `Unsupported` `XmlError` — so XXE and entity-expansion attacks do not apply. It does not validate against a DTD or schema and reports names as written, without resolving namespaces. Failures are an `XmlError` with `kind` `"Syntax"`, `"Unsupported"`, `"Limit"`, or `"InvalidEvent"`, and decoder errors carry a one-based `line` and `column`. Pass `{ positions: true }` to `decode` / `decodeString` to put the same `line` and `column` of each tag's `<` on its `StartElement` event, for diagnostics that point into the source document; the fields are absent by default and the encoders ignore them. `maxTokenSize` (default 10 MiB), `maxDepth` (default 1024), and `elements`' `maxElementSize` (default 16 MiB) bound memory; lower them for untrusted input.
 
 **Use when** consuming RSS/Atom feeds, sitemaps, SOAP-era exports, or other XML too large to parse in one piece.
 
@@ -1007,7 +1008,23 @@ const payrollFrames = binaryFrames.pipe(
 )
 ```
 
-Every failure is a `Schema.SchemaError` — there is no separate codec error type. The decoder keeps one frame parser for the life of the channel: values completed before a bad frame are still emitted, and an incomplete trailing frame fails when upstream ends instead of being dropped silently. `maxFrameSize` is **unset by default**, so set it whenever the peer is not trusted. `SchemaBinary.duplex({ inputSchema, outputSchema })` wraps a bidirectional byte channel the same way `Ndjson.duplexSchema` does.
+**Fixed-width integers.** Numbers and bigints use variable-length encodings by default, so small values stay small. `SchemaBinary.int32` and `uint32` (decoding to `number`) and `int64` and `uint64` (decoding to `bigint`) opt a field into four- or eight-byte little-endian integers, which is smaller for values that regularly need many varint bytes, such as hashes and full-range ids. They reject non-integers and out-of-range values instead of wrapping them. Switching an existing field between these schemas, `Schema.Int`, and `Schema.Number` changes its wire encoding: in the default mode the peer may silently decode a different value, while fingerprint mode rejects the mismatched layout.
+
+```ts
+import { Schema } from "effect"
+import { SchemaBinary } from "effect/encoding"
+
+const AuditRecord = Schema.Struct({
+  contentHash: SchemaBinary.uint32,  // always four bytes on the wire
+  sequence: SchemaBinary.uint64,     // a bigint in memory, eight bytes on the wire
+  employeeId: Schema.String
+})
+
+const auditCodec = SchemaBinary.toCodec(AuditRecord)
+const frame = Schema.encodeUnknownSync(auditCodec)({ contentHash: 0xdeadbeef, sequence: 42n, employeeId: "e1" })
+```
+
+Every failure is a `Schema.SchemaError` — there is no separate codec error type, and a value that does not match the schema (a string inside a number array, an out-of-range fixed-width integer) fails encoding rather than being coerced. The decoder keeps one frame parser for the life of the channel: values completed before a bad frame are still emitted, and an incomplete trailing frame fails when upstream ends instead of being dropped silently. `maxFrameSize` is **unset by default**, so set it whenever the peer is not trusted. `SchemaBinary.duplex({ inputSchema, outputSchema })` wraps a bidirectional byte channel the same way `Ndjson.duplexSchema` does.
 
 Two ownership details matter in practice. Encoded results are arena-backed views that may share a larger buffer, so call `bytes.slice()` before retaining a frame beyond the current step. And for one long-lived connection, `SchemaBinary.encoder(schema, { dictionary: true })` with the matching `SchemaBinary.parser(...)` shares a string dictionary across frames: repeated strings cost one reference after first use, but frames no longer stand alone and must be decoded in order by the parser that saw the earlier ones.
 
@@ -1081,7 +1098,7 @@ const listing = archive.pipe(
 
 A stored `fileStream` requires `size`; for deflated streams it is optional and checked. Deflated data can expand roughly a thousandfold and pulling the next entry inflates the rest of the current one, so for untrusted archives check `header.size`, count the bytes of bodies without one, and end the stream at an oversized entry rather than skipping it. Every `ZipError` (`InvalidHeader`, `InvalidData`, `Truncated`, `Checksum`, `SizeMismatch`, `Unsupported`, `BodyConsumed`) ends the archive.
 
-**Configuration formats.** The remaining parsers decode human-authored configuration text into unknown data. Schema-decode their results before trusting them at an application boundary.
+**Configuration formats.** The remaining parsers (`Ini`, `Toml`, `Yaml`, `Json5`, `Jsonc`) are synchronous, non-streaming functions that decode human-authored configuration text into unknown data. `Toml`, `Json5`, and `Jsonc` return a `Result` with an `EncodingError`; `Ini` and `Yaml` return the value directly, and `Yaml` throws on invalid input. Schema-decode their results before trusting them at an application boundary.
 
 ## Ini
 
@@ -1186,3 +1203,45 @@ production:
 ```
 
 This is a configuration-focused parser, not a promise of every YAML feature. Treat parsed values as untrusted and schema-decode them before application use.
+
+## Json5
+
+`effect/encoding/Json5` — unstable
+
+A dependency-free [JSON5](https://spec.json5.org/) parser for hand-edited configuration. `Json5.parse(text)` returns `Result<unknown, EncodingError>`, failing with an [`EncodingError`](../data/functional-toolkit#encodingerror) (`module: "Json5"`, `kind: "Decode"`) whose message gives the line and column but never repeats the input. Beyond JSON it accepts comments, trailing commas, unquoted identifier keys, single-quoted strings, hexadecimal numbers, `Infinity`, and `NaN`. A duplicate key keeps its last value, and a `__proto__` key becomes an ordinary own property instead of replacing the prototype. There is no reviver argument.
+
+```ts
+import { Effect, Result } from "effect"
+import { Json5 } from "effect/encoding"
+
+const parsed = Json5.parse(`{
+  // reviewers per cycle
+  service: 'merit-review',
+  ports: [8000, 8001,],
+}`)
+
+if (Result.isSuccess(parsed)) {
+  console.log(parsed.success) // { service: "merit-review", ports: [8000, 8001] }
+}
+
+Result.isFailure(Json5.parse("{ port: }")) // true: "Invalid JSON5 at line 1, column 9"
+
+// Inside an effect, lift the Result so the EncodingError lands in the error channel.
+const loadConfig = (text: string) => Effect.fromResult(Json5.parse(text))
+```
+
+## Jsonc
+
+`effect/encoding/Jsonc` — unstable
+
+JSON with comments, the format of `tsconfig.json` and editor settings files. `Jsonc.parse(text)` returns `Result<unknown, EncodingError>` (`module: "Jsonc"`) and accepts exactly what `JSON.parse` accepts once line and block comments are removed, plus one leading BOM. Unlike JSON5 it rejects trailing commas and every other extension, and duplicate keys and `__proto__` follow `JSON.parse`. Error positions are one-based lines and columns in UTF-16 code units, and the message does not include the input.
+
+```ts
+import { Result } from "effect"
+import { Jsonc } from "effect/encoding"
+
+Jsonc.parse(`{ "strict": true /* required */ } // trailing comment`) // Result.succeed({ strict: true })
+Result.isFailure(Jsonc.parse(`{ "strict": true, }`))              // true: trailing commas are not JSONC
+```
+
+Use `Json5` when people write the file by hand and expect JavaScript-like syntax, `Jsonc` when the file must stay readable by `JSON.parse`-based tools after comments are stripped. Both return `unknown`: decode the result with `Schema` before using it as application config.

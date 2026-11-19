@@ -46,7 +46,7 @@ const program = Effect.gen(function*() {
 | Choosing between primitives that all look plausible | [Choosing Effect Primitives](choosing-effect-primitives) |
 | Looking at a symptom, or checking generated code against known mistakes | [Troubleshooting & Anti-Patterns](../troubleshooting/troubleshooting-and-anti-patterns) |
 | Reviewing a design or a diff | [Review Checklists](review-checklists) |
-| Coming from Effect 3 | [Migration guide](https://github.com/Effect-TS/effect/blob/effect%404.1.0/MIGRATION.md) |
+| Coming from Effect 3 | [Migration guide](https://github.com/Effect-TS/effect/blob/effect%404.1.4/MIGRATION.md) |
 | Moving an existing Promise codebase over, one leaf at a time | [Adopting Effect in an Existing TypeScript Codebase](../deep-dives/adopting-effect-in-an-existing-codebase) |
 | Wanting a connected walkthrough rather than a lookup | [Deep Dives](../deep-dives/) |
 

@@ -80,6 +80,8 @@ Built-in predicates (usable at the top level or nested inside an object pattern)
 
 **Literal unions as a handler table.** `Match.literals({ ... })` (unstable) maps finite string or number literals to handlers, each receiving its literal; handled literals leave the remaining input, so close the matcher with `orElse` or another arm. `Match.literalsExhaustive({ ... })` (unstable) requires a handler for every remaining member and closes the matcher, so a new literal, a widened `string`/`number`, or any non-literal member is a compile error. Keys that are not members of the input are rejected, and so is a union holding both a number and its string spelling (`1 | "1"`), since they share one runtime key.
 
+**Conditional handler tables.** In `Match.tags`, `Match.discriminators`, and `Match.literals`, a key whose handler is `undefined` (for example `{ Meets: canPromote ? promote : undefined }`) is skipped at runtime, and a key whose handler type admits `undefined` does not count as handled. Those members stay in the remaining input, so a later arm, `orElse`, or `exhaustive` must still account for them.
+
 ```ts
 import { Match } from "effect"
 
@@ -278,10 +280,10 @@ Equal.equals(emp1, emp3) // false — different id
 
 ### Equality pitfalls and opt-outs
 
-- **Structural is the default in Effect 4.** Plain objects, arrays, `Map`, `Set`, `Date`, and instances of ordinary classes all compare by content, and `NaN` equals `NaN`. `Data` classes are about ergonomics — constructors, tags, yieldable errors — not about obtaining value equality. The comparison looks at keys and values, not at the constructor: prototype keys such as methods take part, so two instances of one class are equal when their fields are, while an instance with methods is not equal to a bare literal carrying the same fields. If exactly one operand implements `Equal`, the result is `false`.
+- **Structural is the default in Effect 4.** Plain objects, arrays, `Map`, `Set`, `Date`, and instances of ordinary classes all compare by content, and `NaN` equals `NaN`. `Data` classes are about ergonomics — constructors, tags, yieldable errors — not about obtaining value equality. The comparison looks at keys and values, not at the constructor: prototype keys such as methods take part, so two instances of one class are equal when their fields are, while an instance with methods is not equal to a bare literal carrying the same fields. If exactly one operand implements `Equal`, the result is `false`. Implementing means holding a *function* under `Equal.symbol` (and `Hash.symbol`): parsed JSON that merely carries an `"~effect/Equal"` or `"~effect/Hash"` key is compared and hashed as ordinary data.
 - **Hidden own fields count too.** Default record equality compares own string and symbol keys, including non-enumerable ones. An incidental field such as a request id or a fetched-at timestamp makes two records of the same entity unequal. When identity is a subset of the shape, implement `[Equal.symbol]` and `[Hash.symbol]` over the identifying fields only, as `Employee` does above.
 - **Binary data compares by content.** Typed arrays, `ArrayBuffer`s, and `SharedArrayBuffer`s compare and hash by their bytes; an `ArrayBuffer` never equals a `SharedArrayBuffer`, and a detached buffer is equal only to itself. Use [`Bytes.Equivalence`](#bytes) when you only need a byte comparison.
-- **Mutable cells compare by identity.** A [`Ref`](../concurrency/state-mutable-references#ref) or [`MutableRef`](../concurrency/state-mutable-references#mutableref) equals only itself, whatever it holds, so two cells with equal contents are distinct `HashMap` keys and `HashSet` members.
+- **Mutable cells are not identity-keyed.** A [`Ref`](../concurrency/state-mutable-references#ref) or [`MutableRef`](../concurrency/state-mutable-references#mutableref) has no `Equal` implementation of its own, so the structural default compares the value it currently holds: two cells holding `1` are `Equal`, hash alike, and collapse to one `HashSet` member. That comparison is cached, so it goes stale as soon as either cell is updated (see *Compared values must stay frozen* below). Never use a cell as a key or set member; when identity is the point, wrap it with `Equal.byReference(cell)`, which the `Ref` and `MutableRef` functions still accept.
 - **Native collections ignore `Equal`.** `new Set([{ id: "e1" }, { id: "e1" }]).size` is `2`; only Effect's hash collections ([HashMap](./data-structures#hashmap), [HashSet](./data-structures#hashset)) dedupe structurally.
 - **Compared values must stay frozen.** Hashes are cached per object and comparison results per object pair, so mutating a value after its first comparison or first use as a key leaves stale answers behind. Build a new value instead.
 - **Opting out.** `Equal.byReference(obj)` returns a proxy that compares by identity and leaves `obj` untouched; `Equal.byReferenceUnsafe(obj)` marks `obj` itself, permanently and without a proxy.
@@ -759,7 +761,7 @@ const perShare = BigDecimal.divide(
 | Source | Constructor | Notes |
 | --- | --- | --- |
 | Integer minor units (cents, basis points) | `BigDecimal.make(12_345n, 2)` | Exact; `value / 10^scale`. A scale that is not a safe integer throws `RangeError`; a negative scale is allowed and multiplies (`make(12n, -2)` is `1200`) |
-| Untrusted text | `BigDecimal.fromString(text)` | `Option<BigDecimal>`; `"12,5"` is `Option.none()` |
+| Untrusted text | `BigDecimal.fromString(text)` | `Option<BigDecimal>`; `"12,5"` is `Option.none()`, and so is text whose scale falls outside ±10,000 (see below) |
 | A literal you control | `BigDecimal.fromStringUnsafe("0.04")` | Throws on malformed input |
 | A `bigint` | `BigDecimal.fromBigInt(5000n)` | Scale 0 |
 | A `number` | `BigDecimal.fromNumber(n)` / `fromNumberUnsafe(n)` | `Option` / throws for `NaN` and infinities. The float may already be imprecise — prefer text or minor units for money |
@@ -781,6 +783,8 @@ const sameNumber = BigDecimal.equals(BigDecimal.make(105n, 2), BigDecimal.make(1
 const parsedOrZero = Option.getOrElse(parsed, () => BigDecimal.make(0n, 0))
 ```
 
+**Scale limits.** Scales are bounded so hostile numeric text cannot make the library allocate huge powers of ten. `fromString`, `fromStringUnsafe`, `Schema.BigDecimal`'s JSON codec, and `Schema.BigDecimalFromString` reject text whose scale, before or after dropping trailing zeros, lies outside ±10,000: `"1e-10001"` and a fraction with 10,001 digits are `Option.none()` (a throw, or a `SchemaError`), while `"1e-10000"` parses. Operations that must align two scales — `sum`, `sumAll`, `subtract`, `remainder` / `remainderUnsafe`, `scale` in either direction, and `round`, `truncate`, `ceil`, `floor` toward a much smaller target scale — throw a `RangeError` when the scales differ by more than 20,000. Two freshly parsed values always fit; a wider gap comes from `make(value, scale)`, which accepts any safe-integer scale, or from repeated `multiply`, which adds its operands' scales. `equals`, `Order`, and `Equivalence` compare without materializing the difference, so they never throw. `round` returns a value already at or below its target scale unchanged.
+
 Key APIs: make / fromString / fromStringUnsafe / fromBigInt / fromNumber / fromNumberUnsafe, sum / subtract / multiply / divide / divideUnsafe / remainder / remainderUnsafe, negate / abs / sign, round / truncate / ceil / floor / scale / normalize, min / max / clamp / between, isLessThan / isLessThanOrEqualTo / isGreaterThan / isGreaterThanOrEqualTo, isZero / isPositive / isNegative / isInteger, equals / Order / Equivalence, format / toExponential / toNumberUnsafe
 
 `remainder` follows the `divide` rule: the safe form returns `Option.none()` for a zero divisor and the `Unsafe` form throws. `clamp` and `between` take `{ minimum, maximum }`.
@@ -788,6 +792,46 @@ Key APIs: make / fromString / fromStringUnsafe / fromBigInt / fromNumber / fromN
 Use for any financial or compensation calculation where floating-point rounding is unacceptable.
 
 Official guide: [BigDecimal](https://effect.website/docs/v4/data-types/bigdecimal) (its `unsafeFromString` / `unsafeFromNumber` headings are stale names; use `fromStringUnsafe` / `fromNumberUnsafe` or the safe `fromNumber`).
+
+## Rational
+
+`effect/Rational` — unstable
+
+An exact fraction: a `bigint` `numerator` and a positive `bigint` `denominator`, always reduced to lowest terms (zero is `0/1`). Where [BigDecimal](#bigdecimal) rounds a non-terminating quotient such as one third, `Rational` keeps it exact through any number of `sum`, `multiply`, `divide`, and `pow` steps. Use `BigDecimal` for decimal quantities such as money, and `Rational` for ratios that must stay exact until an explicit conversion: allocation shares, unit-conversion factors, probabilities, compounding rates.
+
+**Mental model.** Canonical form makes equality a field comparison, so `Equal.equals`, `Rational.equals`, and `Rational.Equivalence` agree, and `makeUnsafe(2n, 4n)` equals `makeUnsafe(1n, 2n)`. Every operation that can fail has a safe and an `Unsafe` form: `make`, `fromNumber`, `fromString`, `divide`, and `pow` return `Option` (a zero denominator or divisor, a non-finite number, malformed text, zero to a negative power), while the `Unsafe` twins throw. `pow` takes an integer exponent and throws a `RangeError` for anything that is not a safe integer, including `0.5`, in both forms.
+
+```ts
+import { BigDecimal, Option, Rational } from "effect"
+
+// Split a bonus pool three ways without losing the remainder to rounding.
+const third = Rational.makeUnsafe(1n, 3n)
+const shares = Rational.sumAll([third, third, third])
+Rational.format(shares) // "1/1": exactly the whole pool
+
+// Decimal text converts exactly; a JavaScript number keeps its binary error.
+Rational.format(Rational.fromBigDecimal(BigDecimal.fromStringUnsafe("0.1"))) // "1/10"
+Rational.fromNumber(0.1) // Option.some(3602879701896397/36028797018963968)
+
+// Leave the exact world only at an explicit, rounded boundary.
+const perShare = Rational.toBigDecimal(Rational.makeUnsafe(2n, 3n), { scale: 4 }) // 0.6667
+const roundedDown = Rational.toBigDecimal(Rational.makeUnsafe(2n, 3n), { scale: 4, mode: "floor" }) // 0.6666
+Rational.toNumberUnsafe(third) // 0.3333333333333333
+
+// Safe division: a zero divisor is Option.none(), not an exception.
+Rational.divide(third, Rational.fromBigInt(0n)) // Option.none()
+Rational.fromString("-4/-6").pipe(Option.map(Rational.format)) // Option.some("2/3")
+
+const _ = [perShare, roundedDown]
+```
+
+**Conversions.** `fromBigDecimal` is the exact route from decimal text, and `toBigDecimal(r, { scale, mode? })` is the rounded route back (`mode` defaults to `"half-from-zero"`, the same modes as `BigDecimal.round`). `fromNumber` captures the exact binary value of the double, so `0.1` is not one tenth; `toNumberUnsafe` rounds to the nearest double and becomes `Infinity` for very large magnitudes. `fromString` accepts only `[+-]digits` or `[+-]digits/[+-]digits` — no whitespace, decimal point, or exponent — and `format` writes the reduced `numerator/denominator`, `3/1` for an integer.
+
+**At the boundary.** `Schema.Rational` validates `Rational` values, and its JSON codec writes the canonical `"numerator/denominator"` string; `Schema.RationalFromString` decodes that text grammar from a string field and rejects a zero denominator. A persisted [schema representation](./schema-tooling#schemarepresentation) containing `Schema.Rational` needs `SchemaRepresentation.RationalReviver` passed to `fromRepresentation`.
+
+Key APIs: make / makeUnsafe / fromBigInt / fromBigDecimal / fromNumber / fromNumberUnsafe / fromString / fromStringUnsafe, sum / sumAll / subtract / multiply / multiplyAll / divide / divideUnsafe / pow / powUnsafe, negate / abs / sign, equals / Order / Equivalence, isLessThan / isLessThanOrEqualTo / isGreaterThan / isGreaterThanOrEqualTo / between / clamp / min / max, isZero / isPositive / isNegative / isInteger, format / toBigDecimal / toNumberUnsafe
+
+> **Warning:** Exactness has a cost: numerators and denominators grow with every operation whose denominators share no factor, so a long chain of unrelated ratios can produce very large bigints. Round with `toBigDecimal` at the step where precision is allowed to end, and bound untrusted inputs before compounding them.
 
 ## ByteSize
 
@@ -835,6 +879,8 @@ const maxUpload = Config.ByteSize("MAX_UPLOAD").pipe(Config.withDefault(uploadLi
 
 const _ = [perReviewer, doubled, Option.isSome(perReviewer), maxUpload]
 ```
+
+The unit constructors (`kilobytes`, `megabytes`, `kibibytes`, …) take a `number` quantity and compute the byte count exactly, without floating-point rounding: `ByteSize.megabytes(2.01)` is 2,010,000 bytes. A quantity that does not land on a whole, non-negative, safe-integer byte count — `ByteSize.kilobytes(0.0005)`, `ByteSize.bytes(1.5)`, a negative number — throws instead of being rounded. When a quantity is computed rather than known to be exact, pass the byte count to `fromInput`, which returns an `Option`.
 
 `ByteSize.Order`, `ByteSize.Equivalence`, `ReducerSum`, `CombinerMin`, and `CombinerMax` plug into sorting, collections, and folds. `ByteSize.toNumber` returns `Option<number>` because a byte count may exceed the safe-integer range; `toNumberUnsafe` throws instead. `Schema.ByteSize` is the matching schema.
 
@@ -1223,7 +1269,7 @@ const sorted = Arr.sort([new Uint8Array([1, 0]), new Uint8Array([1])], Bytes.Ord
 
 `effect/encoding/Base64` — stable
 
-Text codecs live under `effect/encoding`, one module per format. Each format module has the same shape: `encode` accepts a `Uint8Array` or a string and always succeeds; `decode` returns `Result<Uint8Array, EncodingError>`; `decodeString` decodes and then interprets the bytes as UTF-8, returning `Result<string, EncodingError>`. There is no catch-all `Encoding` namespace — import the format you need.
+Text codecs live under `effect/encoding`, one module per format. The three binary-to-text modules (`Base64`, `Base64Url`, `Hex`) share one shape: `encode` accepts a `Uint8Array` or a string and always succeeds; `decode` returns `Result<Uint8Array, EncodingError>`; `decodeString` decodes and then interprets the bytes as UTF-8, returning `Result<string, EncodingError>`. `decodeString` keeps a leading U+FEFF as part of the text instead of stripping it as a byte-order mark, so decoding then re-encoding returns the original bytes; the same holds for `Schema.StringFromBase64`, `StringFromBase64Url`, and `StringFromHex`. Trim it yourself when the payload is a file that may start with a BOM. There is no catch-all `Encoding` namespace — import the format you need.
 
 ```ts
 import { Result } from "effect"
@@ -1260,7 +1306,7 @@ Base64Url.decode("Zg=")      // Result.fail(EncodingError) — partially padded
 
 `effect/encoding/Hex` — stable
 
-Lowercase hexadecimal with the same trio, plus `Hex.random(length)`, which returns a random lowercase hex string for identifiers such as correlation ids. `random` draws from `Math.random()`, so it is **not cryptographically secure** — never use it for tokens, secrets, or anything an attacker must not guess; for those, draw bytes with `randomBytes` from the [`SecureRandom`](../interfaces/cryptography#securerandom) service and pass them to `Hex.encode`. `length` is not validated: it is rounded *down* to a multiple of 8, so `Hex.random(10)` has 8 characters and `Hex.random(3)` is the empty string.
+Hexadecimal with the same trio — `encode` writes lowercase, `decode` accepts either case and fails on an odd length or a non-hex character — plus `Hex.random(length)`, which returns a random lowercase hex string for identifiers such as correlation ids. `random` draws from `Math.random()`, so it is **not cryptographically secure** — never use it for tokens, secrets, or anything an attacker must not guess; for those, draw bytes with `randomBytes` from the [`SecureRandom`](../interfaces/cryptography#securerandom) service and pass them to `Hex.encode`. `length` is not validated: it is rounded *down* to a multiple of 8, so `Hex.random(10)` has 8 characters and `Hex.random(3)` is the empty string.
 
 ```ts
 import { Hex } from "effect/encoding"
@@ -1277,7 +1323,7 @@ const traceLikeId = Hex.random(32)    // 32 lowercase hex characters
 
 `effect/encoding/EncodingError` — stable
 
-The single failure type shared by the format modules: a `Data.TaggedError` with `_tag: "EncodingError"`, a `kind` (`"Decode"` or `"Encode"`), the `module` that failed (`"Base64"`, `"Hex"`, …), the offending `input`, and a human-readable `message`. `EncodingError.isEncodingError` narrows an `unknown` value. Because every `decode` returns a `Result`, you handle it with the [`Result`](../foundations/errors-option-result#result) combinators rather than with `Effect.catch`.
+The single failure type shared by the format modules: a `Data.TaggedError` with `_tag: "EncodingError"`, a `kind` (`"Decode"` or `"Encode"`), the `module` that failed (`"Base64"`, `"Hex"`, and the configuration parsers [`"Toml"`, `"Json5"`, `"Jsonc"`](../concurrency/streaming-channels#json5), …), the offending `input`, and a human-readable `message`. `EncodingError.isEncodingError` narrows an `unknown` value. Because every `decode` returns a `Result`, you handle it with the [`Result`](../foundations/errors-option-result#result) combinators rather than with `Effect.catch`.
 
 ```ts
 import { Result } from "effect"

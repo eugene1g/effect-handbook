@@ -1,6 +1,6 @@
 # Platform & Runtime Hosts
 
-Effect's platform layer separates service interfaces (in the core `effect` package, runtime-agnostic) from concrete implementations (provided as a Layer from `@effect/platform-node`, `@effect/platform-bun`, `@effect/platform-deno`, or `@effect/platform-browser`). Business logic imports only from `effect/*`; only the entrypoint imports the platform package. Swapping the Layer swaps the runtime.
+Effect's platform layer separates service interfaces (in the core `effect` package, runtime-agnostic) from concrete implementations (provided as a Layer from `@effect/platform-node`, `@effect/platform-bun`, `@effect/platform-deno`, or `@effect/platform-browser`; the experimental `@effect/platform-cloudflare` hosts Effect Cluster on Durable Objects). Business logic imports only from `effect/*`; only the entrypoint imports the platform package. Swapping the Layer swaps the runtime.
 
 > **Official guides:** [Introduction to Effect Platform](https://effect.website/docs/v4/platform/introduction) (its module table lists a `PlatformLogger` that this release does not ship — the function is `Logger.toFile` — and it routes Deno through `@effect/platform-node`, while Effect also publishes a dedicated `@effect/platform-deno`). These guides track Effect's `main` branch rather than this stable release, so where they differ, this page and the tagged source win.
 
@@ -14,7 +14,7 @@ Service interface for filesystem operations: read, write, stat, copy, move, dele
 
 Mental model: typed composable wrapper over `node:fs/promises`, working identically on Bun. Business modules import from `effect/FileSystem`; the entrypoint imports `NodeFileSystem.layer`. Use `FileSystem.layerNoop` to stub in tests.
 
-Common methods: `readFileString` / `writeFileString` (text), `readFile` / `writeFile` (`Uint8Array`), `exists`, `stat`, `makeDirectory`, `copy`, `remove`, `stream` (lazy byte `Stream`, configurable chunk size), and `glob(pattern, { root, exclude, dot })`. `watch(path)` observes direct children by default; pass `{ recursive: true }` for subdirectories. Scoped helpers `makeTempDirectoryScoped` and `makeTempFileScoped` auto-clean on scope close. An opened `File` is the public handle type; its `seek(offset, from)` takes and returns a plain `bigint` position and rejects a negative result with `BadArgument`, leaving the cursor unchanged (there is no public `FileDescriptor` type).
+Common methods: `readFileString` / `writeFileString` (text), `readFile` / `writeFile` (`Uint8Array`), `exists`, `stat`, `makeDirectory`, `copy`, `remove`, `stream` (lazy byte `Stream`, configurable chunk size), and `glob(pattern, { root, exclude, dot })` (it reads subdirectories concurrently, in at most 16 forked fibers per call, and returns results in a stable order). `watch(path)` observes direct children by default; pass `{ recursive: true }` for subdirectories. Scoped helpers `makeTempDirectoryScoped` and `makeTempFileScoped` auto-clean on scope close. An opened `File` is the public handle type; its `seek(offset, from)` takes and returns a plain `bigint` position and rejects a negative result with `BadArgument`, leaving the cursor unchanged (there is no public `FileDescriptor` type).
 
 The service covers the whole `node:fs` surface, so reaching for raw `node:fs` costs typed errors and testability without buying an operation:
 
@@ -483,7 +483,7 @@ Failures are `DnsError`; do not collapse “lookup failed” into “this name i
 Core `AddressResolver.layer()` requires `Dns` and handles numeric IPv6 zones only. `NodeAddressResolver.layer`, `BunAddressResolver.layer`, and `DenoAddressResolver.layer` add host interface lookup for named zones. Unscoped link-local IPv6 lookup results are skipped because the resolver cannot infer their interface; a name resolving only to such addresses fails rather than returning unusable endpoints. Supply a zoned literal instead.
 
 ```ts
-// Host resolution is deliberately experimental in this release.
+// Host resolution is deliberately experimental.
 // @effect-diagnostics experimentalApiUsage:off
 import { Effect, Layer } from "effect"
 import { AddressResolver } from "effect/net"
@@ -775,7 +775,7 @@ Implements FileSystem, Path, Terminal, Stdio, ChildProcessSpawner, the `effect/c
 
 `NodeSocket` WebSocket clients use Node's global `WebSocket`, so the `ws` package is loaded only by `NodeSocketServer.layerWebSocket` and the `NodeWS` module (`NodeWS.WebSocket`, `NodeWS.layerWebSocketConstructor`). **Migration:** `NodeSocket.NodeWS` and `NodeSocket.layerWebSocketConstructorWS` were removed; import `NodeWS` from `@effect/platform-node` instead. Node socket and stream readers return at most `chunkSize` chunks per pull (default 4096; `Infinity` restores unbounded batching), and Node stream `read(size)` byte sizes moved to a separate `readSize` option.
 
-`@effect/platform-node` has no `Mime` export — use [`Mime`](./http-server#mime) from `effect/http` instead. `NodeRedis` wraps the `redis` (node-redis) client, so the optional peer dependency is `redis >=5.0.0 <7.0.0`; its accessors are unstable because they expose that client's own types directly.
+`@effect/platform-node` has no `Mime` export — use [`Mime`](./http-server#mime) from `effect/http` instead. `NodeRedis` wraps the `redis` (node-redis) client, so the optional peer dependency is `redis >=5.1.0 <7.0.0`; its accessors are unstable because they expose that client's own types directly.
 
 ```ts
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
@@ -830,6 +830,20 @@ program.pipe(
 )
 ```
 
+**@effect/platform-cloudflare** — package
+
+Experimental (every module is tagged `@stability experimental`, and its APIs may change in patch releases). It is not a general Workers host adapter with `FileSystem` or `runMain`: it runs [Effect Cluster on Cloudflare Durable Objects](../systems/cluster-sharding#running-on-cloudflare-durable-objects), giving each entity id, workflow execution, durable queue, and singleton its own SQLite-backed Durable Object. The root import exposes five modules:
+
+| Module | Role |
+| --- | --- |
+| `CloudflareCluster` | `layer({ entities, entityNamespace, workflowNamespace, queueNamespace, singletonNamespace, keepAliveHeartbeat? })` provides `Sharding`, `WorkflowEngine`, and `PersistedQueueFactory`; also `DurableObjectSqlClient` (the entity object's own SQLite as an `SqlClient`), `clusterCronSingletonName`, and the `encodeName`/`decodeName` naming scheme. |
+| `CloudflareDurableObjects` | The four classes the Worker entry re-exports and binds as SQLite-backed classes (`ClusterEntity`, `ClusterWorkflow`, `ClusterDurableQueue`, `ClusterSingleton`), plus `setInitializer` for an asynchronously built layer (must finish within 15 seconds). |
+| `CloudflareWorkflowEngine` | The `WorkflowEngine` on the workflow namespace alone; it sets `DurableClock.InMemoryThreshold` to zero, so a `DurableClock.sleep` without an explicit `inMemoryThreshold` always schedules a durable timer. |
+| `CloudflarePersistedQueue` | The `PersistedQueueFactory` on the queue namespace alone; `PersistedQueue.layerCleanup` is unsupported. |
+| `CloudflareDurableObjectPrograms` | Class-independent programs behind those classes, for frameworks that create their own Durable Object classes. |
+
+`AlchemyCloudflareCluster` is a subpath-only import (`@effect/platform-cloudflare/AlchemyCloudflareCluster`) behind the optional `@alchemy.run/cloudflare` peer (`>=2.0.0-beta.85 <3`); `make` registers the classes and bindings from inside an Alchemy `Cloudflare.Worker` program, so there is no `wrangler.jsonc`, class re-export, or initializer. Workers' types such as `DurableObjectNamespace` come from `@cloudflare/workers-types`, a dependency of the package. The Durable Object classes accept calls only through same-Worker bindings; never route public traffic to them.
+
 **@effect/platform-node-shared** — package
 
 Contains implementation shared by the Node, Bun, and Deno adapters: Node-compatible Path/FileSystem/Terminal/child-process/socket/worker/Redis building blocks. It is public for adapter authors, but application entrypoints should normally depend on the host package rather than assembling these internals.
@@ -860,7 +874,7 @@ A platform Layer says *how* a capability is implemented. The host decides someth
 
 | Host | Runner and owner | What the host guarantees | What it cannot promise |
 | --- | --- | --- | --- |
-| Node / Bun / Deno process | `NodeRuntime.runMain`, `BunRuntime.runMain`, `DenoRuntime.runMain` once at the root; the launched Layer's scope owns everything | SIGINT and SIGTERM interrupt the main fiber; finalizers run; the process exits after teardown with `0`, `130` (interrupt-only), or the error's exit code | Surviving SIGKILL or an expired grace period; signal delivery when another process is PID 1 in the container; identical signal behavior on Windows — verify on the target |
+| Node / Bun / Deno process | `NodeRuntime.runMain`, `BunRuntime.runMain`, `DenoRuntime.runMain` once at the root; the launched Layer's scope owns everything | SIGINT and SIGTERM interrupt the main fiber; finalizers run; the process exits after teardown with `0`, `130` (interrupt-only), the largest `Runtime.InterruptExitCode` when every interruption carries one, or the error's exit code | Surviving SIGKILL or an expired grace period; signal delivery when another process is PID 1 in the container; identical signal behavior on Windows — verify on the target |
 | Web-standard handler (serverless, edge) | `HttpRouter.toWebHandler` or `HttpEffect.toWebHandlerLayer` returns `{ handler, dispose }`; module scope owns the Layer, each request owns its own scope | The Layer is built eagerly; each request's scope closes once its response body has finished; `request.signal` interrupts the request fiber | That `dispose` is ever awaited, that the isolate is reused, or that work continues after the response. A Fetch-shaped API is not Node: no `node:*` modules unless the platform says so |
 | Foreign framework callback (Express, Hono, UI, plugin API) | One `ManagedRuntime`, created at boot and disposed by the host's shutdown hook | One shared Layer graph; idempotent `dispose()` | Cancellation and drain — nothing happens unless you forward the host's `AbortSignal` and stop admission yourself |
 | Browser page | `BrowserRuntime.runMain` | A non-persisted `pagehide` interrupts the main fiber | Completion of asynchronous finalizers or network flushes during teardown |
@@ -872,8 +886,24 @@ A platform Layer says *how* a capability is implemented. The host decides someth
 - **Server-side rendering is two hosts.** The server request and the hydrated page have separate scopes and runtimes: serialize validated data across that seam, never a service, fiber, `Scope`, or runtime.
 - **Edge isolates may forbid timers at module scope.** The default scheduler falls back to a microtask when setting a timer throws (Cloudflare Workers' global scope), so an Effect run at module load does not crash there. A module-level `ManagedRuntime` amortizes acquisition across invocations of a reused isolate, but it must not capture request data and must not assume disposal runs.
 - **Platform-specific defaults follow the host.** `Logger.consolePretty()` detects TTY versus browser rendering; pin one with `Logger.consolePrettyTty` or `Logger.consolePrettyBrowser`. `Logger.toFile` writes through the `FileSystem` service, so it needs a platform Layer in scope (both in [Observability](../operations/observability#logger)).
+- **An intentional shutdown can pick its exit code.** `runMain` reports `130` for an interrupt because it assumes someone outside stopped the program. When your own code ends the program by interrupting the main fiber (a stdio server whose input closed, say), interrupt it with `Fiber.interruptAs(fiber, undefined, Context.make(Runtime.InterruptExitCode, 0))`. `Runtime.defaultTeardown` uses the largest annotated code when every interrupt reason carries one and falls back to `130` as soon as one does not; a cause mixing interrupts with errors still takes the error path. The code is read from the `Cause`, so providing `Runtime.InterruptExitCode` as a service does nothing. RPC and MCP stdio servers use this to exit `0` after stdin closes and pending responses drain.
 
-Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime) (it gives the exit code as only `0` or `1` and names only SIGINT; this release also uses `130` for an interrupt and handles SIGTERM). Recipes: [a graceful Node entrypoint](../recipes/graceful-entrypoint-and-shutdown), [ManagedRuntime at an imperative boundary](../recipes/managed-runtime-integration), and [request cancellation through a host](../recipes/request-cancellation-through-a-host).
+```ts
+import { Context, Effect, Fiber, Runtime } from "effect"
+
+// Stop the main fiber on purpose and exit 0 instead of 130.
+declare const mainFiber: Fiber.Fiber<void>
+
+const finishCleanly = Fiber.interruptAs(
+  mainFiber,
+  undefined,
+  Context.make(Runtime.InterruptExitCode, 0)
+)
+
+export const program = Effect.asVoid(finishCleanly)
+```
+
+Official guide: [Runtime (platform)](https://effect.website/docs/v4/platform/runtime) (it gives the exit code as only `0` or `1` and names only SIGINT; Effect also uses `130` for an unannotated interrupt and handles SIGTERM). Recipes: [a graceful Node entrypoint](../recipes/graceful-entrypoint-and-shutdown), [ManagedRuntime at an imperative boundary](../recipes/managed-runtime-integration), and [request cancellation through a host](../recipes/request-cancellation-through-a-host).
 
 ### Keep platform and unstable imports behind a capability
 

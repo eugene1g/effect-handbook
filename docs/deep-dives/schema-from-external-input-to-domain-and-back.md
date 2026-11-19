@@ -210,6 +210,8 @@ const findGrants = Effect.fn("GrantRepository.findGrants")(
 )
 ```
 
+Exact numeric text is also bounded: `Schema.BigDecimalFromString` rejects a scale beyond ±10,000 digits ([BigDecimal scale limits](../data/functional-toolkit#bigdecimal)), so a hostile `"1e-99999999"` in a row or request fails as a `SchemaError` instead of costing a huge allocation later.
+
 [SqlSchema](../interfaces/sql#sqlschema) wires this decoding into query helpers, and [Model](../data/schema-tooling#model) derives the select, insert, update, and JSON variants from one definition when the shapes differ only per operation.
 
 ## Encode outbound values deliberately

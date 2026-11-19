@@ -122,6 +122,8 @@ const unmount = registry.mount(proposedRaisePct)
 unmount()
 ```
 
+`subscribe(atom, f)` calls `f` on the atom's next change; pass `{ immediate: true }` to also receive the current value at once. Either way, subscribing builds the atom (running its read function, and starting an effectful atom), so the listener hears later changes even when nothing has read the atom yet. The same holds for `get.subscribe`, `get.stream` with `withoutInitialValue`, and `useAtomSubscribe` in `@effect/atom-react`.
+
 **As a service.** `AtomRegistry` is also a `Context.Service` with a `layer`. `AtomRegistry.getResult` waits for an `AsyncResult` atom to leave `Initial`. `AtomRegistry.toStream` / `toStreamResult` turn an atom into a `Stream` of its changes. `make` accepts `initialValues` (seed atoms before first read — basis of hydration), a custom `scheduleTask`, and a `defaultIdleTTL`.
 
 The dependency graph underneath is robust against races between reads, writes, and disposal: an update reaches every current dependent through its node (no missed updates through a stale node), a dependency is released only once it is actually safe to do so, a superseded build of an atom cannot leak past the node that replaced it, and an atom whose build failed while being observed recovers on the next read instead of staying stuck.
@@ -303,6 +305,7 @@ const vested = CompRpcClient.query(
 - **The result error type is the full client-side union:** the RPC's declared error, `RpcClientError`, and both the declared error and the client-side error of every middleware on that RPC. A streaming query's `PullResult` error also includes the stream's own error type. Matching exhaustively on `_tag` has to account for middleware failures such as an expired-session error.
 - **RPCs whose middleware declares `requires` are queryable.** `query` infers the same types as `mutation` for them rather than resolving to `never`.
 - **Tag-selected flat clients infer correctly.** `AtomRpc.query` and `AtomRpc.mutation` built from a flat (union-of-tag) RPC client infer the selected RPC's actual payload and result types instead of `never`.
+- **The atom types have names.** `AtomRpc.Query<R>` and `AtomRpc.Mutation<R>` are the types `query` and `mutation` return for an RPC `R` (they distribute over a union), so an exported atom can be annotated as `AtomRpc.Query<Rpc.ExtractTag<RpcGroup.Rpcs<typeof CompRpcs>, "getVestedEquity">>`. Selecting an RPC by tag no longer tests every RPC of the group, which keeps type-checking fast for large groups.
 - **`timeToLive: 0` opts out of idle retention**, exactly as in `AtomHttpApi`; omit the option to inherit the registry default.
 - **Stream-backed mutations invalidate on success only.** Reactivity keys of an atom `Stream` mutation are invalidated after successful completion, not on failure, defect, interruption, or replacement by a newer write.
 - **Mutations cannot target streaming RPCs** (the type is `never`); use `query` and pull.
@@ -335,7 +338,7 @@ Hydration.hydrate(clientRegistry, packet)
 
 **One bad atom does not abort the packet.** If a serializable atom's current value cannot be encoded by its schema (a `SchemaError`), `dehydrate` skips that atom and encodes the rest; any other exception still propagates. The skipped atom simply refetches on the client, so treat a missing key as "not hydrated", not as an error — and log encode failures in development, because the usual cause is a schema that does not cover the atom's whole value.
 
-For custom serializable atoms, the codec covers the atom's complete value. In particular, an effectful atom needs an `AsyncResult.Schema(...)`, not just its success schema; the release-matched [comprehensive upstream Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.1.0/packages/effect/SCHEMA.md) covers codecs and serialization in depth.
+For custom serializable atoms, the codec covers the atom's complete value. In particular, an effectful atom needs an `AsyncResult.Schema(...)`, not just its success schema; the release-matched [comprehensive upstream Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.1.4/packages/effect/SCHEMA.md) covers codecs and serialization in depth.
 
 **Reach for it when** you do SSR or static rendering and want fetched atom state to survive the trip to the browser instead of refetching on mount.
 
@@ -372,7 +375,7 @@ const recordRaise = (rec: RaiseRecommendation) =>
 
 The core above is framework-agnostic. Each binding (1) provides an `AtomRegistry` through the framework's context and (2) exposes hooks/primitives that subscribe a component to that registry.
 
-- **pkg @effect/atom-react** — React hooks + `RegistryProvider`. Peer range: `react >=19.0.0 <20.0.0` and `scheduler >=0.25.0 <0.28.0` (relaxed from `react >=19.2.7`, so any React 19 works). `useAtomValue(atom)` reads, `useAtom(writable)` returns `[value, set]`, `useAtomSet` / `useAtomRefresh` / `useAtomMount` give write/refresh/keep-alive without subscribing, and `useAtomSuspense` reads an `AsyncResult` atom through React Suspense. `HydrationBoundary` applies dehydrated state; `ScopedAtom.make` makes a subtree-local atom. `RegistryProvider`'s `initialValues` accepts `[atom, value, { skipInitialRun }]` tuples. Atom writes triggered while React renders (for example an atom whose initializer sets another atom) are deferred, so other components do not update during render.
+- **pkg @effect/atom-react** — React hooks + `RegistryProvider`. Peer range: `react >=19.0.0 <20.0.0` and `scheduler >=0.25.0 <0.29.0` (relaxed from `react >=19.2.7`, so any React 19 works). `useAtomValue(atom)` reads, `useAtom(writable)` returns `[value, set]`, `useAtomSet` / `useAtomRefresh` / `useAtomMount` give write/refresh/keep-alive without subscribing, and `useAtomSuspense` reads an `AsyncResult` atom through React Suspense. `HydrationBoundary` applies dehydrated state; `ScopedAtom.make` makes a subtree-local atom. `RegistryProvider`'s `initialValues` accepts `[atom, value, { skipInitialRun }]` tuples. Atom writes triggered while React renders (for example an atom whose initializer sets another atom) are deferred, so other components do not update during render.
 
 - **pkg @effect/atom-solid** — The Solid binding. `useAtomValue(() => atom)` returns an accessor, `useAtom(() => writable)` returns an accessor/setter tuple, and `useAtomResource` bridges an `AsyncResult` atom to a Solid resource. Its `RegistryProvider` may leave `defaultIdleTTL` undefined, matching React: unused atoms are then cleaned up immediately instead of lingering for a provider-imposed TTL.
 

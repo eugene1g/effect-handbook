@@ -50,7 +50,9 @@ const claimBudget = Effect.fn("claimBudget")(function*(
 
 `Ref.makeUnsafe(value)` creates a `Ref` synchronously without wrapping in an Effect — for use inside class constructors or module top-levels before concurrent fibers have started.
 
-A `Ref` is a cell, not a value: `Equal.equals` compares two refs by identity, so distinct refs holding equal contents are not equal and are separate `HashMap` keys or `HashSet` members. Compare what they hold with `Ref.get` instead.
+A `Ref` is a cell, not a value, but it has no identity-based `Equal`: `Equal.equals` falls back to its structural rule for ordinary class instances, so two distinct refs holding equal contents compare equal and collapse into one `HashMap` key or `HashSet` member. Because `Equal` caches each pair's result and `Hash` caches each object's hash, a comparison made before a ref changes keeps its old answer afterwards. Do not use a `Ref` as a structural key or compare refs with `Equal.equals`: compare what they hold with `Ref.get`, and key by identity with a native `Map` / `Set` or `===`.
+
+> **Migration:** Some earlier releases gave `Ref` and `MutableRef` identity equality. Code that relied on that — refs as `HashMap` keys or `HashSet` members, or `Equal.equals(refA, refB)` as a "same cell" test — now merges distinct refs with equal contents; switch to a native `Map` / `Set` keyed by the ref, or to `===`.
 
 ### One transition, one call
 
@@ -299,7 +301,7 @@ Official guide: [SubscriptionRef](https://effect.website/docs/v4/state-managemen
 
 `effect/MutableRef` — stable
 
-A tiny synchronous mutable box. Exposes a `.current` field for direct read/write plus a pipeable API: `get`, `set`, `update`, `compareAndSet`, numeric helpers `increment`/`decrement`, and `toggle` for booleans. No Effects, no fiber scheduler involvement. This is the backing store for `Ref` — `Ref` allocates a `MutableRef` internally. Like `Ref`, a `MutableRef` equals only itself under `Equal.equals`, whatever it currently holds.
+A tiny synchronous mutable box. Exposes a `.current` field for direct read/write plus a pipeable API: `get`, `set`, `update`, `compareAndSet`, numeric helpers `increment`/`decrement`, and `toggle` for booleans. No Effects, no fiber scheduler involvement. This is the backing store for `Ref` — `Ref` allocates a `MutableRef` internally. Like `Ref`, a `MutableRef` has no identity-based `Equal`: two boxes holding equal values compare equal under `Equal.equals`, and the cached result does not follow later writes, so never use one as a structural key.
 
 ```ts
 import { MutableRef } from "effect"

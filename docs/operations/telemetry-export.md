@@ -187,7 +187,7 @@ Use `OtlpLogger.layerFromConfig()` to read endpoint URL and headers from `OTEL_E
 
 Periodically reads the Effect metric registry and posts snapshots to an OTLP metrics endpoint. Supports `"cumulative"` and `"delta"` aggregation temporality.
 
-A `Metric.summary` is exported as one OTLP `Summary` metric named by its id (quantiles, count, and sum together), always cumulative regardless of `temporality`; common unit names such as `milliseconds` are mapped to UCUM units. Dashboards that matched separate `<id>_quantiles`, `<id>_count`, or `<id>_sum` series need updating.
+A `Metric.summary` is exported as one OTLP `Summary` metric named by its id (quantiles, count, and sum together), always cumulative regardless of `temporality`. Each metric's OTLP unit comes from its `unit` attribute (or the `time_unit` attribute that `Metric.timer` sets): `nanoseconds`, `microseconds`, `milliseconds`, `seconds`, and `bytes` are mapped to the UCUM units `ns`, `us`, `ms`, `s`, and `By`, other values pass through unchanged, and a metric with neither attribute exports an empty unit, not the dimensionless `"1"` — set `unit: "1"` on ratios and counts a backend should treat as dimensionless. Dashboards that matched separate `<id>_quantiles`, `<id>_count`, or `<id>_sum` series need updating.
 
 Delta histograms omit `min` and `max` after the initial export: the registry's cumulative extrema cannot describe a later delta interval.
 
@@ -214,7 +214,7 @@ export const MeritMetricsLayer = OtlpMetrics.layer({
 
 `effect/observability/OtlpTracer` — unstable
 
-Replaces the Effect runtime's `Tracer` with one that batches and exports finished spans over OTLP/HTTP. Spans include trace and span IDs, parent links, attributes, events, timing, kind, and status.
+Replaces the Effect runtime's `Tracer` with one that batches and exports finished spans over OTLP/HTTP. Spans include trace and span IDs, parent links, attributes, events, timing, kind, and status — `ERROR` for a failure or defect, otherwise `Unset`, including on success (see [What ends up on a span](observability#what-ends-up-on-a-span)).
 
 ```ts
 import { Layer } from "effect"
@@ -254,6 +254,7 @@ Delivery semantics, so nobody mistakes export for a guarantee:
 - **A failed export is dropped, not queued.** Transient HTTP failures are retried a few times; if the export still fails, the buffer is cleared, the exporter disables itself for 60 seconds, and everything pushed during that window is discarded.
 - **The exporter announces its own failure only at `Debug` level** ("Disabling exporter for 60 seconds"), which the default `Info` minimum hides — another reason to watch export health through a second path.
 - The exporter's own HTTP calls run with tracing disabled and without trace-header propagation, so exporting does not generate more spans to export.
+- **An idle log or trace exporter keeps no timer pending.** Its interval starts with the first buffered record and stops once an export empties the buffer, so a Node program kept alive only by an idle `OtlpLogger` or `OtlpTracer` exits. The metrics exporter is different: it exports on every interval, empty or not, so its timer runs for as long as its Layer is alive.
 
 **Reach for it when** implementing a custom OTLP signal type that needs the same batching, retry, and graceful-shutdown behaviour as the built-in exporters.
 
@@ -271,7 +272,7 @@ Builds the OTLP `Resource` object (service name, version, arbitrary attributes) 
 
 A `Context.Service` class with three methods — `traces(data)`, `metrics(data)`, `logs(data)` — that convert in-memory OTLP data structures to `HttpBody` instances. Two implementations: `OtlpSerialization.layerJson` (JSON, default) and `OtlpSerialization.layerProtobuf` (binary protobuf, `application/x-protobuf`).
 
-For custom OTLP payloads, the in-memory interfaces use `schemaUrl` on resource/scope records, and the JSON layer serializes those objects directly: it does **not** rename that property to `schemaURL`. Protobuf writes the numbered schema-URL field from `schemaUrl`. If a collector requires a different JSON spelling, supply an explicit custom `OtlpSerialization` rather than assuming a rewrite. Exported 64-bit trace ids are left-padded to 128 bits, consistently with outgoing `traceparent` headers.
+For custom OTLP payloads, the in-memory interfaces use `schemaUrl` on resource/scope records, and the JSON layer serializes those objects directly: it does **not** rename that property to `schemaURL`. Protobuf writes the numbered schema-URL field from `schemaUrl`. If a collector requires a different JSON spelling, supply an explicit custom `OtlpSerialization` rather than assuming a rewrite. Exported 64-bit trace ids are left-padded to 128 bits, consistently with outgoing `traceparent` headers. `layerJson` writes `bytesValue` attribute data — a `Uint8Array` or a Node `Buffer` — as the base64 string OTLP/JSON expects, and `layerProtobuf` omits `startTimeUnixNano` from a metric data point that has none instead of throwing.
 
 ```ts
 import { OtlpSerialization } from "effect/observability"
@@ -480,7 +481,7 @@ const OtelLayer = WebSdk.layer(() => ({
 
 `@effect/opentelemetry — import { OtelTracer } from "@effect/opentelemetry"` — @effect/opentelemetry
 
-Effect↔OTel tracer bridge. `OtelTracer.layer` installs an Effect `Tracer` that creates `OtelSpan` instances backed by the active OTel `TracerProvider`. Exposes `OtelTracer`, `OtelTracerProvider`, `OtelTraceFlags`, `OtelTraceState` services, and `currentOtelSpan` to retrieve the live OTel span from fiber context.
+Effect↔OTel tracer bridge. `OtelTracer.layer` installs an Effect `Tracer` that creates `OtelSpan` instances backed by the active OTel `TracerProvider`. Exposes `OtelTracer`, `OtelTracerProvider`, `OtelTraceFlags`, `OtelTraceState` services, and `currentOtelSpan` to retrieve the live OTel span from fiber context. When an Effect span ends, the bridge sets `ERROR` only for a failure or defect; on success or interruption it leaves the status alone, so a status you set on the span from `currentOtelSpan` is what gets exported (otherwise `Unset`).
 
 **Reach for it when** composing Effect's span model with OTel-native span APIs (e.g. setting OTel-specific span status or accessing the raw OTel `Span` for a library that requires it).
 

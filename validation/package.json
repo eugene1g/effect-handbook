@@ -8,6 +8,7 @@
     "validate": "node ../scripts/validation/check-examples.ts"
   },
   "dependencies": {
+    "@effect/ai-amazon-bedrock": "4.1.4",
     "@effect/ai-anthropic": "4.1.4",
     "@effect/ai-openai": "4.1.4",
     "@effect/ai-openrouter": "4.1.4",
@@ -18,6 +19,7 @@
     "@effect/opentelemetry": "4.1.4",
     "@effect/platform-browser": "4.1.4",
     "@effect/platform-bun": "4.1.4",
+    "@effect/platform-cloudflare": "4.1.4",
     "@effect/platform-deno": "4.1.4",
     "@effect/platform-node": "4.1.4",
     "@effect/sql-pg": "4.1.4",
@@ -32,10 +34,10 @@
     "fast-check": "4.9.0",
     "react": "19.2.8",
     "vite": "8.1.5",
-    "vitest": "5.0.5"
+    "vitest": "5.1.1"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.67.7",
+    "@effect/tsgo": "0.70.0",
     "@types/node": "26.2.0",
     "@types/react": "19.2.18",
     "typescript": "7.0.2"

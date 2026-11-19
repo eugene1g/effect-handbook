@@ -4,7 +4,7 @@ Effect 4 ships three stacked layers: a fully typed **HTTP client** (request as v
 
 Four cooperating modules: `HttpClient` is the service you acquire and decorate with policy; `HttpClientRequest` is an immutable request built with pipes; `HttpClientResponse` decodes a raw response through a Schema; `HttpClientError` is the tagged error family for transport/status/body failures. Composing a schema decoder also adds `SchemaError`. Idiomatic use: wrap the union in a domain service so callers never touch headers.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpClient example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/50_http-client) builds a typed client service.
+> **Official example:** Effect's release-matched [`ai-docs` HttpClient example](https://github.com/Effect-TS/effect/tree/effect%404.1.4/ai-docs/src/50_http-client) builds a typed client service.
 
 ## HttpClient
 
@@ -100,11 +100,13 @@ class Hris extends Context.Service<Hris, {
 | `filterStatusOk` / `filterStatus` | Turn non-2xx (or a custom predicate) into a `StatusCodeError`. |
 | `retry` / `retryTransient` | Retry on a `Schedule`; `retryTransient` covers transport/timeouts and 408, 429, 500, 502, 503, 504. |
 | `followRedirects` | Chase 3xx responses up to a hop limit. |
+| `timeout` | Fail a request that has no response within a duration, as an `HttpClientError` the retry decorators treat as transient; see [below](#retries-time-budgets-and-cancellation). |
 | `withRateLimiter` | Throttle outgoing requests through a `RateLimiter` — handy to stay under API quotas. |
 | `tap` / `tapRequest` / `tapError` | Observe requests/responses/errors without changing them. |
 | `catch` / `catchTag` / `catchTags` | Recover *inside the client*: both overloads of `catch` require the handler to produce another `HttpClientResponse`. To recover to any other value, use `Effect.catch` on the result of `client.execute(request)`. |
-| `transformResponse` | Wrap every response Effect — the hook for a client-wide `Effect.timeout`. |
-| `withCookiesRef` | Maintain a cookie jar in a `Ref<ReadonlyArray<Cookie>>`: response cookies are merged per response URL and sent only to a matching host, path, and scheme. |
+| `transformResponse` | Wrap every response Effect, for policies no dedicated decorator covers. |
+| `withCookiesRef` | Maintain a cookie jar in a `Ref<ReadonlyArray<Cookie>>`: response cookies are merged per response URL, and each request gets the cookies matching the host, path, and scheme of its *final* URL — after later `prependUrl` transforms or an `HttpApiClient` `baseUrl`, and again on every redirect hop when `followRedirects` is applied after it. |
+| `withScope` | Tie every request the client sends to the caller's `Scope`, so a response body or socket stays open until that scope closes; see [below](#response-lifetimes-and-withscope). |
 | `withCircuitBreaker` | Stop calling an origin that keeps failing; see [below](#circuit-breaking). Experimental. |
 
 `HttpClient.isTransientError(error)` and `HttpClient.isTransientResponse(response)` are the predicates `retryTransient` uses (timeouts, `TransportError`, and the transient statuses), exported for custom `retry` policies and circuit classifiers.
@@ -121,7 +123,8 @@ class Hris extends Context.Service<Hris, {
 
 `retryTransient` honors a valid `Retry-After` on a response or response-bearing error: integer seconds or an HTTP date, measured against the Effect Clock. Its delay is the **maximum** of the schedule delay and the server's delay, not an additional sleep; malformed headers (negative, fractional, or exponent values such as `1.5` or `1e3`) fall back to the schedule and past dates add no wait. `Headers.parseRetryAfter` / `Headers.retryAfterDelay` expose the same parsing. The header does not make a non-transient response retryable or override the schedule/count limit. `withRateLimiter` also interprets HTTP dates as dates, not seconds.
 
-- **Every call gets a finite budget.** No decorator adds a timeout for you. `HttpClient.transformResponse(Effect.timeout("10 seconds"))` bounds each attempt when placed *before* a retry decorator and the whole call when placed *after* it.
+- **Every call gets a finite budget.** No client has a timeout until you add one. `HttpClient.timeout("10 seconds")` bounds each attempt when placed *before* `retryTransient` and the whole retry loop, backoff included, when placed *after* it. An expired request is interrupted (which aborts the transport while it still waits for headers) and fails with an `HttpClientError` whose reason is a `TransportError` with a `Cause.TimeoutError` cause, so the client keeps the plain `HttpClient` type and `retryTransient` retries it. `HttpClient.transformResponse(Effect.timeout(...))` bounds the same span but adds a bare `Cause.TimeoutError` to the client's error channel instead.
+- **The budget ends when the response arrives.** The timer starts after request preprocessing and stops when the wrapped client returns a response — for a plain client, when the headers arrive. Response middleware applied *before* `timeout` (a `tap`, a retry) runs inside the budget, including any body it reads; a body read by the caller (`response.json`, `schemaBodyJson`, `response.stream`) is not covered, so give a large or streamed body its own `Effect.timeout`. Under [`withScope`](#response-lifetimes-and-withscope), a timeout that fires after the headers have arrived does not abort the connection; it stays open until the scope closes.
 - **Interruption cancels the request, not just the wait.** The client hands the platform an `AbortSignal` and aborts it when the calling fiber is interrupted — by a timeout, a lost race, or a closed scope (probed: the remote server observes the disconnect). Wrapping a non-Effect SDK yourself? Forward the signal `Effect.tryPromise` gives you; see the [request-cancellation recipe](../recipes/request-cancellation-through-a-host).
 - **`retryTransient` does not look at the method.** It replays a `POST` as readily as a `GET`. After a timeout or a dropped connection the first attempt may already have been applied, so retry only requests that are replay-safe: reads, or mutations protected by an idempotency key the *server* honors. Derive two clients from one base instead of retrying everything.
 - **Retry budgets are finite** (`times`, or a bounded `Schedule`), and `withRateLimiter`'s 429 loop needs its own `times` as noted above.
@@ -136,14 +139,14 @@ export const makeHrisClients = Effect.gen(function*() {
       HttpClientRequest.prependUrl("https://hris.acme.internal"),
       HttpClientRequest.acceptJson
     )),
-    HttpClient.transformResponse(Effect.timeout("5 seconds")), // per attempt
+    HttpClient.timeout("5 seconds"), // per attempt
     HttpClient.filterStatusOk
   )
 
   // Reads are replay-safe: retry transient faults inside a total budget.
   const reads = base.pipe(
     HttpClient.retryTransient({ schedule: Schedule.exponential("100 millis"), times: 3 }),
-    HttpClient.transformResponse(Effect.timeout("20 seconds")) // whole call
+    HttpClient.timeout("20 seconds") // whole call, backoff included
   )
 
   // Writes are sent once unless the caller supplies the key the HRIS deduplicates on.
@@ -157,6 +160,33 @@ export const makeHrisClients = Effect.gen(function*() {
   return { reads, writeOnce, idempotentWrite } as const
 })
 ```
+
+### Response lifetimes and `withScope`
+
+Without `withScope`, a request is aborted when its caller is interrupted before the response arrives or while it reads the body, and a response nobody starts reading is aborted once it is garbage-collected (after five seconds on runtimes without `FinalizationRegistry`). `HttpClient.withScope(client)` adds `Scope` to the client's requirements and hands ownership to that scope instead: use it when a response body, an upgraded socket, or a `HttpClientResponse.toWeb` hand-off must stay open after the response effect has completed, and close it by closing the scope.
+
+- **Ownership follows the execution, not the request value.** Every request the transport sends while the scoped client executes belongs to the scope — each redirect hop, each retry attempt, each request rewritten by middleware — wherever `withScope` sits relative to `followRedirects`, `withCookiesRef`, or `retryTransient`. Running the same request value, or the same response effect, concurrently under different scopes gives each execution its own owner.
+- **Closing the scope aborts.** Pending requests and open response bodies are aborted when the scope closes, and a request sent after the scope has closed is aborted before the transport starts it. Interrupting a request before its response arrives still aborts it; once the response has been returned, its body is released only by the scope.
+- **Helper requests are captured too.** A request that middleware sends with *another* client while this one executes — a token fetch inside `mapRequestEffect`, say — joins the same scope; with nested `withScope`, the innermost scope owns it. To give such a helper its own lifetime, apply `withScope` to the helper client and run its request in its own `Effect.scoped`.
+
+```ts
+import { Effect, Stream } from "effect"
+import { HttpClient } from "effect/http"
+
+declare const appendToFile: (chunk: Uint8Array) => Effect.Effect<void>
+
+// The connection stays open while the body streams, and is aborted when the scope closes —
+// on success, failure, or interruption.
+export const downloadExport = Effect.scoped(
+  Effect.gen(function*() {
+    const client = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk, HttpClient.withScope)
+    const response = yield* client.get("https://hris.acme.internal/exports/payroll.csv")
+    yield* Stream.runForEach(response.stream, appendToFile)
+  })
+)
+```
+
+> **Migration:** `withScope` used to track only the request value passed to it, so redirect hops, retries, and requests rewritten after it could escape the scope. It now owns every request sent during the execution, including requests other clients send from inside its middleware; give those their own scoped client if they must outlive or predate the caller's scope.
 
 ### Circuit breaking
 
@@ -377,6 +407,8 @@ const safe = Effect.gen(function*() {
 `HttpClient.retryTransient` covers transport/timeouts plus statuses 408, 429, 500, 502, 503, and 504 — these are rarely caught by hand solely to implement retry.
 
 An `HttpClientError` is safe to log: its message and `toJSON` (and inspection) show the request as its method and redacted URL and the response as its status, never request headers, query values, or bodies. The full `request` and `response` remain available as properties, so do not serialize those yourself into logs or client-facing errors.
+
+The URL is redacted with the union of the [`UrlParams.CurrentRedactedNames`](./http-server#url-credentials-and-query-redaction) in effect where the request executed, where the error was created, and where it is rendered. Names provided around a call therefore still apply when the error is logged later by an unrelated fiber, such as a span exporter or a top-level error reporter, and a body-decoding error created from the response carries them too; a fiber with a shorter list can add redaction but never remove it.
 
 ### Three failure classes
 

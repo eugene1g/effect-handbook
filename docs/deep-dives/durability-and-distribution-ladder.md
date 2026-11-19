@@ -166,7 +166,7 @@ export const MemoryQueueLayer = PersistedQueue.layer.pipe(
 )
 ```
 
-The custom offer id makes producer retries idempotent: de-duplication survives completion until `PersistedQueue.layerCleanup` removes the finished element (30 days by default). An element that exhausts `maxAttempts` — or no longer decodes with the queue schema — is dead-lettered and kept until you drain it or set `failedTimeToLive`. None of this makes the external payroll operation atomic. Pass a stable domain key to payroll as well.
+The custom offer id makes producer retries idempotent: de-duplication survives completion until `PersistedQueue.layerCleanup` removes the finished element (30 days by default). That is the default `deduplicate: "untilRemoved"` mode; `offer(value, { id, deduplicate: "untilExecuted" })` instead reserves the id only while the element is pending or retrying, which coalesces repeated triggers but is not an idempotency key (see [PersistedQueue](../tooling/persistence#persistedqueue)). An element that exhausts `maxAttempts` — or no longer decodes with the queue schema — is dead-lettered and kept until you drain it or set `failedTimeToLive`. None of this makes the external payroll operation atomic. Pass a stable domain key to payroll as well.
 
 `take` processes **one** claim, not an infinite worker loop. It returns the handler's value or propagates the handler error after the scoped store records the outcome; retrying the *item* is storage scheduling, not an automatic rerun inside that same call. Repeat `take` under an explicit worker lifetime and failure policy. Attempts are counted at claim time and the handler sees a 1-based count; process death consumes an attempt too. Undecodable entries are marked failed and skipped internally, so schema decode failures do not surface from `take`.
 
@@ -328,6 +328,8 @@ Persisted delivery also changes what a caller sees during a rebalance. If the en
 
 **Runner wire format is a cluster-wide contract.** Runner-to-runner traffic is serialized with `SchemaBinary` by default (`serialization: "binary"` on `NodeClusterSocket.layer` / `NodeClusterHttp.layer` and the Bun and Deno equivalents); `serialization: "ndjson"` is the text-based alternative both generations of a rolling upgrade can share. A cluster cannot mix runners on different serialization settings, and a change to the RPC envelope itself (such as the optional `discard` field added to requests) changes the binary fingerprint, so runners on either side of such a release must be upgraded together. Likewise, a rollout that changes the default must pin every node to the same `serialization` option throughout the rollout and rehearse a mixed-version pair in staging first. See [Cluster & Sharding](../systems/cluster-sharding#transport-options).
 
+Persisted messages and their replies stay in `MessageStorage` so duplicates are recognised; for an entity type that handles an unbounded stream of distinct requests, bound that storage with [`MessageRetention`](../systems/cluster-sharding#messageretention), choosing a retention longer than any caller's retry window (a primary key re-sent after deletion runs again). Never apply it to workflow or `ClusterCron` entities. The same entity and workflow definitions can also run on Cloudflare Durable Objects through the experimental `@effect/platform-cloudflare`, where each entity id is its own object with SQLite storage and there are no runners or shard locks ([Running on Cloudflare Durable Objects](../systems/cluster-sharding#running-on-cloudflare-durable-objects)).
+
 Use entities when many keys need single-owner logic spread across machines. Use a singleton for one cluster-wide process. Distribution may sit below a workflow engine, host workers for a persisted queue, or expose an event-sourced aggregate, but those are compositions—not substitutes for one another.
 
 ## Compose rungs by assigning one owner to each truth
@@ -352,6 +354,7 @@ Do not let a queue row, workflow journal, event, and entity `Ref` all claim to b
 | Preserve immutable domain history and rebuild projections | `EventLog` |
 | Route typed commands to one owner per key across nodes | Cluster `Entity` |
 | Make selected entity messages survive failover | `ClusterSchema.Persisted` plus durable `MessageStorage` |
+| Keep persisted entity storage bounded | `MessageRetention` (not for workflow or `ClusterCron` entities) |
 
 ## Treat persisted bytes as input, and their names as a contract
 

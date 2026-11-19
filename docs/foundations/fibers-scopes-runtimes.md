@@ -142,7 +142,7 @@ const program = Effect.gen(function*() {
 })
 ```
 
-A fork returns a **handle, not a result**, and a `Fiber` is not yieldable — `yield* fiber` does not compile. Turn handles back into effects and then use ordinary combinators: `Fiber.join` for one, `Fiber.joinAll(fibers)` for an array of results, `Fiber.awaitAll(fibers)` for an array of exits, `Fiber.interruptAll(fibers)` to cancel a group. Low-level integrations that read a fiber's derived state use `fiber.cache` (`scheduler`, `span`, `logLevel`, `minimumLogLevel`, `maxOpsBeforeYield`, ...); there is no separate family of `current*` fields.
+A fork returns a **handle, not a result**, and a `Fiber` is not yieldable — `yield* fiber` does not compile. Turn handles back into effects and then use ordinary combinators: `Fiber.join` for one, `Fiber.joinAll(fibers)` for an array of results, `Fiber.awaitAll(fibers)` for an array of exits, `Fiber.interruptAll(fibers)` to cancel a group. Low-level integrations that read a fiber's derived state use `fiber.cache` (`scheduler`, `span`, `logLevel`, `minimumLogLevel`, `maxOpsBeforeYield`, ...); there is no separate family of `current*` fields. Once a fiber exits, its `cache.span` and `cache.stackFrame` are cleared, so a finished fiber held by a cache entry, an observer, or a `Deferred` does not keep its last span and that span's parents alive.
 
 Official guide: [Fibers](https://effect.website/docs/v4/concurrency/fibers) (its prose calls `Effect.yieldNow()`; `Effect.yieldNow` is a value, not a function, and the guide does not mention `startImmediately`).
 
@@ -296,7 +296,7 @@ Official guide: [Tracking Fibers](https://effect.website/docs/v4/observability/t
 
 `effect/Runtime` — stable
 
-Process-lifecycle helpers: `makeRunMain` (used by platform packages to build `runMain`), `Teardown` / `defaultTeardown` (turn an `Exit` into a process exit code), and error markers for custom exit codes. Application code almost never imports this directly — use `NodeRuntime.runMain` / `BunRuntime.runMain`, which are built on `makeRunMain`. Touch it only to customize how completion maps to an exit code.
+Process-lifecycle helpers: `makeRunMain` (used by platform packages to build `runMain`), `Teardown` / `defaultTeardown` (turn an `Exit` into a process exit code), error markers for custom exit codes, and the `InterruptExitCode` annotation for interruptions that end the program on purpose. Application code almost never imports this directly — use `NodeRuntime.runMain` / `BunRuntime.runMain`, which are built on `makeRunMain`. Touch it only to customize how completion maps to an exit code.
 
 ```ts
 import { Effect, Exit, Runtime } from "effect"
@@ -323,7 +323,18 @@ declare const nightlyPayroll: Effect.Effect<void>
 | --- | --- | --- |
 | Success | `0` | no |
 | Interrupt-only `Cause` (a signal arrived, nothing else failed) | `130` | no |
+| Interrupt-only `Cause` in which **every** interruption carries a `Runtime.InterruptExitCode` annotation | the largest annotated code | no |
 | Any other failure | the squashed error's `[Runtime.errorExitCode]` when it is a number, otherwise `1` | yes, with `Effect.logError` — unless `{ disableErrorReporting: true }` is passed or the error carries `[Runtime.errorReported] = false` |
+
+**Ending the program on purpose by interruption.** A component that finishes the program by interrupting the main fiber — a stdio server whose input closed, say — would otherwise report `130`, the code for an external signal. `Runtime.InterruptExitCode` is a `Context.Service` key whose value is the exit code; attach it to the interruption itself with `Fiber.interruptAs(fiber, fiberId, annotations)`. `defaultTeardown` reads it from the final `Cause`, not from the running effect's services, so `Effect.provideService(Runtime.InterruptExitCode, 0)` does nothing. One unannotated interruption (a real `SIGINT` or `SIGTERM` arriving at the same time) keeps the exit code at `130`, and a cause that also holds a failure or defect uses the failure path. The RPC and MCP stdio servers exit with `0` this way once stdin closes and pending responses drain.
+
+```ts
+import { Context, Fiber, Runtime } from "effect"
+
+// The payroll import's input stream ended: stop the main fiber and exit 0, not 130.
+const finishImport = (main: Fiber.Fiber<void>) =>
+  Fiber.interruptAs(main, undefined, Context.make(Runtime.InterruptExitCode, 0))
+```
 
 The two markers let a domain error choose its own exit code and avoid double logging without a custom `teardown`:
 

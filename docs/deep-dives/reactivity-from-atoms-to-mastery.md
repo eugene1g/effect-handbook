@@ -278,6 +278,8 @@ registry.modify(count, (n) => [`was ${n}`, n + 1]) // [returnValue, nextValue]
 registry.refresh(double)        // force recomputation
 ```
 
+Without `immediate`, `subscribe` still builds the atom, so a derived or effectful atom that nothing has read yet starts computing and the listener hears its next change. `get.subscribe`, `get.stream` with `withoutInitialValue`, and React's `useAtomSubscribe` behave the same way.
+
 ### Lifecycle & garbage collection
 
 This is the part that surprises people. Atoms are **lazy** and **auto-disposed** by default. If nothing subscribes to (or mounts) an atom, the registry drops its node after an idle tick — and the next read rebuilds it from its definition.
@@ -798,7 +800,7 @@ Hydration.hydrate(clientRegistry, window.__ATOMS__)
 
 For an async atom, the serialization schema must cover the whole `AsyncResult`, not only its success value. Construct it with `AsyncResult.Schema({ success: UserSchema, error: UserErrorSchema })`.
 
-For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.1.0/packages/effect/SCHEMA.md) for the long-form treatment.
+For the codec model behind this boundary, use the handbook's concise [Schema topic](../data/schema), then Effect's release-matched [comprehensive Schema guide](https://github.com/Effect-TS/effect/blob/effect%404.1.4/packages/effect/SCHEMA.md) for the long-form treatment.
 
 `withReactivity` preserves the underlying initial-value target, so a preloaded serializable atom still refreshes the correct source atom.
 

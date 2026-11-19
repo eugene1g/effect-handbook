@@ -4,7 +4,7 @@ Describe the API once as data: groups of endpoints, each with Schema-typed path 
 
 > **Tip:** Keep the API *definition* (`HttpApi`, groups, endpoints, error schemas, middleware interfaces) in a module with **no server code**. The server implements handlers against it; clients derive from it. This lets a frontend import the exact same contract the backend serves, with zero server code crossing the boundary.
 
-> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
+> **Official example:** Effect's release-matched [`ai-docs` HttpApi server example](https://github.com/Effect-TS/effect/tree/effect%404.1.4/ai-docs/src/51_http-server) connects a schema-first contract, handlers, middleware, serving, and a generated client.
 
 ![Diagram: an HttpApi request passes middleware and decoding, then the handler; invalid input is a 400, declared errors use their declared status, defects and encoding failures are 500s, and a disconnect interrupts the request fiber](/diagrams/httpapi-request-lifecycle.svg)
 
@@ -157,6 +157,24 @@ export class RaisesApi2 extends HttpApi.make("raises").add(
   .annotate(HttpApi.HeadersParseOptions, {}) {}
 ```
 
+`HttpApi.RedactedNames` handles values that are only *sometimes* secret: query parameters and headers you do not want to model as `Redacted`, but that must not appear in traces. Annotate the API, a group, or an endpoint with `.annotate(HttpApi.RedactedNames, { query?, headers? })`. Names are wire names after encoding, matched like `Headers.CurrentRedactedNames` (strings case-insensitively, regular expressions by test), and a string query name also covers bracketed nested keys such as `buildargs[NPM_TOKEN]`. For that endpoint they extend `UrlParams.CurrentRedactedNames` and `Headers.CurrentRedactedNames` in the `HttpApiClient` request span and the `HttpApiBuilder` server span, including failures from middleware and request decoding. The API, group, and endpoint lists are combined; the values sent and decoded are unchanged.
+
+```ts
+import { Schema } from "effect"
+import { HttpApi, HttpApiEndpoint } from "effect/http-api"
+
+// A signed export link and a delegation header: keep both out of client and server spans.
+export const exportPayroll = HttpApiEndpoint.get("exportPayroll", "/payroll/export", {
+  query: { signature: Schema.optional(Schema.String) },
+  headers: { "x-delegated-for": Schema.optional(Schema.String) }
+}).annotate(HttpApi.RedactedNames, {
+  query: ["signature"],
+  headers: ["x-delegated-for"]
+})
+```
+
+Two limits: `HttpApi.addHttpApi` copies the added API's annotations onto its groups like any other annotation, so a group that sets its own `RedactedNames` replaces the API's list instead of extending it — repeat the names on the group; and only URL and header span attributes use them, so `user_agent.original` and span error messages are recorded as is.
+
 **Reach for it when** assembling groups into the one definition that drives server, client, and docs.
 
 ## HttpApiSchema
@@ -208,7 +226,9 @@ const page = HttpApiSchema.withHeaders({
 
 `WithHeaders(bodySchema, headersSchema)` makes the success/client value a branded `{ body, headers }` pair and works for streaming success bodies too. For a domain error that should remain the handler's error type while encoding selected fields into HTTP headers, pipe it through `encodeToWithHeaders({ body, headers }, { decode, encode })`. Nesting `WithHeaders` is rejected. Explicit `content-type` or `content-length` values in the returned headers override values inferred from the body; endpoint construction also rejects ambiguous response variants sharing the same status/content type.
 
-In `StreamSse({ data })` mode each event is `{ id?, event, data }`: the `id` is optional in the TypeScript type and in the OpenAPI schema, and a decoded event without an `id` omits the key rather than carrying `id: undefined`. A custom `events` schema should declare the id as `Schema.optional(Schema.String)`, not `Schema.UndefinedOr(Schema.String)`. The event name `"effect/http-api/stream/failure"` is reserved: it's how a mid-stream handler failure is encoded to the client, and defining your own `events` schema with that literal fails at endpoint-construction time.
+In `StreamSse({ data })` mode each event is `{ id?, event, data }`, and `data` is encoded with the schema's JSON codec before it is stringified, so `Schema.Date`, `Schema.BigInt`, or `Schema.Option` values round-trip through SSE and the OpenAPI document describes their JSON form. The `id` is optional in the TypeScript type and in the OpenAPI schema, and a decoded event without an `id` omits the key rather than carrying `id: undefined`. A custom `events` schema should declare the id as `Schema.optional(Schema.String)`, not `Schema.UndefinedOr(Schema.String)`. The server writes events through `Sse.encoder`, which strips CR and LF from `id` and `event` values (and NUL from `id`), so a handler echoing caller-supplied text into them cannot inject extra fields or events; multi-line `data` is split into `data:` lines as usual. The event name `"effect/http-api/stream/failure"` is reserved: it's how a mid-stream handler failure is encoded to the client, and defining your own `events` schema with that literal fails at endpoint-construction time. `StreamSse({ ..., keepAlive: "15 seconds" })` makes the server write a `: keepalive` comment each time the interval passes while the response is open, stopping when the event stream ends; SSE clients ignore comment lines, so idle connections survive proxies and runtimes that close silent responses.
+
+For code generators and other tooling that inspects declared response schemas (including those from `HttpApi.reflect`), `HttpApiSchema.getResponseEncodingSchema(schema)` returns the buffered response encoding (defaulting to JSON, and for `WithHeaders` preferring the wrapper's encoding), and `HttpApiSchema.getEncodeToWithHeadersParts(schema)` returns the declared `{ body, headers }` of an `encodeToWithHeaders` schema, or `undefined`. They read declarations, not the installed codecs: no-content schemas also report the JSON default (check `isNoContent` first), streaming and upgrade schemas are outside that contract, and a multipart encoding throws.
 
 `StreamUint8Array` and `StreamNdjson` accept one content type or a list (`contentType: ["application/x-ndjson", "application/jsonl"]`): the first is the default response type, request streams are accepted under every entry, and OpenAPI lists each.
 

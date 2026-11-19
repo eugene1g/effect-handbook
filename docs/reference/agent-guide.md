@@ -102,7 +102,7 @@ The handbook covers the public surface of `effect` and the `@effect/*` packages 
 
 1. **The installed package is the ground truth.** `node_modules/effect/AGENTS.md` carries the maintainers' coding conventions and `node_modules/effect/ai-docs/src` their topic-organized examples; both match the version actually installed. Prefer them over any copy of the documentation that may describe a different version, this one included.
 2. **Read the declaration files.** Every public module is a single `.d.ts` under `node_modules/effect/dist/` (or the package's `dist/`), with JSDoc that includes the `@stability` tag and usually an example. For `@effect/*` packages the same applies under their own `dist/`.
-3. **Check stability before relying on it.** `unstable` APIs may change in a minor release and `experimental` ones in a patch release. The badges on this site were derived from the audited source, not from the import path, since Effect 4 has no `unstable/` path segment.
+3. **Check stability before relying on it.** `unstable` APIs may gain features in a patch release and break in a minor release; `experimental` ones may break in a patch release. The badges on this site were derived from the audited source, not from the import path, since Effect 4 has no `unstable/` path segment.
 4. **Report drift.** If the installed source contradicts the handbook, the handbook is wrong or stale. The twin header tells you the release it was audited against.
 
 ## Drop-in instructions for your agent

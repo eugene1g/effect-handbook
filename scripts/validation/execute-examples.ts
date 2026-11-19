@@ -6,6 +6,8 @@
  *   Vitest batch and every test must pass.
  * - `browser`: needs a browser host (`@effect/platform-browser`, `window`,
  *   `document`); recorded and skipped.
+ * - `other-host`: needs the Deno, Bun, or Cloudflare Workers runtime; recorded
+ *   and skipped.
  * - otherwise it runs under Node with outbound network blocked (loopback is
  *   allowed). It must exit 0, or be a long-running program (a server, a launched
  *   Layer) still alive at the timeout.
@@ -66,7 +68,7 @@ for (const mod of [net, tls]) {
 function classify(body: string): "vitest" | "browser" | "host" | "node" {
   if (/from "(?:@effect\/vitest|vitest)"/.test(body)) return "vitest"
   if (/@effect\/platform-browser|\bwindow\.|\bdocument\.|globalThis\.addEventListener/.test(body)) return "browser"
-  if (/@effect\/platform-(?:deno|bun)|\bDeno\.|\bBun\./.test(body)) return "host"
+  if (/@effect\/platform-(?:deno|bun|cloudflare)|"cloudflare:|\bDeno\.|\bBun\./.test(body)) return "host"
   return "node"
 }
 
@@ -187,7 +189,7 @@ export async function executeCompileExamples(examples: ReadonlyArray<Example>): 
       continue
     }
     if (classify(entry.body) === "host") {
-      results.push({ id: entry.example.id, status: "other-host", detail: "needs the Deno or Bun runtime" })
+      results.push({ id: entry.example.id, status: "other-host", detail: "needs the Deno, Bun, or Cloudflare Workers runtime" })
       continue
     }
     nodeEntries.push(entry)

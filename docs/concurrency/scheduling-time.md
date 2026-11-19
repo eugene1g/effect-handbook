@@ -2,7 +2,7 @@
 
 _Effect provides a composable time stack: typed duration values, a testable clock-aware date/time system, a cron parser, an effect-native PRNG, and `Schedule`, the algebraic policy engine powering retry and repeat._
 
-> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/07_datetime) examples.
+> **Official companions:** Effect's release-matched `ai-docs` corpus has executable [Schedule](https://github.com/Effect-TS/effect/tree/effect%404.1.4/ai-docs/src/06_schedule) and [DateTime](https://github.com/Effect-TS/effect/tree/effect%404.1.4/ai-docs/src/07_datetime) examples.
 
 > **Official guides:** [Using schedules](https://effect.website/docs/v4/scheduling/using-schedules) introduces `Effect.repeat`, `Effect.schedule`, and `Effect.retry`; [Choosing and combining schedules](https://effect.website/docs/v4/scheduling/choosing-and-combining-schedules) walks through the constructors, limiters, and combinators; the [Schedule cookbook](https://effect.website/docs/v4/scheduling/cookbook) has complete retry and polling programs. Section-specific guides are linked where they apply. These track Effect's `main` branch rather than this edition's audited release, so where they differ, this page and the tagged source win.
 
@@ -315,7 +315,7 @@ Interruption stops both the running attempt and the pending delay, so a retried 
 
 ### Scheduled repeat via Schedule.cron
 
-`Schedule.cron` parses a standard 5-field (or 6-field with seconds) cron expression and builds a schedule sleeping until the next matching wall-clock time. Accepts an optional IANA timezone string and an optional `{ onDstOverlap }` policy (see [Cron](#cron)); a pre-parsed `Cron` value keeps its own policy. DST transitions are handled correctly: `Cron.next` will not return a past occurrence or exhaust its search limit when the current time falls inside a repeated DST interval.
+`Schedule.cron` parses a standard 5-field (or 6-field with seconds) cron expression and builds a schedule sleeping until the next matching wall-clock time. Accepts an optional IANA timezone string and an optional `{ onDstOverlap }` policy (see [Cron](#cron)); a pre-parsed `Cron` value keeps its own policy. DST transitions are handled correctly: `Cron.next` will not return a past occurrence or exhaust its search limit when the current time falls inside a repeated DST interval. A step that lands less than a nanosecond before a tick counts as being on that tick, so `Schedule.cron` (like `Schedule.fixed` and `Schedule.windowed` at their boundaries) waits for the following one instead of recurring again with a zero delay.
 
 ```ts
 import { Effect, Schedule } from "effect"
@@ -689,6 +689,8 @@ const fixedOffset = DateTime.setZoneOffset(reviewOpens, 5.5 * 60 * 60 * 1000)
 
 `DateTime.zoneToString(zone)` renders the id or offset back to text.
 
+**A named zone keeps the identifier you supplied.** `TimeZone.Named.id` is the input id, aliases included: `"Europe/Kyiv"`, `"Etc/UTC"`, and `"US/Eastern"` stay as written even where `Intl` resolves them to `"Europe/Kiev"`, `"UTC"`, or `"America/New_York"`. `Intl` only fixes the casing when its resolved id differs from the input in case alone, so `"europe/london"` becomes `"Europe/London"` while `"europe/kyiv"` stays lowercase. `zoneToString`, the bracket in `formatIsoZoned`, and the Schema string and JSON encodings all write that `id`, but `Equal` and `Hash` use `Intl`'s resolved id — so `Europe/Kyiv` and `Europe/Kiev` are equal zones that serialize differently. Normalize ids at the boundary (validate against your own canonical list) when stored or compared text must be stable.
+
 ### Constructing zoned values from wall-clock input
 
 `setZone*` attaches a zone to an instant that is already correct. The other common case is the reverse: the input is a **local wall-clock reading** — "the merit cycle closes at 09:00 in New York" — and the instant is what you need to compute.
@@ -765,7 +767,7 @@ const reminderStart = cliffDate.pipe(DateTime.subtractDuration("30 days"))
 
 Month and year arithmetic clamps to the last valid day instead of spilling into the next month: `2026-01-31` plus `{ months: 1 }` is `2026-02-28`, and `2024-02-29` plus `{ years: 1 }` is `2025-02-28`. Consequently adding a month and then subtracting one is not always the identity — compute recurring dates from the original anchor (`grantDate + n months`), not by chaining increments. `DateTime.setParts` / `setPartsUtc` do not clamp: the parts you pass are applied together, so `{ month: 2, day: 15 }` on 31 January is 15 February, but `{ month: 2 }` alone keeps day 31 and rolls over to 3 March.
 
-**Calendar days and elapsed hours differ across DST.** On a zoned value, `DateTime.add` / `subtract` first apply hours, minutes, seconds, and milliseconds as elapsed time, then apply days, weeks, months, and years as calendar operations. Adding `{ hours: 24 }` moves the instant by exactly 24 hours; adding `{ days: 1 }` preserves the local clock time and can span 23 or 25 hours. Use `addDuration` for a fixed elapsed interval. When handing a zoned value to a JavaScript API, `toDateUtc` preserves the instant; `toDate` instead puts its local wall-clock fields into the returned Date's UTC fields.
+**Calendar days and elapsed hours differ across DST.** On a zoned value, `DateTime.add` / `subtract` first apply hours, minutes, seconds, and milliseconds as elapsed time, then apply days, weeks, months, and years as calendar operations. Adding `{ hours: 24 }` moves the instant by exactly 24 hours; adding `{ days: 1 }` preserves the local clock time and can span 23 or 25 hours. Use `addDuration` for a fixed elapsed interval. `startOf`, `endOf`, and `nearest` keep a zoned value in the same occurrence of a repeated autumn hour — `startOf("hour")` on the second 01:30 in New York is the second 01:00 (`-05:00`), not the first — and a calendar-unit `endOf` that lands in a repeated hour returns the last instant of the later occurrence. When handing a zoned value to a JavaScript API, `toDateUtc` preserves the instant; `toDate` instead puts its local wall-clock fields into the returned Date's UTC fields.
 
 ### Providing the current zone via a Layer
 

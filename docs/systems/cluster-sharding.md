@@ -4,9 +4,9 @@ Effect Cluster provides *entities*: stateful, addressable actors keyed by id, di
 
 > **Note:** The spine: **Entity** defines an addressable actor and its RPC protocol. **Sharding** routes every message. **Runner**/**Runners** host shards and talk to each other. **MessageStorage** makes delivery durable. **Singleton**, **Snowflake**, **EntityProxy**, **ClusterCron**, **ShardingConfig** hang off those four. Define entities, merge their layers, provide a cluster layer.
 
-> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/80_cluster) defines and runs a distributed entity.
+> **Official example:** Effect's release-matched [`ai-docs` cluster example](https://github.com/Effect-TS/effect/tree/effect%404.1.4/ai-docs/src/80_cluster) defines and runs a distributed entity.
 
-> **Warning:** The entire cluster surface lives under `effect/cluster`. APIs may shift between minor versions. Pin your version and re-check signatures when you upgrade. Transport entrypoints (`NodeClusterSocket`, `NodeClusterHttp`) come from `@effect/platform-node`; `@effect/platform-bun` and `@effect/platform-deno` ship the matching `BunCluster*` / `DenoCluster*` modules.
+> **Warning:** The entire cluster surface lives under `effect/cluster`. APIs may shift between minor versions. Pin your version and re-check signatures when you upgrade. Transport entrypoints (`NodeClusterSocket`, `NodeClusterHttp`) come from `@effect/platform-node`; `@effect/platform-bun` and `@effect/platform-deno` ship the matching `BunCluster*` / `DenoCluster*` modules. The experimental `@effect/platform-cloudflare` runs the same entities and workflows on Cloudflare Durable Objects instead of runners (see [Running on Cloudflare Durable Objects](#running-on-cloudflare-durable-objects)).
 
 > **Note:** The socket and HTTP/WebSocket runner transports serialize runner-to-runner traffic with `SchemaBinary` by default (`serialization: "binary"`); `"ndjson"` (newline-delimited JSON) is the interoperable alternative when you need a text wire format. Every runner **and** every client-only node of one cluster must agree on this setting. See [Transport options](#transport-options).
 
@@ -81,7 +81,7 @@ const program = Effect.gen(function*() {
 
 > **Tip:** `toLayer` is the idiomatic path. For actor purists who want to own the message loop, `toLayerQueue` hands a `Queue.Dequeue` of request envelopes plus a `Replier` (`succeed`/`fail`/`failCause`/`complete`). Same delivery guarantees, lower-level control.
 
-> **Note:** `toLayer` takes `maxIdleTime` (passivation; the `ShardingConfig.entityMaxIdleTime` default is one minute), `concurrency` (defaults to sequential per instance), `mailboxCapacity`, `mailboxMetrics` (per-entity mailbox gauge; see [ClusterMetrics](#clustermetrics)), a `defectRetryPolicy`, `disableFatalDefects`, and `spanAttributes`. By default a handler defect is *fatal to the instance*: the runtime logs it, waits according to `defectRetryPolicy`, rebuilds the instance, and re-delivers the requests that were in flight — so handlers must tolerate redelivery. With `disableFatalDefects: true` only the failing call reports the defect and the instance keeps running. Inside a handler read `Entity.CurrentAddress` (this entity's type/id/shard) and call `Entity.keepAlive(true)` to pin an instance alive while it holds a resource. For tests without transport, `Entity.makeTestClient(entity, layer)` builds an in-memory client. It honors the entity layer's `disableFatalDefects` setting: without it, one handler defect also fails the other calls pending on that entity id in the test.
+> **Note:** `toLayer` takes `maxIdleTime` (passivation; the `ShardingConfig.entityMaxIdleTime` default is one minute), `concurrency` (defaults to sequential per instance), `mailboxCapacity`, `mailboxMetrics` (per-entity mailbox gauge; see [ClusterMetrics](#clustermetrics)), a `defectRetryPolicy`, `disableFatalDefects`, and `spanAttributes`. By default a handler defect is *fatal to the instance*: the runtime logs it, waits according to `defectRetryPolicy`, rebuilds the instance, and re-delivers the requests that were in flight — so handlers must tolerate redelivery. The backoff is tracked per entity instance (one defecting id does not slow down its siblings) and resets once a request completes. When your `defectRetryPolicy` ends, the default schedule (500 ms growing 1.5× per attempt, capped at 10 seconds) takes over, so restarts never stop; the same policy retries a failing handler build. With `disableFatalDefects: true` only the failing call reports the defect and the instance keeps running — use that when a request may defect repeatedly. An interrupt that arrives for a request while its instance is being rebuilt is kept and applied to the rebuilt instance, so the request is interrupted rather than replayed again and the sender is not stalled (server-uninterruptible requests ignore it). Inside a handler read `Entity.CurrentAddress` (this entity's type/id/shard) and call `Entity.keepAlive(true)` to pin an instance alive while it holds a resource. `keepAlive` delegates to an `Entity.KeepAliveHandler` service (`(enabled: boolean) => Effect<void>`) when the runtime provides one, as the Cloudflare runtime does; otherwise it uses the runner's own keep-alive mechanism. For tests without transport, `Entity.makeTestClient(entity, layer)` builds an in-memory client. It honors the entity layer's `disableFatalDefects` setting: without it, one handler defect also fails the other calls pending on that entity id in the test.
 
 > **Note:** Handlers resolve services from the context in which the entity is *registered* — what you provide to the `entity.toLayer(...)` layer wins. Services that were only present when `Sharding` itself was constructed remain a fallback, not an override.
 
@@ -172,6 +172,62 @@ For what the serialization layers do on the wire, see [RPC](../interfaces/rpc).
 
 **Reach for it when** building cluster tooling or custom routing. Otherwise, provide its *layer*.
 
+### Running on Cloudflare Durable Objects
+
+`CloudflareCluster.layer` from the experimental [`@effect/platform-cloudflare`](../interfaces/platform-runtime-hosts#platform-packages) package provides `Sharding`, `WorkflowEngine`, and `PersistedQueueFactory` without runners, shard locks, or an external database. Each entity id is its own Durable Object, which persists the entity's mailbox and replies in its own SQLite storage. Entity, `Rpc`, `ClusterSchema`, `Workflow`, `Activity`, `DurableDeferred`, and `DurableQueue` definitions stay the same; only the cluster layer changes.
+
+```ts
+// @effect-diagnostics experimentalApiUsage:off
+import { CloudflareCluster } from "@effect/platform-cloudflare"
+import { Effect, Layer, Schema } from "effect"
+import { ClusterSchema, Entity } from "effect/cluster"
+import { Rpc } from "effect/rpc"
+
+// The four same-Worker Durable Object namespace bindings from wrangler.jsonc.
+type Namespace = CloudflareCluster.LayerOptions["entityNamespace"]
+declare const env: {
+  readonly CLUSTER_ENTITY: Namespace
+  readonly CLUSTER_WORKFLOW: Namespace
+  readonly CLUSTER_QUEUE: Namespace
+  readonly CLUSTER_SINGLETON: Namespace
+}
+
+const Counter = Entity.make("Counter", [
+  Rpc.make("Increment", { success: Schema.Number })
+]).annotateRpcs(ClusterSchema.Persisted, true)
+
+const CounterLayer = Counter.toLayer(Effect.gen(function*() {
+  // The entity's own SQLite storage; rows commit with its mailbox.
+  const sql = yield* CloudflareCluster.DurableObjectSqlClient.orDie
+  yield* sql`CREATE TABLE IF NOT EXISTS hits (id INTEGER PRIMARY KEY)`.pipe(Effect.orDie)
+  return Counter.of({
+    Increment: () =>
+      Effect.gen(function*() {
+        yield* sql`INSERT INTO hits DEFAULT VALUES`
+        const rows = yield* sql<{ readonly n: number }>`SELECT count(*) AS n FROM hits`
+        return rows[0]?.n ?? 0
+      }).pipe(Effect.orDie)
+  })
+}))
+
+const ClusterLayer = CounterLayer.pipe(
+  Layer.provideMerge(CloudflareCluster.layer({
+    entities: [Counter], // every entity type this Worker serves
+    entityNamespace: env.CLUSTER_ENTITY,
+    workflowNamespace: env.CLUSTER_WORKFLOW,
+    queueNamespace: env.CLUSTER_QUEUE,
+    singletonNamespace: env.CLUSTER_SINGLETON
+  }))
+)
+```
+
+- **Deployment shape.** The Worker entry module re-exports the four classes from `@effect/platform-cloudflare/CloudflareDurableObjects` (`ClusterEntity`, `ClusterWorkflow`, `ClusterDurableQueue`, `ClusterSingleton`), and `wrangler.jsonc` binds each as a SQLite-backed class. These objects only accept calls through the same-Worker bindings and reject a direct `fetch`, so do not route public traffic to them. When the layer is built asynchronously, register it with `CloudflareDurableObjects.setInitializer(env => ...)`; every cold object waits for it, and it must finish within 15 seconds and tolerate running more than once per isolate. `AlchemyCloudflareCluster.make` (subpath import, optional `@alchemy.run/cloudflare` peer) replaces the class exports, bindings, and initializer when you deploy with Alchemy.
+- **Routing and delivery.** `Entity.client` encodes `(type, id)` into a Durable Object name and calls `getByName`; an entity type missing from `entities` fails in the Worker before any object is contacted. Persisted requests are stored before they run, deduplicated by primary key, and replayed after an eviction or deploy by an alarm. Non-persisted RPCs are best effort and can be lost when the object hibernates or crashes.
+- **Different defaults.** Handler defects are always request-local (as if `disableFatalDefects` were `true`), and `maxIdleTime` and `mailboxCapacity` are accepted but ignored: hibernation owns idle objects and the mailbox holds at most 4096 requests. `concurrency`, `defectRetryPolicy`, and `spanAttributes` apply. `Entity.keepAlive` pins an object through an alarm re-armed every `keepAliveHeartbeat` (default 30 seconds), which is also how a kept-alive entity comes back after a restart.
+- **Singletons and `ClusterCron` run only when woken.** Nothing starts them on deploy: a Worker Cron Trigger calls `env.CLUSTER_SINGLETON.getByName("Singleton/<name>").wake()`, which runs the singleton effect once, so do not write it as a forever loop. For a `ClusterCron`, wake the seed singleton named by `CloudflareCluster.clusterCronSingletonName(name)`; later runs schedule themselves.
+- **`DurableObjectSqlClient`** is a separate tag from `SqlClient.SqlClient`, so a Worker-wide database (D1, say) stays reachable inside handlers. Tables named `cluster_*` are reserved, a row is capped at 2 MB, and a `withTransaction` holds the object's input gate closed, so keep timers and I/O out of the transaction.
+- **Out of scope.** Shards, shard locks, runners, and `MessageStorage`/`RunnerStorage`/`RunnerHealth` as replaceable services do not apply; the layer provides no `MessageStorage`, so [`MessageRetention`](#messageretention) cannot be used. `Sharding.getSnowflake` dies (request ids are UUIDv7), and `PersistedQueue.layerCleanup` fails. The workflow engine makes `DurableClock.sleep` durable unless you pass an explicit `inMemoryThreshold` (see [Workflows & Durable Execution](workflows-durable-execution#durableclock)).
+
 ## Singleton
 
 `effect/cluster` — unstable
@@ -249,17 +305,52 @@ The durability boundary. `MessageStorage` is the pluggable backend that makes ma
 
 The save path returns a `SaveResult` tagged enum — `Success` or `Duplicate` (carrying the existing reply) — for raise-request dedup.
 
-**A persisted transactional reply is a commit boundary, not just a handler return.** With `ClusterSchema.WithTransaction`, successful handler writes and the success reply commit together. Typed failures and non-fatal defects are saved after rollback, so a duplicate can recover the failure reply too. Terminal replies are published only after commit or clean rollback; a transaction failure recovers a committed reply or retries the request. This also applies to local in-memory reply publication inside an outer transaction. Local persisted clients read replies back from storage, so a reply that arrived before handler registration is not lost. External HTTP calls and other non-transactional side effects remain outside this SQL boundary.
+**A persisted transactional reply is a commit boundary, not just a handler return.** With `ClusterSchema.WithTransaction`, successful handler writes and the success reply commit together. Typed failures and non-fatal defects are saved after rollback, so a duplicate can recover the failure reply too. Terminal replies are published only after commit or clean rollback; a transaction failure recovers a committed reply or retries the request. A failed success-reply save inside the request transaction is not retried there (a retry could autocommit the reply outside the aborted transaction, for example after a MySQL deadlock); the failed transaction replays the request instead. When a reply save commits but still reports an error (the COMMIT acknowledgement was lost), the runner finds the stored reply and lets the caller read it without replaying the request. A discarded persisted send made from inside the transaction wakes the receiving runner only after the commit, since the message is invisible to it before then. This also applies to local in-memory reply publication inside an outer transaction. Local persisted clients read replies back from storage, so a reply that arrived before handler registration is not lost. External HTTP calls and other non-transactional side effects remain outside this SQL boundary.
 
 **Reads are bounded and claim only what they return.** `unprocessedMessages(shardIds, { limit?, addresses? })` reads at most `limit` messages (the runner passes `ShardingConfig.unprocessedMessageBatchSize`) and can be restricted to specific entity addresses. Only the returned messages are claimed; everything else stays eligible for a later poll, which is what lets a runner at its residency cap keep serving resident entities without starving the rest. The in-memory driver applies the same ten-minute claim window as SQL, and `resetAddress` / `resetAddresses` / `resetShards` make claimed messages eligible again immediately.
 
 **Fresh local replies skip storage reads.** A fresh persisted request owned by the local runner is answered from a reply handler registered before the request is saved. Duplicates and streams still read their replies from storage, and a dropped reply handler falls back to storage immediately.
 
-**Custom backends.** `MessageStorage.makeEncoded(encoded)` lifts an `Encoded` driver (strings and bytes) into the typed service. The driver contract's reset operation is the batched `resetAddresses(addresses)`, so a hand-written driver must implement that form. A custom `registerReplyHandler` must register its handler as soon as the effect starts; the fresh-reply path above depends on it. `SqlMessageStorage.makeEncoded({ prefix? })` returns the SQL `Encoded` driver on its own (after running migrations) when you want to wrap or compose it; `SqlMessageStorage.makeEncodedStorage({ prefix? })` does the same without migrations or startup SQL.
+**Custom backends.** `MessageStorage.makeEncoded(encoded)` lifts an `Encoded` driver (strings and bytes) into the typed service. The driver contract's reset operation is the batched `resetAddresses(addresses)`, so a hand-written driver must implement that form. A custom `registerReplyHandler` must register its handler as soon as the effect starts; the fresh-reply path above depends on it. The contract also includes `deleteProcessed({ entityType, completedBefore, limit })`, used by [MessageRetention](#messageretention): delete, atomically, up to `limit` requests of that entity type whose `WithExit` reply id is timestamped before `completedBefore` (Unix milliseconds), with every message and reply sharing their request id, and return the count; rows locked by another transaction may be left for a later call. `noop` implements it as a no-op that returns `0`. `SqlMessageStorage.makeEncoded({ prefix? })` returns the SQL `Encoded` driver on its own (after running migrations) when you want to wrap or compose it; `SqlMessageStorage.makeEncodedStorage({ prefix? })` does the same without migrations or startup SQL.
 
 **Without `MessageStorage` (`noop`/`layerNoop`), completed request ids are not retained.** Redelivering a request id that already completed re-runs it instead of failing with `AlreadyProcessingMessage` — that dedup guarantee needs real storage.
 
 **Reach for it when** you mark RPCs `Persisted`. Pick `SqlMessageStorage` in production, `layerMemory` in tests.
+
+## MessageRetention
+
+`effect/cluster/MessageRetention` — unstable
+
+Bounds the storage of a persisted entity. `MessageStorage` keeps every persisted request and its replies so that duplicates get the stored answer and interrupted work can resume; for a long-lived entity type that table only grows. `MessageRetention.make({ entity, retention, interval?, shardGroup? })` returns a `Layer<never, never, Sharding | MessageStorage>` that registers a [singleton](#singleton) (named `effect/cluster/MessageRetention/<entity type>`) which deletes the entity type's completed requests once their final reply is older than `retention`.
+
+```ts
+import { Effect, Layer, Schema } from "effect"
+import { ClusterSchema, Entity, MessageRetention } from "effect/cluster"
+import { Rpc } from "effect/rpc"
+
+const PayslipMailer = Entity.make("PayslipMailer", [
+  Rpc.make("Send", {
+    payload: { payslipId: Schema.String },
+    primaryKey: ({ payslipId }) => payslipId
+  })
+]).annotateRpcs(ClusterSchema.Persisted, true)
+
+// Keep a sent payslip's request and reply for 30 days, so retries and
+// duplicate deliveries inside that window still return the stored reply.
+const PayslipMailerLive = Layer.mergeAll(
+  PayslipMailer.toLayer({ Send: () => Effect.void }),
+  MessageRetention.make({ entity: PayslipMailer, retention: "30 days" })
+)
+```
+
+- **What a run deletes.** Every `interval` (default one minute) the singleton deletes, in batches of 1000 until a batch comes back short, each request whose `WithExit` reply is older than `retention`, together with its acknowledgements, interrupts, and replies. Running requests, and requests reset with `MessageStorage.clearReplies`, are kept. A failed run is logged as a warning and retried at the next interval.
+- **Deleting forgets the dedup key.** A request sent again with the same primary key after deletion is a new request and runs the handler again. Choose a retention longer than any client retry window and any reader of stored replies.
+- **Not for workflows or `ClusterCron`.** Their entities rely on stored replies to know which steps already ran; deleting them would re-run work.
+- **Deploy it everywhere.** The singleton runs in `shardGroup` (default `"default"`), not the entity's shard group; include the layer on every runner that can own that group so the cleanup survives shard moves.
+- **SQL storage.** `SqlMessageStorage` adds a retention index through its migrations. On MySQL the delete needs MySQL 8.0.1+ or MariaDB 10.6+ (`SKIP LOCKED`) and `binlog_format` `ROW` or `MIXED`; otherwise every run fails and is logged. When the delete runs inside a caller's transaction on MySQL before 8.0.20 or on MariaDB, that transaction must be READ COMMITTED or it can deadlock with a concurrent reply.
+- **Needs a real `MessageStorage`.** With `noop` storage nothing is retained, so there is nothing to delete; the Cloudflare runtime does not provide `MessageStorage` (see [Running on Cloudflare Durable Objects](#running-on-cloudflare-durable-objects)).
+
+**Reach for it when** a persisted entity type handles an unbounded stream of distinct requests and you can name how long a duplicate must still be recognised.
 
 ## Snowflake
 
@@ -394,6 +485,8 @@ const FromEnv = ShardingConfig.layerFromEnv()
 ```
 
 > **Tip:** `layerDefaults` gives stock config; `layerFromEnv` reads a `Config` description for env-var-driven containers. Transport entrypoints default to `layerFromEnv` internally.
+
+> **Note:** `runnerHealthCheckInterval` (default one minute) paces the checks that remove unhealthy runners from shard assignments. They run on one runner, the host of the runner-health singleton, which therefore cannot detect its own crash: that runner leaves assignments only when runner storage stops listing it — for `SqlRunnerStorage`, once its last heartbeat is older than `shardLockExpiration`. Lowering the interval speeds up detection of other runners' crashes only; to bound the singleton host's case, lower `shardLockExpiration`, at the cost of less tolerance for slow lock storage.
 
 ### Capacity limits and their defaults
 
@@ -540,7 +633,7 @@ The production `MessageStorage`: encodes envelopes and reply chunks into SQL tab
 
 > **Migration:** `SqlMessageStorage` and `SingleRunner` require `Digest.Digest` instead of the removed `Crypto.Crypto` service. Shorter keys are still stored as plaintext and hashed keys keep the SHA-256 hex form, so existing rows stay compatible.
 
-Supported dialects include SQL Server: claims and duplicate checks use valid T-SQL, and its tables use filtered unique indexes and `NVARCHAR(MAX)`. On SQLite drivers that return numbers (including Cloudflare Durable Objects), message ids are read without precision loss. Changing the prefix after deployment points the runtime at a different set of tables, including the migration history.
+Supported dialects include SQL Server: claims and duplicate checks use valid T-SQL, and its tables use filtered unique indexes and `NVARCHAR(MAX)`; reply and delete statements force the request-id lookup indexes, and a migration creates any that an earlier name-only check skipped because a same-named index existed on another table. Another migration adds the index that [MessageRetention](#messageretention) deletes through. On SQLite drivers that return numbers (including Cloudflare Durable Objects), message ids are read without precision loss. Changing the prefix after deployment points the runtime at a different set of tables, including the migration history.
 
 For separate deployment and runtime database roles, run `SqlMessageStorage.layerMigrations({ prefix })` using the schema-owner connection, then provide `layerStorage({ prefix })` using the runtime connection. `layerStorage` performs no DDL or startup schema checks; migrations must already have succeeded. `layer`, `layerWith`, `make`, and `makeEncoded` still migrate first. Migration failures become defects. On PostgreSQL select the schema through `search_path`, not a schema-qualified prefix (which produces an invalid index name).
 
@@ -650,6 +743,10 @@ Runs durable `Workflow` executions on top of cluster sharding and message storag
 - **Its entities passivate after a fixed ten seconds.** Workflow and durable-clock entities ignore `entityMaxIdleTime`: a completed or suspended execution releases its residency slot quickly and is rebuilt from storage when its next message arrives. Do not keep process-local state in a workflow body and expect it to survive a suspension.
 - **A transient interrupt is an abandoned attempt, not a failure.** When the owning runner shuts down or loses the shard, the run stops with nothing persisted, without compensation and without resuming a parent, and replays on the next owner.
 - **Deferred completions survive a handover.** A `DurableDeferred` completion that reaches a new owner before its first local run of the execution is retained for that run, and the wake-up waits until the current run's reply is persisted, so a completion racing a shard move is not lost. See [DurableDeferred](workflows-durable-execution#durabledeferred).
+- **Transient storage failures are retried, not recorded.** A `PersistenceError` while a running workflow sends an activity, reads its reply, completes a `DurableDeferred`, schedules a `DurableClock` (the wake-up time is computed once, before retrying), or starts a child workflow is retried with exponential backoff (200 ms growing 1.5×, capped at one minute, without an attempt limit) instead of becoming a workflow defect; a save that committed but was not acknowledged is deduplicated, so the activity still runs once. Reading a pending interrupt signal is retried at most three times. A `PersistenceError` from a call made outside a workflow (starting one from an HTTP handler, say) still fails that call.
+- **A runner that lost its shard cannot erase newer history.** Resetting a suspended activity result for a retry deletes only the exact reply it read, so a stale former owner cannot delete a result written by the new owner and run the activity again.
+- **An interrupted child wakes its parent.** When a suspended child workflow is interrupted, its parent is resumed and the parent's awaited `childWorkflow.execute(...)` call dies with a defect (`<Child>.execute: execution "<id>" was interrupted`) rather than an interrupt, so the parent completes instead of replaying; recover with `Effect.catchDefect` or `Effect.exit` if the parent should continue. An abandoned run attempt of the child does not wake the parent.
+- **Forced shard release does not wedge reacquisition.** A forced release that interrupts a resume waiting on its active run no longer blocks the shard from being reacquired.
 - **Residency applies to workflows too.** Each running execution occupies an entity slot, so size `maxResidentEntities` for the number of executions a runner may have active at once.
 
 > **Tip:** Use cluster entities when work is naturally addressed to a sharded identity and needs single-runner ownership. For the workflow definition, activity, retry, and durable-clock model that `ClusterWorkflowEngine` distributes, continue with [Workflows & Durable Execution](workflows-durable-execution).

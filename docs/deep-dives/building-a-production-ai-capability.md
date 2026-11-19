@@ -31,7 +31,7 @@ export const PolicyAnswer = Schema.Struct({
 export type PolicyAnswer = Schema.Schema.Type<typeof PolicyAnswer>
 ```
 
-The Schema validates shape and constraints. It does not prove that the answer is true, that a citation supports the claim, or that policy permits an action. Those require grounded tools, application checks, and human review appropriate to the risk. The local decode is also the *only* authority on shape: a provider's "strict JSON" mode narrows what the model emits, but `generateObject` still decodes the reply through your Schema, and a reply that fails must stay a typed `StructuredOutputError` rather than being rescued by parsing prose.
+The Schema validates shape and constraints. It does not prove that the answer is true, that a citation supports the claim, or that policy permits an action. Those require grounded tools, application checks, and human review appropriate to the risk. The local decode is also the *only* authority on shape: a provider's "strict JSON" mode narrows what the model emits, but `generateObject` still decodes the reply through your Schema, and a reply that fails must stay a typed `StructuredOutputError` rather than being rescued by parsing prose. An empty reply fails the same way; pass `allowEmpty: true` only when "nothing to report" is a valid product answer, and handle the resulting `Option` explicitly (see [LanguageModel](../systems/ai-language-models#languagemodel)).
 
 ## Draw the trust boundary before writing a tool
 
@@ -103,7 +103,7 @@ export const PolicyToolkitLive = PolicyToolkit.toLayer(
 )
 ```
 
-Tool parameter decoding rejects malformed calls before the handler runs, and tool success values are encoded through their Schema. What happens to the rejection follows the tool's `failureMode`, exactly as a handler failure does: under `"error"` (the default, used here) the generation fails with an `AiError` whose reason is `ToolParameterValidationError`; under `"return"` the same error is handed back to the model as a failed tool result so it can repair the call. Use `"return"` only when exposing the failure to the model is an intentional recovery strategy and the error content is safe to reveal — authentication, authorization, and approval failures are never "recoverable tool text".
+Tool parameter decoding rejects malformed calls before the handler runs, and tool success values are encoded through their Schema. Both use the schema's JSON codec, so arguments arrive as JSON (a date as an ISO string) and results leave as JSON. What happens to the rejection follows the tool's `failureMode`, exactly as a handler failure does: under `"error"` (the default, used here) the generation fails with an `AiError` whose reason is `ToolParameterValidationError`; under `"return"` the same error is handed back to the model as a failed tool result so it can repair the call. Use `"return"` only when exposing the failure to the model is an intentional recovery strategy and the error content is safe to reveal — authentication, authorization, and approval failures are never "recoverable tool text".
 
 Tool calls requested in one model turn are resolved **with unbounded concurrency unless you pass `concurrency`**. A search tool that fans out to a rate-limited index, or any tool holding a connection, needs an explicit number on every `generateText` / `generateObject` / `streamText` call that carries the toolkit.
 
@@ -390,6 +390,8 @@ export const runBoundedAgent = <Tools extends Record<string, Tool.Any>>(
   })
 ```
 
+`chat.streamText({ ..., maxSteps })` runs the same bounded loop inside one stream: it keeps calling the model while every tool call of a round was answered, for at most `maxSteps` rounds, and emits one `finish` part per round, so account usage per round. It stops early at a call it cannot answer, such as an approval request or a [client-executed tool](../systems/ai-language-models#client-executed-tools). The turn limit is still yours to choose; never pass an unbounded value.
+
 Also bound tool concurrency, provider retries, per-tool timeouts, accumulated history, response tokens, and total wall-clock time. Persist chat only when the product needs continuity; define retention and deletion rules because prompts, tool results, and exported history may contain sensitive data.
 
 ### Validate the budget, reserve before dispatch, account per turn
@@ -646,13 +648,14 @@ State what each layer of the suite proves. Deterministic fakes prove *policy*. R
 - **Embeddings.** Persist provider, model, `dimensions`, normalization, and a schema version beside each vector. When any of them changes, build a new versioned index and re-embed; never compare vectors from different spaces.
 - **Classification and scoring.** When the answer is a label, a rating, or a probability — routing a raise request, flagging a policy exception — a [`DecisionModel`](../systems/ai-language-models#decisionmodel) returns validated distributions instead of free text. Treat its thresholds as versioned policy, record the input schema version and the provider model beside each stored decision, and test routing with a scripted `DecisionModel.make` layer.
 - **Fallback models.** A fallback is a separately configured capability. Re-validate its tool, structured-output, and media support in contract tests, and never route to it in order to get past a content-policy refusal.
-- **Dynamic and MCP-sourced tools.** `McpClient.toolkit` turns another server's tools into a `Toolkit` (see [McpClient](../systems/mcp#mcpclient)); it is a protocol bridge, not a trust decision. Authenticate the server, allow-list tool names, snapshot each tool's JSON Schema and validate arguments locally, map every tool to an application capability with its own policy, and reject a changed schema until a human has reviewed it.
+- **Dynamic and MCP-sourced tools.** `McpClient.toolkit` turns another server's tools into a `Toolkit` (see [McpClient](../systems/mcp#mcpclient)); it is a protocol bridge, not a trust decision. Authenticate the server, allow-list tool names, snapshot each tool's JSON Schema and validate arguments locally, map every tool to an application capability with its own policy, and reject a changed schema until a human has reviewed it. Its options support that discipline: bind only an approved descriptor snapshot with `tools`, gate writes with `transformTool` (for example `setNeedsApproval(true)`), bound each call with `timeout`, and leave `trustAnnotations` off unless the server is yours.
+- **Browser-facing agents.** [`AgUiServer`](../systems/ai-language-models#aguiserver) (experimental) serves an agent to an AG-UI frontend. Everything in a run's input is client-controlled: `AgUi.toPrompt` drops client `system`/`developer` messages and `context` by default, frontend tools run in the browser as client-executed tools, and server tools still authorize from trusted context. Authenticate the route and bound `maxSteps`.
 - **Media input.** Before a file part leaves the process, validate its content signature and declared type, its size and pixel or time extent, how many parts the request carries, and which URI schemes it may reference; a prompt must never make the provider fetch a URL on its own.
-- **Stored tool results.** A result is encoded with the success or the failure schema according to its `isFailure` flag, and failed results may be a `Tool.ExecutionFailure`. Treat exported `Chat` history as a versioned persisted format and review it when a tool's schemas change.
+- **Stored tool results.** A result holds the JSON encoding of the success or the failure schema according to its `isFailure` flag, and failed results may be a `Tool.ExecutionFailure`. Treat exported `Chat` history as a versioned persisted format and review it when a tool's schemas change.
 
 ## Operational checklist
 
-- Keep provider selection and credentials in Layers and `Config`, outside business services.
+- Keep provider selection and credentials in Layers and `Config`, outside business services; where the platform issues workload identity tokens, prefer [workload identity federation](../systems/ai-language-models#workloadidentity) over static API keys, and provide its layer only to the provider client.
 - Treat prompts, retrieved documents, model text, and tool arguments as untrusted input.
 - Validate machine-consumed output with Schema and apply domain invariants afterward.
 - Authorize every tool in its handler; expose narrow domain operations, not generic infrastructure access.
@@ -661,7 +664,7 @@ State what each layer of the suite proves. Deterministic fakes prove *policy*. R
 - Set `concurrency` on every call that carries a toolkit; use `disableToolCallResolution` when your own gates must run before a handler.
 - Bound agent turns, retries, tool concurrency, token budgets, history, and wall-clock duration — and reject any budget that is missing, non-finite, or above the fixed ceiling.
 - Keep failed, timed-out, and interrupted turns out of later prompts.
-- Record model/provider, latency, finish reason, token usage, tool calls, failures, and fallback selection.
+- Record model/provider, latency, finish reason, token usage, tool calls, failures, and fallback selection; tool spans carry `gen_ai.tool.name` by default, and arguments only if you enable `Toolkit.RecordToolArguments`.
 - Redact secrets and minimize personal or confidential content sent to providers.
 - Define retention, regional processing, deletion, incident-response, and provider-data-use policy.
 - Maintain deterministic fakes plus a small live-provider contract suite.

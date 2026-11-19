@@ -48,7 +48,7 @@ export const viewer = Effect.gen(function*() {
 
 `make(group)` acquires the protocol and middleware implementations and produces one typed method per operation. Queries and mutations return Effects; subscriptions return Streams. Per-call headers and context let callers supply request-local data without capturing it at client construction.
 
-By default, a response carrying GraphQL `errors` fails even when it also carries `data`. `{ partial: true }` returns a `PartialResult` with decoded data when available and the errors alongside it; it does not make malformed data valid. GraphQL non-null propagation still applies: a failed non-null field can null its nearest nullable ancestor, or all of `data`.
+By default, a response carrying GraphQL `errors` fails even when it also carries `data`. `{ partial: true }` returns a `PartialResult` with decoded data when available and the errors alongside it; it does not make malformed data valid, and it never applies to a non-2xx HTTP response, which always fails (see [GraphQLClientError](#graphqlclienterror)). GraphQL non-null propagation still applies: a failed non-null field can null its nearest nullable ancestor, or all of `data`.
 
 `pages(method, { variables, connection })` lazily fetches forward cursor pages; `items` flattens their `nodes`. The method must declare a nullable string `after` variable, omitted from the supplied initial variables, and the selected connection must include `pageInfo`. `items` additionally needs `nodes`. A cap on pages limits requests, while a cap on items may fetch a whole last page. Retrying the entire Stream starts again from the beginning, not the last failed page.
 
@@ -68,11 +68,11 @@ Catch the outer `GraphQLClientError`, then inspect `reason._tag`:
 | --- | --- |
 | `EncodeError` | Variables could not be encoded; nothing sent. |
 | `DecodeError` | A result did not match its Schema. |
-| `ResponseError` | GraphQL errors, retaining raw data and error paths. |
-| `TransportError` | HTTP/socket/protocol failure, including responses that are not GraphQL envelopes. |
+| `ResponseError` | GraphQL errors, retaining raw data and error paths — including on a non-2xx response, even with `data` and `{ partial: true }`. |
+| `TransportError` | HTTP/socket/protocol failure, including responses that are not GraphQL envelopes and non-2xx GraphQL responses without `errors` (such as `{ data: null }`). |
 | `PaginationError` | Invalid or non-progressing cursor pagination. |
 
-The wrapper exposes `isRetryable`, `retryAfter`, response `headers`, and `status` when available. `GraphQLError` preserves extra JSON fields, including provider-specific error types. A GraphQL error body on a 5xx is a `ResponseError`; a non-GraphQL body is a `TransportError`. Read provider rate-limit headers as well as `isRetryable`: a provider can report an exhausted budget in a GraphQL error with HTTP 200. Never retry mutations solely on this flag.
+The wrapper exposes `isRetryable`, `retryAfter`, response `headers`, and `status` when available. `GraphQLError` preserves extra JSON fields, including provider-specific error types. A call never succeeds on a non-2xx HTTP status. A GraphQL body with `errors` on such a status is a `ResponseError`; a GraphQL body without `errors`, or a non-GraphQL body, is a `TransportError` carrying the `status`, `headers`, and parsed `Retry-After`, so a retry policy built on `isRetryable` treats a `503 { "data": null }` as retryable rather than as data. A `data: null` result without `errors` on a 2xx (or over WebSocket, which has no status) remains a `DecodeError`. Read provider rate-limit headers as well as `isRetryable`: a provider can report an exhausted budget in a GraphQL error with HTTP 200. Never retry mutations solely on this flag.
 
 **Reach for it when** distinguishing schema defects, transport failures, provider errors, and rate limits.
 
@@ -137,4 +137,4 @@ Commit generated files, exclude them from formatting, and gate drift with `--che
 
 **Reach for it when** consuming an existing schema with many operations, fragments, custom scalars, subscriptions, or aliased batching.
 
-Pinned implementation and examples: [GraphQL source](https://github.com/Effect-TS/effect/tree/effect%404.1.0/packages/effect/src/graphql), [client tests](https://github.com/Effect-TS/effect/tree/effect%404.1.0/packages/effect/test/graphql), and [generator](https://github.com/Effect-TS/effect/tree/effect%404.1.0/packages/tools/graphql-generator).
+Pinned implementation and examples: [GraphQL source](https://github.com/Effect-TS/effect/tree/effect%404.1.4/packages/effect/src/graphql), [client tests](https://github.com/Effect-TS/effect/tree/effect%404.1.4/packages/effect/test/graphql), and [generator](https://github.com/Effect-TS/effect/tree/effect%404.1.4/packages/tools/graphql-generator).

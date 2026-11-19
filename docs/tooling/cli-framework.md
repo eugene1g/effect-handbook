@@ -2,7 +2,7 @@
 
 The CLI modules define parsers, help, completions, prompts, and command handlers as typed values that compose with ordinary Effects and Layers. Import the barrel with `import { Argument, Command, Flag, Prompt } from "effect/cli"`, or use the module paths shown in each section.
 
-> **Warning:** The framework lives under `effect/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.1.0/ai-docs/src/70_cli) provides a compact runnable companion.
+> **Warning:** The framework lives under `effect/cli`; pin the Effect version because this surface can change between minor releases. The release-matched [`ai-docs` CLI example](https://github.com/Effect-TS/effect/tree/effect%404.1.4/ai-docs/src/70_cli) provides a compact runnable companion.
 
 ## CliConfig
 
@@ -147,7 +147,7 @@ comp.pipe(
 | Combinator | Purpose |
 | --- | --- |
 | `Command.make(name, config, handler)` | Constructor — name + typed config + optional inline handler |
-| `Command.withHandler(fn)` | Attach or replace the handler after construction |
+| `Command.withHandler(fn)` | Attach or replace the handler after construction; the command keeps its existing error type, so validation errors and a replaced handler's errors stay in `E` |
 | `Command.withSubcommands([...])` | Register child commands (union of their errors/requirements flows up) |
 | `Command.withSharedFlags({...})` | Parent flags visible inside all subcommand handlers |
 | `Command.withGlobalFlags([...])` | Attach `GlobalFlag` instances (settings, not shared input) |
@@ -156,13 +156,57 @@ comp.pipe(
 | `Command.withAlias(s)` | Alternate invocation name (`review start` → `review s`) |
 | `Command.unlisted` | Keep a command invocable but omit it from normal listings/help |
 | `Command.withExamples([...])` | Curated examples shown at the bottom of `--help`; pass `({ commandPath }) => [...]` to derive them from where the command is mounted |
-| `Command.validate(f)` | Check the parsed input before the handler runs (for example mutually exclusive flags); fail with `CliError.ValidationError` and it is shown with help like a parse error |
+| `Command.validate(f)` | Check the parsed input before the handler runs (for example mutually exclusive flags). A `CliError` such as `CliError.ValidationError` is shown with help like a parse error; any other error is reported like a handler failure and added to the command's error type (see [below](#validating-input-across-flags)) |
 | `Command.provide(layer)` | Provide a Layer to the handler (static or derived from parsed input) |
 | `Command.provideEffect(effect)` | Run an effect before the handler and provide its result as a service |
 | `Command.run({ version })` | Convert to a runnable `Effect` (reads argv from `Stdio`) |
 | `Command.runWith(cmd, cfg)(args)` | Run with an explicit `string[]` — great for testing |
 
 > **Testing:** `Command.runWith(rootCmd, { version: "1.0.0" })(["grant", "--employee", "e-42", "--shares", "1000"])` runs against explicit `argv`. Its requirements always include `Command.Environment`, so provide `NodeServices.layer` or the in-memory environment shown below.
+
+### Validating input across flags
+
+`Command.validate(f)` receives the same input as the handler, with defaults, prompts, and wizard answers already applied. Validations run in the order they were added, stop at the first failure, and survive a later `withHandler`. Added after `withSharedFlags`, a validation sees the shared flags; added after `withSubcommands`, it also runs when a subcommand is selected. The error decides how the failure is reported:
+
+| Validation fails with | Reported as |
+| --- | --- |
+| a `CliError`, usually `CliError.ValidationError({ message })` | a usage mistake: `Command.run` prints the help and the message, then fails with `ShowHelp` |
+| any other error | a handler failure: no help, the original error reaches the caller, its `CliError.userMessage` (if any) is rendered unless `renderErrors` is `false`, and its type is added to the command's `E` |
+
+```ts
+import { Effect, Option, Schema } from "effect"
+import { CliError, Command, Flag } from "effect/cli"
+
+class ConflictingSources extends Schema.TaggedError<ConflictingSources>()("ConflictingSources", {}) {
+  override get [CliError.userMessage]() {
+    return "--plan-file and --plan-url cannot be used together"
+  }
+}
+
+export const importPlan = Command.make(
+  "import",
+  {
+    planFile: Flag.String("plan-file").pipe(Flag.optional),
+    planUrl: Flag.String("plan-url").pipe(Flag.optional)
+  },
+  ({ planFile, planUrl }) => Effect.log("importing", Option.orElse(planFile, () => planUrl))
+).pipe(
+  // A usage mistake: shown with the command help.
+  Command.validate(({ planFile, planUrl }) =>
+    Option.isNone(planFile) && Option.isNone(planUrl)
+      ? Effect.fail(new CliError.ValidationError({ message: "pass --plan-file or --plan-url" }))
+      : Effect.void
+  ),
+  // A domain error: no help, and the command's error type becomes ConflictingSources.
+  Command.validate(({ planFile, planUrl }) =>
+    Option.isSome(planFile) && Option.isSome(planUrl) ? Effect.fail(new ConflictingSources()) : Effect.void
+  )
+)
+```
+
+Use your own tagged errors when the caller must tell failures apart, for example to map them to exit codes or JSON output. To tell an omitted flag from one passed with its default value (`--force=false`), declare it with `Flag.optional` and apply the default in the handler; once `withDefault` or a config fallback has filled the value in, presence is lost.
+
+> **Migration:** `Command.withHandler` keeps the command's existing error type instead of replacing it with the new handler's. Code that annotates such a command with a narrower error type must widen the annotation, or pass the final handler to `Command.make` instead.
 
 ### Testing a command
 
@@ -359,6 +403,8 @@ const color = Flag.Literals("color", ["auto", "always", "never"]).pipe(
 
 Explicit values **must use `=`**, including a short alias (`-c=never`). `--color never` leaves `never` for positional/subcommand parsing; the flag never consumes the next token. Help renders an optional-value form such as `--color [=choice]`.
 
+**Metadata for documentation tools.** `Flag.annotate(key, value)` (and `Argument.annotate`) attaches a value under a `Context.Key`, for facts the parser cannot know, such as the environment variable behind a `withFallbackConfig` or a deprecation note. Annotations never affect parsing, help, or completions, and survive combinators applied before or after them; [`CommandSpec`](#commandspec) reports them.
+
 Use when you need named `--` options for type-safe command configuration.
 
 ## Argument
@@ -439,6 +485,8 @@ Rarely imported directly in application code — use `Flag` and `Argument` inste
 - **Param.Optional** — Wraps a param, changing its result from `A` to `Option<A>`. Succeeds with `None` when the token is absent.
 
 - **Param.Variadic** — Allows a param to appear 0–N (or min–max) times, collecting results into `ReadonlyArray<A>`.
+
+`Param.annotate(key, value)` is the shared implementation of `Flag.annotate` and `Argument.annotate`; the values live on each `Single` node's `annotations`. `withDefault`, `withFallbackConfig`, and `withFallbackPrompt` record a structural `Param.Fallback` on their `Transform` node without evaluating it: `{ _tag: "Default", value }` for a literal default, and only the kind (`"DefaultEffect"`, `"Config"`, `"Prompt"`) for fallbacks that would have to run to be inspected. [`CommandSpec`](#commandspec) reads both.
 
 Use when building abstractions over the CLI library — custom combinators that work for both flags and arguments, or inspecting param structure for documentation generation.
 
@@ -753,11 +801,66 @@ What the built-in `--completions` flag and `Completions.fromCommand` derive for 
 | Shared flags reach every descendant | flags declared with `Command.withSharedFlags` are included in each descendant's flag list |
 | Choice values survive supported quoting contexts | values containing quotes, spaces, word-break characters, Unicode, or shell metacharacters are escaped for Bash (including Bash 3.2, without associative arrays), Zsh, and Fish; Bash still has partial-quote limitations for `!` inside an already-open double quote and apostrophes inside a mid-word single quote |
 | Positional arguments and subcommands coexist in Zsh | a command that has both completes correctly |
+| Repeatable flags keep completing | a flag under `Flag.atLeast`, `Flag.between` with a maximum above 1, or a `KeyValuePair` flag is still offered after its first use; the descriptor marks it `repeatable: true`, which a hand-written descriptor must set itself |
+| Subcommand names may contain `:` | names such as `test:unit` complete in Bash and Zsh |
+| Optional positionals are not required | an argument that is optional, or variadic without a positive minimum (`Argument.variadic`, `Argument.atLeast(0)`), is described as not required |
 | `--completions sh` | accepted as an alias for `bash` |
 
 Regenerate installed completion scripts after upgrading Effect; a script generated against an older command tree does not reflect flags or subcommands added since.
 
-Use when you need programmatic completion script access. For normal CLIs, `GlobalFlag.Completions` handles it automatically.
+Use when you need programmatic completion script access. For normal CLIs, `GlobalFlag.Completions` handles it automatically. For a complete description of a command, including hidden flags and unlisted subcommands, use [`CommandSpec`](#commandspec).
+
+## CommandSpec
+
+`effect/cli/CommandSpec` — unstable
+
+A projection of one command path of a `Command` tree into plain data, for documentation tooling: reference pages, man pages, JSON schemas, or a check that every config fallback is documented. Where [`Completions.fromCommand`](#completions) deliberately drops what a shell should not offer, `CommandSpec` keeps everything: hidden flags and unlisted subcommands are included and marked, primitive types are not collapsed, and each flag says where it is declared.
+
+`CommandSpec.resolve(command, path, { builtIns? })` returns `Option<Spec>`. It is pure and synchronous: it runs no handler, prompt, `Config` lookup, or effectful default. `path` names commands from the root down, root first, exactly like `HelpDoc.commandPath`; only canonical names match, so an alias, an unknown segment, a different root name, or an empty path gives `Option.none()` rather than the nearest ancestor. `builtIns` defaults to `GlobalFlag.BuiltIns`; pass the list from your `CliConfig` when it differs, or `[]` to omit built-ins.
+
+| `Spec` field | Contents |
+| --- | --- |
+| `path`, `name`, `alias`, `description`, `shortDescription`, `unlisted`, `annotations` | the resolved command; `examples` are resolved for this path |
+| `flags` | local flags, then flags inherited through `withSharedFlags` from the root down, then global flags (built-ins first), in help order. A nearer flag hides an inherited one of the same name; a global flag is always listed |
+| `arguments` | positional arguments in declaration order |
+| `subcommands` | direct children with `name`, `alias`, `group`, `unlisted`, and descriptions; an alias is a field, not an extra entry |
+
+Each flag carries `name`, `aliases` (without dashes), `description`, `hidden`, `type` (one variant per `Primitive`, such as `{ _tag: "Choice", values }` or `{ _tag: "Path", pathType }`), `typeName`, `metavar`, `required`, `fallbacks`, `variadic` (`{ min, max }` or `undefined`), `optionalValue`, `negation` (the effective `no-<name>` form of a boolean flag), `scope` (`Local`, `Inherited` with `declaredBy`, or `Global` with `declaredBy` and `kind`), and the `annotations` set with [`Flag.annotate`](#flag). Arguments carry the same facts except aliases, hidden, optional value, negation, and scope.
+
+- **`required` ignores `Config` and `Prompt` fallbacks.** It says whether parsing fails when the entry is absent and nothing on its own path supplies a value, so a flag with `withFallbackConfig` is still `required`; render it from `fallbacks` as "required unless `$DB_URL` is set". `withDefault` and `optional` clear it, a bare boolean flag is required like any other, and a global action flag is never required.
+- **`fallbacks` are structural.** They are `Param.Fallback` values in the order the parser consults them (innermost first): `{ _tag: "Default", value }` for a literal default, and only the kind for `DefaultEffect`, `Config`, and `Prompt`. The config key is not recoverable, which is what `annotate` is for.
+- **Transformations are transparent and alternatives are split.** `map`, `withSchema`, and `filter` do not show up; a parameter built with `orElse` yields one entry per alternative, each with its own branch-local `required` and `fallbacks`.
+
+```ts
+import { Config, Context, Option } from "effect"
+import { Command, CommandSpec, Flag } from "effect/cli"
+
+const EnvVar = Context.Service<never, string>("docs/EnvVar")
+
+const push = Command.make("push", {
+  dbUrl: Flag.String("db-url").pipe(
+    Flag.withFallbackConfig(Config.String("DB_URL")),
+    Flag.annotate(EnvVar, "DB_URL")
+  ),
+  dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false))
+})
+const cli = Command.make("app").pipe(Command.withSubcommands([push]))
+
+// One reference-table row per flag of `app push`, without running anything.
+export const rows = Option.map(CommandSpec.resolve(cli, ["app", "push"], { builtIns: [] }), (spec) =>
+  spec.flags.map((flag) => ({
+    flag: `--${flag.name}`,
+    type: flag.typeName,
+    required: flag.required,
+    env: Option.getOrUndefined(Context.getOption(flag.annotations, EnvVar)),
+    default: flag.fallbacks.find((fallback) => fallback._tag === "Default")?.value
+  }))
+)
+// Some([{ flag: "--db-url", type: "string", required: true, env: "DB_URL", default: undefined },
+//       { flag: "--dry-run", type: "boolean", required: false, env: undefined, default: false }])
+```
+
+**Reach for it when** generating documentation or a machine-readable description of a CLI in a build step. For shell scripts use `Completions`, and for rendering `--help` use `HelpDoc`.
 
 ## GlobalFlag
 
@@ -828,6 +931,7 @@ const grantWithGlobals = grantCmd.pipe(
 
 - **Secrets are masked in the rendered command.** A `Flag.Redacted` parameter is collected with `Prompt.Password`, and the printed command shows `<redacted>` in place of the value while the real value is passed to the run.
 - **Values that look like flags are written inline.** A collected value beginning with `-` is emitted as `--delta=-5` rather than `--delta -5`, so the lexer cannot mistake it for a flag or for the `--` delimiter.
+- **Already typed input is replaced, not repeated.** Flags and arguments typed for the selected command before `--wizard` are dropped from the printed command and asked for again; parent shared flags and subcommand names are kept. For a command without subcommands, positional answers follow a `--` separator, so they cannot be read as the value of a preceding boolean flag.
 
 Invalid values for a global flag show the command help like any other parse error. `--help` and `--version` print through `CliOutput.Presenter` (by default the `Console` service) and **succeed**; they are not failures. A parent command invoked without a subcommand fails with `ShowHelp` and an empty `errors` list, which maps to exit code `0`.
 
@@ -839,9 +943,9 @@ Use when you need a flag that short-circuits command dispatch or provides contex
 
 The typed error union for the CLI parser. `CliError.CliError` is what `Command.run` may fail with — a discriminated union covering every parser and runner failure mode. `NodeRuntime.runMain` handles these automatically (the runner has already printed them; the exit code comes from the error); match on `_tag` when embedding a CLI in a larger Effect application or writing integration tests.
 
-**Parse and validation failures arrive wrapped.** The runner collects them, prints the help page plus the rendered errors, and fails with a single `ShowHelp` whose `errors` array holds the structured causes (`InvalidValue`, `MissingOption`, `UnknownSubcommand`, …). A `catchTag("InvalidValue", …)` placed on `Command.run` therefore never fires for bad input; inspect `ShowHelp.errors` instead. `UserError` and any error type of your own handlers reach the caller directly.
+**Parse and validation failures arrive wrapped.** The runner collects them, prints the help page plus the rendered errors, and fails with a single `ShowHelp` whose `errors` array holds the structured causes (`InvalidValue`, `MissingOption`, `UnknownSubcommand`, …). A `catchTag("InvalidValue", …)` placed on `Command.run` therefore never fires for bad input; inspect `ShowHelp.errors` instead. `UserError` and any error type of your own handlers, or of your own [`Command.validate`](#validating-input-across-flags) rules, reach the caller directly.
 
-**Give a domain error a user-facing message without wrapping it.** When a handler fails with an object carrying a string `[CliError.userMessage]` — `UserError` does, and a tagged error can define the getter — `Command.run` renders that message with the installed formatter and rethrows the *original* error, so `catchTag` on your own tag still works and `runMain` does not log it twice. `CliError.getUserMessage(error)` reads it.
+**Give a domain error a user-facing message without wrapping it.** When a handler or validation fails with an object carrying a string `[CliError.userMessage]` — `UserError` does, and a tagged error can define the getter — `Command.run` renders that message with the installed formatter and rethrows the *original* error, so `catchTag` on your own tag still works and `runMain` does not log it twice. `CliError.getUserMessage(error)` reads it.
 
 ```ts
 import { Effect, Schema } from "effect"
@@ -863,7 +967,7 @@ const _ = grant
 | --- | --- |
 | `UnrecognizedOption` | A `--flag` was passed that no command recognises. Includes Levenshtein suggestions. |
 | `DuplicateOption` | A subcommand declares a flag whose name its parent already declares (a command-definition error, not a user-input error). |
-| `ValidationError` | A `Command.validate`, `Flag.mapEffect`, or `Argument.mapEffect` rule rejected the parsed input; carries `message`. |
+| `ValidationError` | A `Command.validate`, `Flag.mapEffect`, or `Argument.mapEffect` rule rejected the parsed input; carries `message`. A validation that fails with your own error instead is not wrapped in `ShowHelp`. |
 | `MissingOption` | A required flag was absent and had no default or fallback. |
 | `MissingArgument` | A required positional argument was absent. |
 | `UnexpectedArgument` | Extra positional arguments remained after parsing. |

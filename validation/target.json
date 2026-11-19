@@ -6,15 +6,15 @@
     "tag": "effect@4.1.4",
     "commit": "289a53f7b1fc40049219c6e69022db2fb859c356",
     "publishedAt": "2026-11-11T04:54:17.791Z",
-    "auditedAt": "2026-11-11"
+    "auditedAt": "2026-11-19"
   },
   "tools": {
     "node": ">=26 <27",
     "pnpm": "11.18.0",
     "typescript": "7.0.2",
     "nodeTypes": "26.2.0",
-    "effectTsgo": "0.67.7",
-    "vitest": "5.0.5",
+    "effectTsgo": "0.70.0",
+    "vitest": "5.1.1",
     "doctest": "4.1.4"
   },
   "toolingExceptions": {
